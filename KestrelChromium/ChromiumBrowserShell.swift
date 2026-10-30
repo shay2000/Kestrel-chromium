@@ -46,8 +46,8 @@ final class ChromiumBrowserShell {
     var progress: Double { selectedTab?.engine.estimatedProgress ?? 0 }
 
     @discardableResult
-    func newTab(url: URL = Self.homeURL, select: Bool = true) -> ChromiumBrowserTab {
-        let tab = ChromiumBrowserTab(url: url)
+    func newTab(url: URL? = nil, select: Bool = true) -> ChromiumBrowserTab {
+        let tab = ChromiumBrowserTab(url: url ?? Self.homeURL)
         tab.engine.onWindowOpen = { [weak self] request in
             guard let targetURL = request.targetURL else { return .deny }
             let scheme = targetURL.scheme?.lowercased()
