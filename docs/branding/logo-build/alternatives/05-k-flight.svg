@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Kestrel — K Flight</title>
+  <desc id="desc">An abstract white kestrel whose outstretched wings and tail suggest the letter K on a purple square.</desc>
+  <rect width="512" height="512" fill="#713DE0"/>
+  <path fill="#FFFFFF" transform="translate(256 256) scale(1.12) translate(-249 -256)" d="M108 113 Q108 101 120 101 L161 101
+    Q173 101 176 113 L199 197
+    C243 156 284 124 350 99 Q365 94 357 108
+    C330 154 300 193 265 225
+    C286 207 305 196 325 196 C343 196 354 205 360 216
+    L384 225 Q394 229 387 236 L363 242
+    C338 252 316 263 297 278
+    C328 311 351 349 365 395 Q369 408 357 402
+    C294 374 246 341 204 302
+    L178 398 Q175 411 162 411 L120 411 Q108 411 108 399
+    L128 269 Q130 256 128 244 Z"/>
+</svg>

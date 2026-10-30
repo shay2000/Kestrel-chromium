@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Kestrel — Fold</title>
+  <desc id="desc">A geometric white kestrel with broad folded-plane wings and softly rounded corners on a purple square.</desc>
+  <rect width="512" height="512" fill="#713DE0"/>
+  <path fill="#FFFFFF" d="M237 214
+    L237 183 Q237 165 255 165 Q266 165 276 175
+    L291 188 Q297 194 289 197 L276 201 L273 221
+    L443 140 Q456 134 450 148
+    L375 284 Q372 290 365 291
+    L287 307 L274 330 L291 392 Q294 402 284 403
+    L228 403 Q218 402 221 392 L238 330 L225 307
+    L147 291 Q140 290 137 284 L62 148 Q56 134 69 140
+    L239 221 Z"/>
+</svg>

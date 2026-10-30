@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Kestrel</title>
+  <desc id="desc">A solid white kestrel with outstretched wings on a solid purple square.</desc>
+  <rect width="512" height="512" fill="#713DE0"/>
+  <path fill="#FFFFFF" transform="translate(256 256) scale(1.2) translate(-256 -256)" d="
+    M 238 244
+    C 238 234 238 224 245 217
+    C 252 211 264 211 272 217
+    L 279 222
+    L 288 226
+    C 292 228 294 231 291 234
+    L 281 232
+    C 280 240 277 246 273 252
+    C 314 229 359 190 421 141
+    Q 428 135 425 144
+    C 410 184 387 218 352 250
+    L 362 246
+    Q 366 244 363 248
+    C 343 271 317 290 288 301
+    C 280 305 273 311 269 317
+    C 269 339 274 360 282 379
+    Q 285 384 279 386
+    C 265 391 247 391 233 386
+    Q 227 384 230 379
+    C 238 360 243 339 243 317
+    C 239 311 232 305 224 301
+    C 195 290 169 271 149 248
+    Q 146 244 150 246
+    L 160 250
+    C 125 218 102 184 87 144
+    Q 84 135 91 141
+    C 153 190 198 229 238 252
+    C 238 249 238 246 238 244
+    Z"/>
+</svg>

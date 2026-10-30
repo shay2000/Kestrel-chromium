@@ -1,0 +1,189 @@
+# Kestrel project guidance
+
+This file is the working contract for AI agents and developers changing Kestrel. The repository and Swift module retain the `KestrelWebKit` implementation name, but the shipped application is called **Kestrel**.
+
+## Project constraints
+
+- This is a Mac-first native app. Prefer SwiftUI, AppKit and WebKit APIs over Electron or Chromium integrations.
+- Keep browser chrome restrained and page-first. Use SwiftUI Liquid Glass only when it is available (macOS 26 or later) and retain a native material fallback for the macOS 14 deployment target.
+- Keep browser-engine code behind small Swift types such as `BrowserStore`, `BrowserView` and `WebKitConfiguration`.
+- Do not treat a Linux Swift build as proof that the WebKit UI works. Linux checks the package structure and platform-neutral tests; the actual app must be built and run on macOS with Xcode.
+- Keep browser actions explicit, allow-listed and bounded. The user must explicitly choose cursor assistance before it starts; after that choice, the safe-browsing preference (on by default) may skip per-action approval for safe navigation/search actions. Turning that preference off restores per-action review. Generic clicks, uncertain actions and mutations remain approval-gated except the bounded product/basket allowlist enabled by Agent mode. The composers' **Agent mode** button is itself an explicit choice: it arms page control, letting the next message operate the current page without a second confirmation. It is off by default, writes nothing to the transcript (never an invented "control this page" instruction), remains armed for the current chat and initiating tab until turned off, cancelled, a new chat starts or the user changes tabs while idle; an active task continues on its initiating tab. Never introduce arbitrary shell commands, selectors or model-supplied JavaScript into the operator.
+- Keep assistant routing two-stage and legible: a fast on-device intent classifier chooses answer, ordinary web search or cursor assistance, while deterministic handling may override a weak classification for an explicit website action. Use greedy, short-output sampling for routing and distinct temperature/token budgets for answers, search summaries and browser operations. Ask the user before starting cursor operation; declining must fall back to ordinary search. Name a conversation once, after its first answer, from the question and what the answer covered, so the title is up to date rather than a guess made before the model replied.
+- The cursor operator proposes at most one allow-listed action per model response, stays bound to the tab that initiated the request, waits for navigation to finish before capturing fresh bounded/redacted page context, and stops after twelve Agent mode actions or on cancellation, initiating-tab closure, failure, declined approval or a repeated action that makes no progress. For in-page navigation, prefer `find_text` and exact visible links/buttons; do not use reload as a substitute. A user may opt into automatic approval for URL navigation, back/forward, reload/stop, find and the constrained `search_page` action. Generic `click_text`, uncertain actions and mutations remain approval-gated. `search_page` must use a unique visible search/text field and same-origin GET form. Retain and revalidate the exact field, form and submitter across cursor animation; honour submitter overrides and reject password/file controls. Navigate with encoded plain HTML form parameters without invoking page input/click/submit/formdata handlers; JavaScript-only forms need a separately approved interaction. Click/search targets must remain enabled, non-inert and reachable by hit-testing after scrolling and before activation. Never execute model-supplied code or selectors.
+- Operator reliability: compare a proposed action against all earlier unchanged states within the bounded task, including alternating cycles. A limit or failed action ends operation and gets at most one summary-only provider request; that reply must never execute an action. Keep bounded, redacted evidence from visited pages request-only, and return surrounding text for `find_text`. Revalidate the initiating context after asynchronous model/title work and before cursor activation. Navigation completion and page capture remain main-actor WebKit work. Do not advertise query-stripped link URLs as equivalent destinations; use the observed label for an approved click.
+- Apple On-Device browser planning uses compact state and FoundationModels guided generation with page-appropriate action choices. Keep current-task assistant proposals out of its prompt, literal find/search handling subject to the same approval/execution guards, and invalid-target correction bounded to one retry. Keep the opt-in real-model acceptance suite separate from ordinary deterministic CI. Rendered controls outside the viewport may be described within the existing quota; activation must still scroll, hit-test and revalidate the exact target.
+- Product discovery must not become a literal search for descriptive words such as “new”. Inspect relevant observed product links before asking for catalogue facts; ask for preferences when options remain ambiguous. Prefer accessible control labels to repeated generic text, and rank relevant control hints within the existing quota/budget. Basket success requires observed confirmation; selecting unspecified product options remains prohibited.
+- Assistant conversation transcripts are stored locally so users can reopen and delete prior chats. Persist only user/assistant messages, not page snapshots, browser-action proposals/results, provider credentials or other browser profile data; bound retained transcript count and size.
+- Any cursor animation is visual feedback inside Kestrel, not physical macOS pointer control. Keep an obvious Stop control available throughout operator work.
+- The packaged Codex provider may launch only its pinned official runtime through the opt-in, code-signing-authenticated native host agent. Codex manages its existing sign-in; never read or copy its login/session files. The browser remains sandboxed, with only the exact `com.shayprasad.Kestrel.CodexAgent` Mach lookup exception. Do not add host-auth filesystem exceptions. Keep threads ephemeral/read-only, disable runtime shell/automation/plugins/MCP/search tools and refuse runtime tool approval requests; Kestrel owns browser execution. The native companion owns ServiceManagement registration/unregistration and must refresh signing requirements after rebuilds. Embed its final Info.plist in the executable as well as its bundle so launchd can identify it. A refresh must verify authenticated XPC readiness before reporting connection success; launching the companion alone is insufficient. Keep actual sidebar acceptance separate from CLI/harness results.
+- Developer CLI providers may run only the executable the user configured, and must pass arguments directly rather than through a shell. Do not request Finder access or broaden the app sandbox merely to locate a CLI; report sandbox limits honestly.
+- Prefer a fetched model list over a typed model identifier. Read only documented, authenticated endpoints, keep OpenRouter's free and automatic routers available and first, and keep `-m`/`--model` and its value together when a model is unset. Loading a model catalogue must not read the Keychain: a Keychain read can raise a system password prompt, and browsing a list of models is not a reason to ask for one. Keep `FailingSecretProvider` proving that. The picker's default surface is the plain-language Free/Cheap/Fast/Quality quick picks, backed by concrete per-provider models (OpenRouter defaults to its free router); the full searchable catalogue stays reachable through a disclosure and via the **Advanced model picking** setting. Never offer a "free" tier for a provider that bills per request, and only offer Mistral models whose `capabilities.completion_chat` is true, because its single catalogue also lists OCR, audio, embedding and moderation models that cannot answer a chat request. The keyed HTTPS providers are OpenRouter, Google Gemini, Mistral, Groq, DeepSeek, xAI and a generic OpenAI-compatible slot; each keeps its own Keychain account and environment-variable name, and adding a provider must stay backward-compatible with settings saved before it existed (decode missing blocks as defaults, never fail the whole blob). A stored or pasted API key is stripped of whitespace before it is stored or placed in any header, and a Keychain item that exists but cannot be released is reported distinctly from one that was never saved. A question that only live data can answer — a price, cost, stock level or forecast — routes to search even when the fast classifier would answer, because answering a price from memory is confidently wrong. A conversation that has searched keeps searching on its follow-ups unless the follow-up asks for something the model can produce itself or web search is disabled in Settings, and a follow-up search carries the earlier question's subject so it does not search a dangling pronoun.
+- WorkBuddy uses the user-configured CodeBuddy executable, defaults to DeepSeek v4.1 Flash with medium reasoning, and disables CLI tools, MCP and session persistence. Extract only its final result; never forward its internal context as an answer. Agent snapshots use bounded isolated-world DOM settling. Repeated standard Add to cart/basket/bag clicks on the same URL are blocked within one request even if incidental page text changes. Sandboxed builds use the explicitly enabled, mutually authenticated Mac CLI helper; retain the sandbox and browser approvals.
+- Parse a CLI provider's output format rather than rendering it. `codex exec --json` emits an event stream, not an answer, so extract assistant prose and surface provider failures (usage limit, authentication, sandbox, turn failure) as their own readable messages. Never display raw protocol JSON to the user as if it were a reply.
+- Kestrel's Codex provider always explicitly requests medium reasoning, including with older saved argument templates. Keep the fetched model catalogue selectable by exact model ID; do not change external Codex session preferences through the MCP bridge.
+- Treat web-search connectors such as Exa as opt-in and off by default, keyed from the existing secret chain. Bound the result count and the text taken from each result, preserve each result as its own labelled citation, never downgrade to HTTP, and strip the API key on a cross-host redirect. Show the user the same bounded results the model received as small clickable cards under the answer, collapsed behind a **Sources** button that previews a few favicons and expanding to equal-sized cards, and never a card for a source that was not in the request. A card's icon comes from the result's own origin (`/favicon.ico`), never a third-party favicon service, a card opens in a background tab rather than pulling the browser chrome over the chat, and a source is not also hyperlinked inside the answer prose: the cards are the one clickable surface. Archive the source lists with the conversation they belong to, so reopening a chat still shows the citations under the answer.
+- The assistant may include a coarse region derived from the device's locale and time zone when the user leaves **Include my region in requests** on. Never request precise location, add a location permission or entitlement, or make a network request to discover where the user is; the value is read on-device and sent only inside a request the user already chose to send. Turning the setting off must remove it entirely. Use the region to qualify a price, shopping or local query *before* the search runs, so results match the user's country instead of defaulting to another market.
+- The assistant always writes in British English unless the user explicitly asks for another language or spelling.
+- The new tab page may carry attached context (a locally read text file, or another open tab's visible text). Read it locally, bound it per item and in total including headings and separators, tell the user plainly when a file or tab cannot be read, and route a question carrying attachments to the Assistant rather than to a search-results page. Reading a background tab for this is a read-only convenience; it must never operate the page or bypass the approval rules that browser actions follow.
+- Keep the agent MCP listener opt-in, bound to IPv4 loopback, token-authenticated with a Keychain secret, and split active-tab metadata and page-text access into separate user permissions. Mutating browser actions must remain approval-gated in Kestrel.
+- MCP read tools must carry read-only annotations. A queued action is not completion: return its request ID and bounded request-only status, retain at most 16 statuses without page text, and cancel pending/running statuses when the conversation resets. Never persist these records in chats or copy Codex authentication to work around the app sandbox.
+- Cover a non-zero listener port as well as ephemeral-port tests. Supply the loopback address and port once through `requiredLocalEndpoint`; also passing a non-zero port to `NWListener` causes an invalid-argument failure. Keep external Codex bridge setup distinct from the in-app Codex provider.
+- One-click Codex setup may edit only the user's `~/.codex/config.toml`, using the exact home-relative sandbox exception in the local entitlement. Lock and re-read before writing; reject symlinks, conflicts and edited managed blocks. The random Keychain token is embedded in Codex's config endpoint, so tell the user that the config is sensitive. Never read or modify Codex login/session data.
+- Resolve that config against the account home, not Foundation's container-redirected current home. Verify Connect Codex in the normal signed app; temporary config fixtures alone do not cover the sandbox path.
+- Keep page context bounded and redact credential-shaped data before sending it to an AI provider. Assistant requests automatically include visible text from the active page, with the excerpt size chosen from the selected provider/model. Clearly explain that page text is sent to that provider and that regex redaction is only a safeguard, not a guarantee. Keep the separate agent-MCP page-read permission opt-in.
+- Page/search excerpt budgets apply to the sum of primary and secondary text, including existing current-page sources. Sub-budgets may be below 200 characters; never reapply the public minimum to each source. Exa evidence belongs only in labelled sources, without a duplicate merged primary excerpt. Keep citation metadata intact. Attachment compatibility lives in the platform-neutral `AIRequestAttachment.blocker`; UI tests must keep their SwiftUI/WebKit import guards.
+- Turning Agent mode Off cancels any active turn and invalidates late replies. Automatic radio selection requires a bounded product label and a recognised actual DOM product group; revalidate the group's signature after cursor movement. Generic Yes/consent choices retain review. Compare loop evidence without rotating control capabilities. Carry request-only attachments and their selected-model budget through corrective/action continuations; converted text must include headers/separators in its total budget. Profile filling must revalidate the exact approved form destination after every event and before every subsequent write.
+- Browser-data import must be user-initiated through a file picker, format-bounded and limited to safe HTTP(S) bookmarks. Do not read or import browser password stores, cookies, history databases or other profile data as a side effect.
+- Chromium-origin WebExtensions may use the public WebKit extension API only when their APIs are supported. Do not claim full Chrome compatibility or add a bundled Chromium runtime without an explicit architecture decision; extension permissions remain off until user approval.
+- Never commit API keys, passwords, cookies, signing credentials or other secrets. Use `[REDACTED]` in documentation and fixtures.
+- Use British English in user-facing copy and documentation.
+
+## Branding
+
+- The shipped app name is `Kestrel`; do not reintroduce `Kestrel WebKit` in user-facing labels, bundle names or build output.
+- The approved app-icon sources are `resources/branding/kestrel-app-icon-basic.svg` and `kestrel-app-icon-dark.svg`. Preserve their smooth contours and colours; regenerate resources with `scripts/generate-app-icons.py`. The running Dock and About icons follow Kestrel appearance; Finder uses the basic purple icon. Retired artwork and its original attribution are in `historic-icons/`.
+- Keep the Xcode asset catalogue and the local SwiftPM `.icns` resource in sync when changing the icon.
+- Provider marks use official provider SVG artwork documented in `PROVIDER_MARKS.md`; Apple On-Device uses the native Apple system symbol. Keep provider image sets available in both the Xcode asset catalogue and macOS SwiftPM resource bundle.
+
+## Authentication and passwords
+
+- `WKWebView` is the native authentication boundary. Do not build a parallel password database or copy credentials out of web pages.
+- Preserve WebKit’s default website data store and authentication behaviour. Website forms should use their own standard `autocomplete` semantics; Kestrel should not inject credentials.
+- Apple Passwords, third-party credential providers and Web Authentication are OS/WebKit features. The app must not claim that Linux tests prove them, and it must not promise that best-effort page redaction can prevent a user-visible secret from being shared with an assistant provider.
+- The local Xcode target uses `KestrelWebKit/Entitlements/KestrelWebKit.entitlements`, which contains the sandbox, read-only access to files explicitly selected in the system picker, network-client permission, and the network-server permission required for the opt-in loopback-only MCP listener. Never bind that listener to a non-loopback interface.
+- `KestrelWebKit/Entitlements/KestrelWebKit.browser-passkeys.entitlements` is an approval-only template. It must not be enabled until Apple grants the managed `com.apple.developer.web-browser` and `com.apple.developer.web-browser.public-key-credential` capabilities and the provisioning profile contains them.
+- Keep passkey fallback messages tied to the outcome of an explicit request. Platform-authenticator availability is not proof that an external authenticator will fail; a rejected availability probe is unknown. Preserve the original promise and arguments, suppress aborted/conditional requests, and clear stale notices on success.
+- Do not claim that installing a password extension enables browser passkeys, or generate a decorative QR code as an authentication fallback. Nearby-device sign-in needs the real WebAuthn hybrid exchange; record a visible system sheet and actual ceremony separately. See `PASSKEY_SUPPORT.md`.
+- Passkey access requests must be user-initiated and gated on both capabilities being present in the running app's signed entitlements. A permission status or successful build is not proof that website passkey registration and assertion work.
+- General-browser passkeys and unrestricted Password AutoFill require the appropriate Apple browser capabilities. Site-specific WebAuthn can instead use an approved `webcredentials` associated domain. Document these limits rather than pretending a local unsigned build has Safari-equivalent access.
+
+## Browser chrome acceptance
+
+- Browser shortcut bindings live in Settings → Shortcuts and feed the menu commands. Keep arrow-key recording, duplicate/reserved-key validation, persistence, existing Assistant-binding migration and reset controls working. Default split keys are Command-Left/Right. Address entry uses its own native field editor; keep toolbar drafts separate from the loaded URL and route Return through the highlighted dropdown row. Use the shared 14-point primary / 12-point supporting chrome typography.
+- Settings uses aligned control rows, visible field labels, shared chrome typography and restrained soft surfaces. Preserve searchable shortcut groups, native keyboard recording and scroll-to-top category changes; category transitions must respect Reduce Motion. Keep connection details discoverable without crowding everyday preferences.
+- Keep New Tab composer geometry stable while typing; bound and scroll the suggestion panel below the complete composer. Inline completion must select only the suggested suffix and support replacement and deletion in the real AppKit editor.
+- The primary Assistant control and its shortcut open a chat page on an empty tab and toggle the sidebar beside a webpage. Preserve the active conversation and unsent draft. Explicit New Chat remains the action that clears a conversation.
+- Keep the model-picker pill above and aligned with the message box in both Assistant views. Attachments, Agent mode and Send share one compact row. Ordinary web search defaults on and can only be disabled through Settings → Assistant → Allow web search; do not reintroduce a Web toggle in either composer.
+- Pins keep their saved home, custom name and order across launches; closing unloads the page while keeping the pin. Verify pointer dragging as well as menu reordering. Hide the webpage's native scrollbars without changing global macOS preferences; retain indicators for Kestrel's own scrollable controls where useful.
+- The browser window has one connected backing plate; internal joins must not round or refract separately. Page cards own their toolbar/body rounding once, with consistent outer insets and split spacing. The full Assistant page shares New Tab's solid header and keeps the text entry above its composer controls. Search shortcut modes must be dismissible with Backspace at the start of the query or Escape.
+- A split view uses two complete rounded page cards with independent navigation/address/close controls and a neutral focus outline, with no shared toolbar above them. Show the pair as one two-part sidebar row; selecting another tab must retain the pair and its divider width for the session. Dragging the seam resizes both panes; double-click restores equal widths. Keep the address readable in narrow panes by moving secondary controls into a menu. Separating a pair keeps both tabs; closing a pane keeps its sibling. Pins retain their saved shortcuts.
+- `OPTIMISATION_LOG.md` records current strategy, bug status and native acceptance evidence; historical UI reports live in `archive/development/`.
+
+## Build and verification
+
+- Public downloads live in the separate source-free `shay2000/Kestrel-Browser` repository. Keep this implementation repository private. Versioned release tags and appcast entries must point into the public release repository and its published assets; never push this repository's commits or tags there. Sparkle's EdDSA private key stays in the maintainer's Keychain and is never exported to a public repository.
+
+From the repository root:
+
+```bash
+swift build
+swift test
+bash -n build.sh
+git diff --check
+```
+
+In a managed or otherwise restricted shell where SwiftPM's own sandbox cannot initialise (`sandbox-exec: sandbox_apply: Operation not permitted`), add `--disable-sandbox` and a scratch path outside the repository, for example `swift build --disable-sandbox --scratch-path /private/tmp/kestrel-build`. `./build.sh` does not pass that flag, so drive its packaging steps directly in that environment and say so rather than reporting the build as verified. On a normal terminal, use the commands above unchanged.
+
+On macOS with Xcode 16.3 or later, also run:
+
+```bash
+xcodebuild -project KestrelWebKit.xcodeproj -scheme Kestrel -configuration Debug build
+./build.sh
+```
+
+A final change is not complete until the intended files are committed, the `main` branch is pushed, the remote commit SHA is read back, and `git status --short` is clean. macOS-only behaviour must be labelled as unverified when no Mac/Xcode runner was used.
+
+## Mac and Codex continuation
+
+The next implementation pass is expected to run on a real Mac. A Linux checkout can validate SwiftPM and platform-neutral tests, but it cannot replace Xcode, WebKit or signed-app verification.
+
+1. Clone the private repository and start from the delivered `main` branch:
+
+   ```bash
+   gh repo clone shay2000/kestrel-webkit
+   cd kestrel-webkit
+   git switch main
+   git pull --ff-only origin main
+   git switch -c codex/macos-finish
+   ```
+
+   An ordinary `git clone` is also fine when GitHub access is already configured. Never put a GitHub token, API key or signing secret in a command, file or prompt.
+2. Read `AGENTS.md`, `HANDOFF.md` and `README.md` before asking Codex to edit anything. Inspect `git status --short --branch` first and preserve unrelated work.
+3. Run the baseline checks before changing code: `swift build`, `swift test`, `xcodebuild -version`, `xcodebuild -project KestrelWebKit.xcodeproj -scheme Kestrel -configuration Debug build`, and `./build.sh`.
+4. If using the standalone Codex CLI, run it from this Git repository with a PTY, for example `codex exec --sandbox workspace-write 'Read AGENTS.md and HANDOFF.md, fix the listed blockers, and run the required checks.'`. Keep the prompt bounded and require a diff review; do not grant broad filesystem access unless the Mac workflow explicitly requires it.
+5. Resolve the current blockers in `HANDOFF.md` and `OPTIMISATION_LOG.md` before treating the operator as release-ready. Add regression tests for each fix and record the real Mac/Xcode results in the handoff.
+6. Do not call Apple-only features verified merely because a source file, entitlement plist or Linux fallback builds. Record the actual macOS version, Xcode version, signed entitlements and observed UI/authentication result.
+7. Commit only the intended source, tests, documentation and app resources. Push the working branch for review, then update `main` only through the agreed merge/review path. Finish with a clean `git status --short` and the exact remote SHA.
+
+## File map
+
+- `KestrelWebKit/` contains the shared Swift implementation and app resources.
+- `KestrelWebKit/CodexAccountProvider.swift`, `CodexHostConnection.swift` and `CodexBridgeProtocol.swift` implement the subscription-backed in-app provider and signed XPC client. `scripts/CodexHostApp.swift`, `CodexBridgeService.swift` and `package-codex-runtime.sh` implement the opt-in native host service and pinned packaging.
+- `KestrelWebKit/KestrelMCPServer.swift` implements the opt-in local Streamable HTTP MCP endpoint and its local handshake/tool-list check for coding agents.
+- `KestrelWebKit/Assets.xcassets/` contains the Kestrel macOS app icon.
+- `KestrelWebKit/Kestrel.icns` is the icon used by the local SwiftPM app bundle.
+- `KestrelWebKit/Entitlements/` contains the local signing baseline and the Apple-approval template for browser authentication capabilities.
+- `Tests/KestrelWebKitTests/` contains platform-neutral XCTest coverage.
+- `README.md` documents the architecture, limitations and macOS build path.
+- `HANDOFF.md` summarises current release gates; `OPTIMISATION_LOG.md` records active work and validation. Historical handoffs are archived in `archive/development/`.
+- `REFERENCES.md` records browser UI, architecture and platform-reference notes.
+
+## Non-macOS development and Mac-runner visual verification
+
+A Linux checkout can compile the platform-neutral SwiftPM fallback, but it cannot render the native SwiftUI/AppKit/WebKit application. Do not treat `swift build`, a Linux launch, or an artefact upload as visual evidence.
+
+When the current host is not macOS, use a GitHub-hosted macOS runner for the real app:
+
+1. Run the workflow from the same repository/PR and use a standard runner such as `macos-26` (public repositories may use standard runners without charge; avoid `-large`/`-xlarge` labels unless explicitly approved).
+2. Select the newest installed Xcode before building and print `xcodebuild -version` and `swift --version` in the log. The default developer directory may point at an older Swift toolchain.
+3. Prefer the native Xcode project for visual runs, because it packages `Bundle.module` resources into the app correctly:
+
+   ```bash
+   xcodebuild \\
+     -project KestrelWebKit.xcodeproj \\
+     -scheme Kestrel \\
+     -configuration Debug \\
+     -derivedDataPath "$RUNNER_TEMP/derived-data" \\
+     build
+   ```
+
+   Launch `Build/Products/Debug/Kestrel.app`, not the Linux executable and not an unverified SwiftPM fallback. `build.sh` is useful for local packaging, but its ad-hoc SwiftPM bundle must be checked separately on macOS.
+4. Start the app with `open -a "$APP"`, activate it with AppleScript, wait for WebKit and the first window, and fail the job if `pgrep -x Kestrel` does not find a live process. Capture `screencapture -x` only after that check.
+5. Upload the `.app` and screenshots with `actions/upload-artifact@v4`. Download the artefact locally and inspect every screenshot; a screenshot of the runner desktop is not a screenshot of Kestrel.
+6. A fresh runner has empty `UserDefaults`. It will therefore show no restored pinned websites, no saved chats and no saved sidebar widths even though the code supports them. A visual workflow must seed the intended state through visible UI automation (add the pinned sites, choose the appearance, open a real page, and create the split/sidebar state) before capture, or provide a clearly labelled fixture/test launch path. Do not claim that the repository reference screenshots were reproduced from a clean launch unless those states were actually seeded.
+7. Compare the runner captures with the repository's `docs/screenshots/` images. Record whether the difference is an expected fresh-state/appearance difference or a real regression in pinned tabs, sheet surfaces, split panes or assistant sidebars. macOS screenshots are the acceptance evidence; Linux output is only package/test evidence.
+
+A minimal visual workflow should include `workflow_dispatch` and `pull_request`, build with `xcodebuild`, launch the resulting `.app`, assert that it remains alive, capture screenshots, and always upload logs/artefacts on failure. If the app dies, inspect `log show` for `Fatal error`, `resource_bundle_accessor`, WebKit, signing and sandbox messages before changing the UI.
+
+## Change checklist
+
+1. Inspect the current working tree and relevant guidance before editing.
+2. Keep SwiftPM and the Xcode project source membership aligned when adding source files.
+3. Add or update tests for platform-neutral behaviour.
+4. Update `README.md`, `AGENTS.md` and `HANDOFF.md` when architecture, capabilities or verification status changes.
+5. Run the Linux checks available on the current host, then state clearly what still needs a macOS runner.
+6. Review the final diff for secrets, stale claims, unsafe operator behaviour and accidental generated files before committing.
+
+- Passive MCP startup must not read or create its Keychain token. Start it only after an explicit connection action; this prevents ACL password dialogues on launch even where non-interactive lookup flags are ineffective. Never replace an inaccessible token.
+
+## Agent reliability update — 11 October 2026
+
+Agent mode remains on for the current chat/tab at the user's request; it is no longer one-shot. The direct Agent mode button toggles it, and one automatic policy applies when it is armed. Agent mode is off by default and never persisted. It allows bounded navigation plus product radio selections and exact basket controls on recognised HTTPS product-buying paths. Ambiguous controls, paid cover, financing and account/consent changes still need review. Checkout, purchase and agreement proposals stop Auto; no broad generic-click bypass. Twelve Agent mode actions per message, isolated retained DOM targets, exact labels, enabled checks, hit-testing and tab/generation guards remain mandatory. Declining No AppleCare coverage proceeds automatically on buying pages. Captured click_text controls may carry an opaque snapshot-bound reference and exact label; never accept model selectors/code. Rank bounded candidates before the capture quota so product controls survive long filters. Revalidate actual visible labels and form/link destinations against checkout, independently of accessible aliases.
+
+`select_option` is a fixed native-radio action, not a model selector or script. WorkBuddy successful envelopes containing internal DSML/tool-call markup must be rejected wholesale; never display their parameters as assistant prose. Optional page images are transient JPEGs, bounded to 512 KiB, with editable controls masked and password pages omitted. Revalidate masks across capture. Local PDF extraction/OCR is bounded and off the main actor; text-only fallback must say that diagrams/images/layout were not supplied. Do not call vision or live shopping verified from a parser or synthetic-image test alone.
+
+
+### Current Agent mode follow-up (12 October 2026)
+
+The user requested a single automatic Agent mode, not separate Review/Auto modes. Arming uses the existing bounded automatic policy and twelve-action limit. Active tasks may continue on their initiating tab while another tab is selected; never retarget actions to the foreground tab. Reject closed tabs and URL changes, keep Stop visible, and report handoff/failure separately from a finished response. Thinking speed is a persisted Fast/Balanced/Thorough choice for the Codex and WorkBuddy runtimes; default remains medium. Unsupported providers must not advertise a working effort override. Blanket HTTPS click automation was rejected by automatic approval review; unknown/consequential controls still require review. See HANDOFF.md for native background navigation evidence and remaining acceptance limits.
+
+### Local personal profile
+
+Settings → About me holds optional user-entered contact/address details and a preferences note. Keep PersonalProfile separate from AISettings, provider requests, MCP and transcripts. Reading or saving this profile must not access the Keychain, contacts, browser credentials or external services. Explicit Save, Copy delivery details and confirmed Clear are the only profile operations; copy uses saved values and excludes preferences. Bound fields and preserve checkout handoff. This profile is not an automatic form-fill permission or authorisation to disclose details to a model or merchant.
+
+## Approved profile filling
+
+The user authorised AI-requested form filling only with an exact local values/destination preview and explicit approval before every fill, even in Auto mode. ProfileFillPreview is ephemeral, non-Codable UI state, never a model prompt or archived message. `fill_profile` accepts no model values, selectors or approval identifiers. Retain exact DOM/form identities in an isolated world and revalidate before any field event; only supported empty, visible contact/address controls in one same-origin HTTPS form are eligible. Never fill passwords/cards, overwrite existing values or submit. Stop immediately afterwards without model recapture. External MCP clients cannot request profile filling. Checkout otherwise remains a take-over boundary. Local preferences notes are never shared. Legacy one-message/six-action guidance above is superseded by the session-bound Agent mode behaviour recorded in the optimisation log.
+
+Profile dropdowns: native single-select country/region fields may fill only a unique enabled option exactly matching the saved name or code. Preview its label and actual value, retain and revalidate option identity, and preserve per-fill approval. Never infer an unmatched country/region. Remove resolved approval cards so completed actions do not continue asking for permission.

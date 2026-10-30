@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Kestrel — Orbit</title>
+  <desc id="desc">A white kestrel banking in a circular sweep with one wing lifted and the other extended on a purple square.</desc>
+  <rect width="512" height="512" fill="#713DE0"/>
+  <path fill="#FFFFFF" transform="translate(256 256) scale(1.2) translate(-264 -240)" d="M238 107
+    C158 119 105 180 107 251
+    C109 290 129 322 158 340 Q170 347 162 335
+    C145 310 147 282 159 253
+    C171 225 189 210 210 191
+    C231 172 247 155 259 136
+    C270 118 278 101 277 88 Q276 80 269 86 Z
+    M193 343
+    C233 324 256 297 276 265
+    C262 219 261 166 277 121 Q281 110 286 122
+    C305 164 317 190 333 214
+    C340 198 350 189 365 189
+    C382 189 393 198 398 208
+    L417 215 Q425 219 419 225 L400 229
+    C386 257 369 282 344 301
+    C323 317 294 327 264 326
+    C241 345 224 367 213 390
+    Q210 398 203 393 L172 373 Q166 368 173 363 Z"/>
+</svg>

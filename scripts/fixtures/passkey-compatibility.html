@@ -1,0 +1,24 @@
+<!doctype html><meta charset="utf-8"><title>Local passkey compatibility probe</title>
+<style>body{font:18px system-ui;margin:50px;max-width:750px}button{font:inherit;padding:12px;margin:8px}pre{white-space:pre-wrap}</style>
+<h1>Local passkey compatibility probe</h1>
+<p>This requests an assertion for localhost with a random, nonexistent credential. It does not register, save or print a credential. Cancel any system sheet after checking available options.</p>
+<button id="hybrid">Try phone passkey (hybrid transport)</button>
+<button id="normal">Try standard passkey options</button>
+<button id="cancel">Cancel request</button>
+<button onclick="window.webkit.messageHandlers.kestrelPasskey.postMessage({reason:'rejected'})">Show fallback fixture</button>
+<button onclick="window.webkit.messageHandlers.kestrelPasskey.postMessage({reason:'succeeded'})">Clear fallback fixture</button>
+<pre id="result">Ready</pre>
+<script>
+let controller;
+async function run(hybrid) {
+ controller?.abort(); controller=new AbortController();
+ result.textContent='Request pending ('+(hybrid?'hybrid':'standard')+')';
+ const focused=document.hasFocus();
+ const publicKey={challenge:crypto.getRandomValues(new Uint8Array(32)),rpId:location.hostname,timeout:60000,userVerification:'preferred'};
+ if(hybrid) publicKey.allowCredentials=[{id:crypto.getRandomValues(new Uint8Array(32)),type:'public-key',transports:['hybrid']}];
+ try { await navigator.credentials.get({publicKey,signal:controller.signal});result.textContent='Assertion returned; credential discarded.'; }
+ catch(error){result.textContent=error.name+': '+error.message+'\nDocument focused at request: '+focused;}
+}
+hybrid.onclick=()=>run(true);normal.onclick=()=>run(false);cancel.onclick=()=>controller?.abort();
+PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(value=>result.textContent+='\nPlatform authenticator available: '+value+'\nBridge: '+!!window.webkit?.messageHandlers?.kestrelPasskey+'\nWatcher installed: '+navigator.credentials.get.toString().includes('latestAttempt')+'\nDocument focused: '+document.hasFocus());
+</script>

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Kestrel — Hover</title>
+  <desc id="desc">A friendly white kestrel hovering with broad, softly rounded wings on a purple square.</desc>
+  <rect width="512" height="512" fill="#713DE0"/>
+  <path fill="#FFFFFF" transform="translate(0 -12)" d="M232 222
+    C230 209 229 190 239 180 C248 171 262 173 272 181
+    L283 190 L301 196 Q308 199 303 204 L286 208
+    C284 220 281 229 276 238
+    C325 226 388 190 445 156 Q457 149 453 164
+    C443 207 417 239 381 258
+    L395 255 Q403 253 397 260
+    C375 285 338 300 301 306
+    C282 310 274 324 275 341
+    C276 358 281 377 289 397 Q293 405 285 408
+    C265 414 247 414 227 408 Q219 405 223 397
+    C231 377 236 358 237 341
+    C238 324 230 310 211 306
+    C174 300 137 285 115 260 Q109 253 117 255 L131 258
+    C95 239 69 207 59 164 Q55 149 67 156
+    C124 190 187 226 236 238 Z"/>
+</svg>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The MCP listener remains opt-in in Settings and binds to loopback only. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- Read files only after the user explicitly selects them in the system picker. -->
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<!-- Sparkle's sandboxed installer service uses these app-scoped XPC names. -->
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spki</string>
+		<!-- Opt-in signed Codex host agent; no host file access is granted to the browser. -->
+		<string>com.shayprasad.Kestrel.CodexAgent</string>
+	</array>
+	<!-- Permit one-click Codex MCP setup without granting access to the rest of ~/.codex. -->
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
+	<array>
+		<string>/.codex/config.toml</string>
+	</array>
+</dict>
+</plist>

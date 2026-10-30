@@ -1,0 +1,22 @@
+# Xcode
+.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# macOS
+*.dSYM
+*.dSYM.zip
+
+# Local agent tooling state, not part of the project
+.workbuddy-ai/
+.kilo/
+
+# Local app bundles retained for rollback rather than committed as source.
+archive/old-builds/*.app/

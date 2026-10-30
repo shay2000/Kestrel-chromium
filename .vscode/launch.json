@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:kestrel-webkit}",
+            "name": "Debug Kestrel",
+            "target": "Kestrel",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug Kestrel"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:kestrel-webkit}",
+            "name": "Release Kestrel",
+            "target": "Kestrel",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release Kestrel"
+        }
+    ]
+}

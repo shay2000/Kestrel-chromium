@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Kestrel — Lift</title>
+  <desc id="desc">A white kestrel rising diagonally with two sweeping wings and a long tail on a purple square.</desc>
+  <rect width="512" height="512" fill="#713DE0"/>
+  <path fill="#FFFFFF" transform="translate(256 256) scale(1.12) translate(-230 -248)" d="M111 366
+    C150 334 182 302 205 276
+    C148 261 101 232 66 197 Q58 188 71 190
+    C126 198 174 204 223 221
+    C199 184 184 139 184 97 Q185 83 194 94
+    C225 132 254 169 286 211
+    C293 188 304 170 325 164
+    C344 158 362 164 373 178
+    L393 185 Q404 190 397 197 L377 201
+    C366 222 354 242 339 260
+    C314 290 285 311 252 320
+    C223 329 195 350 173 376
+    L153 400 Q148 405 141 401 L110 380 Q103 375 111 366 Z"/>
+</svg>
