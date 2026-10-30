@@ -1,0 +1,6 @@
+{
+  "bundleIdentifier": "com.shayprasad.KestrelChromium",
+  "displayName": "Kestrel Chromium",
+  "minimumSystemVersion": "14.0",
+  "signingIdentity": "-"
+}

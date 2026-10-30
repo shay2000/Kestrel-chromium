@@ -1,12 +1,15 @@
 # Kestrel project guidance
 
-This file is the working contract for AI agents and developers changing Kestrel. The repository and Swift module retain the `KestrelWebKit` implementation name, but the shipped application is called **Kestrel**.
+This file is the working contract for AI agents and developers changing Kestrel. This repository keeps the original `KestrelWebKit` sources while adding a separate `Kestrel` app product in `KestrelChromium/`, which uses Chromium Embedded Framework through the pinned CefSwift package. The `KestrelWebKit` target is legacy/reference code; `./build.sh` builds the CEF app.
 
 ## Project constraints
 
-- This is a Mac-first native app. Prefer SwiftUI, AppKit and WebKit APIs over Electron or Chromium integrations.
+- This is a Mac-first native app. The selected engine for the shipped `Kestrel` product is CEF through CefSwift; do not replace it with WebKit or Electron.
+- Keep CEF's Chromium sandbox enabled (`CefConfiguration.noSandbox = false`) and use CefSwift's macOS app-bundle packaging, including its helper apps and framework layout. Never ship a bare CEF executable.
+- Build the Chromium app on macOS with `./build.sh` or the `macos-chromium-build` GitHub Actions workflow. Linux can build only the platform-neutral fallback and cannot validate the app or CEF runtime.
+- The AI sidebar, operator, extension import, passkey handoff and Codex integration requirements below describe the retained `KestrelWebKit` source. They are not present in the current CEF app; do not claim they work in `Kestrel` until they have been ported and verified with CEF.
 - Keep browser chrome restrained and page-first. Use SwiftUI Liquid Glass only when it is available (macOS 26 or later) and retain a native material fallback for the macOS 14 deployment target.
-- Keep browser-engine code behind small Swift types such as `BrowserStore`, `BrowserView` and `WebKitConfiguration`.
+- Keep browser-engine code behind small Swift types. CEF-specific code belongs in `KestrelChromium/`; do not add CEF dependencies to the legacy `KestrelWebKit` target unless a deliberate shared-core change requires it.
 - Do not treat a Linux Swift build as proof that the WebKit UI works. Linux checks the package structure and platform-neutral tests; the actual app must be built and run on macOS with Xcode.
 - Keep browser actions explicit, allow-listed and bounded. The user must explicitly choose cursor assistance before it starts; after that choice, the safe-browsing preference (on by default) may skip per-action approval for safe navigation/search actions. Turning that preference off restores per-action review. Generic clicks, uncertain actions and mutations remain approval-gated except the bounded product/basket allowlist enabled by Agent mode. The composers' **Agent mode** button is itself an explicit choice: it arms page control, letting the next message operate the current page without a second confirmation. It is off by default, writes nothing to the transcript (never an invented "control this page" instruction), remains armed for the current chat and initiating tab until turned off, cancelled, a new chat starts or the user changes tabs while idle; an active task continues on its initiating tab. Never introduce arbitrary shell commands, selectors or model-supplied JavaScript into the operator.
 - Keep assistant routing two-stage and legible: a fast on-device intent classifier chooses answer, ordinary web search or cursor assistance, while deterministic handling may override a weak classification for an explicit website action. Use greedy, short-output sampling for routing and distinct temperature/token budgets for answers, search summaries and browser operations. Ask the user before starting cursor operation; declining must fall back to ordinary search. Name a conversation once, after its first answer, from the question and what the answer covered, so the title is up to date rather than a guess made before the model replied.
@@ -35,7 +38,7 @@ This file is the working contract for AI agents and developers changing Kestrel.
 - Page/search excerpt budgets apply to the sum of primary and secondary text, including existing current-page sources. Sub-budgets may be below 200 characters; never reapply the public minimum to each source. Exa evidence belongs only in labelled sources, without a duplicate merged primary excerpt. Keep citation metadata intact. Attachment compatibility lives in the platform-neutral `AIRequestAttachment.blocker`; UI tests must keep their SwiftUI/WebKit import guards.
 - Turning Agent mode Off cancels any active turn and invalidates late replies. Automatic radio selection requires a bounded product label and a recognised actual DOM product group; revalidate the group's signature after cursor movement. Generic Yes/consent choices retain review. Compare loop evidence without rotating control capabilities. Carry request-only attachments and their selected-model budget through corrective/action continuations; converted text must include headers/separators in its total budget. Profile filling must revalidate the exact approved form destination after every event and before every subsequent write.
 - Browser-data import must be user-initiated through a file picker, format-bounded and limited to safe HTTP(S) bookmarks. Do not read or import browser password stores, cookies, history databases or other profile data as a side effect.
-- Chromium-origin WebExtensions may use the public WebKit extension API only when their APIs are supported. Do not claim full Chrome compatibility or add a bundled Chromium runtime without an explicit architecture decision; extension permissions remain off until user approval.
+- CEF is the selected Chromium runtime for the `Kestrel` product. Do not claim full Chrome compatibility or that the old WebKit extension-import UI works in the CEF target; extension support must be implemented and reviewed specifically for the embedded CEF runtime.
 - Never commit API keys, passwords, cookies, signing credentials or other secrets. Use `[REDACTED]` in documentation and fixtures.
 - Use British English in user-facing copy and documentation.
 
@@ -72,37 +75,29 @@ This file is the working contract for AI agents and developers changing Kestrel.
 
 ## Build and verification
 
-- Public downloads live in the separate source-free `shay2000/Kestrel-Browser` repository. Keep this implementation repository private. Versioned release tags and appcast entries must point into the public release repository and its published assets; never push this repository's commits or tags there. Sparkle's EdDSA private key stays in the maintainer's Keychain and is never exported to a public repository.
+- The authorized public Chromium repository is `shay2000/kestrel-chromium`. Do not push this branch to the original private `shay2000/kestrel-webkit` repository. Keep the original Sparkle signing keys and unrelated credentials out of this repository.
 
-From the repository root:
-
-```bash
-swift build
-swift test
-bash -n build.sh
-git diff --check
-```
-
-In a managed or otherwise restricted shell where SwiftPM's own sandbox cannot initialise (`sandbox-exec: sandbox_apply: Operation not permitted`), add `--disable-sandbox` and a scratch path outside the repository, for example `swift build --disable-sandbox --scratch-path /private/tmp/kestrel-build`. `./build.sh` does not pass that flag, so drive its packaging steps directly in that environment and say so rather than reporting the build as verified. On a normal terminal, use the commands above unchanged.
-
-On macOS with Xcode 16.3 or later, also run:
+The public Chromium app is built on macOS from the repository root:
 
 ```bash
-xcodebuild -project KestrelWebKit.xcodeproj -scheme Kestrel -configuration Debug build
 ./build.sh
 ```
+
+`build.sh` downloads the pinned CEF distribution through CefSwift, builds the app and its helper executable, assembles the framework/helper layout, and ad-hoc signs the app. The generated bundle is local-development output, not a notarized release.
+
+The GitHub Actions workflow builds on `macos-26` and uploads the `.app` archive. It is a compile-and-package job; it does not prove visual, navigation, authentication, or assistant acceptance.
 
 A final change is not complete until the intended files are committed, the `main` branch is pushed, the remote commit SHA is read back, and `git status --short` is clean. macOS-only behaviour must be labelled as unverified when no Mac/Xcode runner was used.
 
 ## Mac and Codex continuation
 
-The next implementation pass is expected to run on a real Mac. A Linux checkout can validate SwiftPM and platform-neutral tests, but it cannot replace Xcode, WebKit or signed-app verification.
+The CEF app must be compiled on a real Mac or the configured macOS Actions runner. A Linux checkout cannot build or validate CEF.
 
-1. Clone the private repository and start from the delivered `main` branch:
+1. Clone the public Chromium repository and start from its delivered `main` branch:
 
    ```bash
-   gh repo clone shay2000/kestrel-webkit
-   cd kestrel-webkit
+   gh repo clone shay2000/kestrel-chromium
+   cd kestrel-chromium
    git switch main
    git pull --ff-only origin main
    git switch -c codex/macos-finish
@@ -110,7 +105,7 @@ The next implementation pass is expected to run on a real Mac. A Linux checkout 
 
    An ordinary `git clone` is also fine when GitHub access is already configured. Never put a GitHub token, API key or signing secret in a command, file or prompt.
 2. Read `AGENTS.md`, `HANDOFF.md` and `README.md` before asking Codex to edit anything. Inspect `git status --short --branch` first and preserve unrelated work.
-3. Run the baseline checks before changing code: `swift build`, `swift test`, `xcodebuild -version`, `xcodebuild -project KestrelWebKit.xcodeproj -scheme Kestrel -configuration Debug build`, and `./build.sh`.
+3. Before changing CEF code, inspect the pinned CefSwift revision and use `./build.sh` on macOS to compile the current app.
 4. If using the standalone Codex CLI, run it from this Git repository with a PTY, for example `codex exec --sandbox workspace-write 'Read AGENTS.md and HANDOFF.md, fix the listed blockers, and run the required checks.'`. Keep the prompt bounded and require a diff review; do not grant broad filesystem access unless the Mac workflow explicitly requires it.
 5. Resolve the current blockers in `HANDOFF.md` and `OPTIMISATION_LOG.md` before treating the operator as release-ready. Add regression tests for each fix and record the real Mac/Xcode results in the handoff.
 6. Do not call Apple-only features verified merely because a source file, entitlement plist or Linux fallback builds. Record the actual macOS version, Xcode version, signed entitlements and observed UI/authentication result.
@@ -131,35 +126,21 @@ The next implementation pass is expected to run on a real Mac. A Linux checkout 
 
 ## Non-macOS development and Mac-runner visual verification
 
-A Linux checkout can compile the platform-neutral SwiftPM fallback, but it cannot render the native SwiftUI/AppKit/WebKit application. Do not treat `swift build`, a Linux launch, or an artefact upload as visual evidence.
+A Linux checkout cannot compile or run the CEF application. Do not treat a platform-neutral fallback or an artifact upload as visual evidence.
 
 When the current host is not macOS, use a GitHub-hosted macOS runner for the real app:
 
-1. Run the workflow from the same repository/PR and use a standard runner such as `macos-26` (public repositories may use standard runners without charge; avoid `-large`/`-xlarge` labels unless explicitly approved).
-2. Select the newest installed Xcode before building and print `xcodebuild -version` and `swift --version` in the log. The default developer directory may point at an older Swift toolchain.
-3. Prefer the native Xcode project for visual runs, because it packages `Bundle.module` resources into the app correctly:
-
-   ```bash
-   xcodebuild \\
-     -project KestrelWebKit.xcodeproj \\
-     -scheme Kestrel \\
-     -configuration Debug \\
-     -derivedDataPath "$RUNNER_TEMP/derived-data" \\
-     build
-   ```
-
-   Launch `Build/Products/Debug/Kestrel.app`, not the Linux executable and not an unverified SwiftPM fallback. `build.sh` is useful for local packaging, but its ad-hoc SwiftPM bundle must be checked separately on macOS.
-4. Start the app with `open -a "$APP"`, activate it with AppleScript, wait for WebKit and the first window, and fail the job if `pgrep -x Kestrel` does not find a live process. Capture `screencapture -x` only after that check.
-5. Upload the `.app` and screenshots with `actions/upload-artifact@v4`. Download the artefact locally and inspect every screenshot; a screenshot of the runner desktop is not a screenshot of Kestrel.
-6. A fresh runner has empty `UserDefaults`. It will therefore show no restored pinned websites, no saved chats and no saved sidebar widths even though the code supports them. A visual workflow must seed the intended state through visible UI automation (add the pinned sites, choose the appearance, open a real page, and create the split/sidebar state) before capture, or provide a clearly labelled fixture/test launch path. Do not claim that the repository reference screenshots were reproduced from a clean launch unless those states were actually seeded.
-7. Compare the runner captures with the repository's `docs/screenshots/` images. Record whether the difference is an expected fresh-state/appearance difference or a real regression in pinned tabs, sheet surfaces, split panes or assistant sidebars. macOS screenshots are the acceptance evidence; Linux output is only package/test evidence.
+1. Run the `macos-chromium-build` workflow from the public repository on its standard `macos-26` runner. Do not use larger runner labels without a concrete need.
+2. The workflow selects Xcode, prints the Swift/Xcode versions, invokes `./build.sh release`, and uploads the ad-hoc-signed app bundle.
+3. The current workflow only compiles and packages. Add a separate visible-browser smoke/acceptance step before claiming that launch, navigation, rendering, permissions, or sandbox behaviour passed.
+4. Record the actual macOS/Xcode versions and the exact runner artifact before describing a build as verified.
 
 A minimal visual workflow should include `workflow_dispatch` and `pull_request`, build with `xcodebuild`, launch the resulting `.app`, assert that it remains alive, capture screenshots, and always upload logs/artefacts on failure. If the app dies, inspect `log show` for `Fatal error`, `resource_bundle_accessor`, WebKit, signing and sandbox messages before changing the UI.
 
 ## Change checklist
 
 1. Inspect the current working tree and relevant guidance before editing.
-2. Keep SwiftPM and the Xcode project source membership aligned when adding source files.
+2. Keep CEF app source membership in `Package.swift`; the retained `KestrelWebKit.xcodeproj` does not build the Chromium product.
 3. Add or update tests for platform-neutral behaviour.
 4. Update `README.md`, `AGENTS.md` and `HANDOFF.md` when architecture, capabilities or verification status changes.
 5. Run the Linux checks available on the current host, then state clearly what still needs a macOS runner.

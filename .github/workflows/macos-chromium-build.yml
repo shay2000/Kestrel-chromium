@@ -1,0 +1,51 @@
+name: macOS Chromium build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    name: Build Kestrel Chromium (${{ runner.arch }})
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        shell: bash
+        run: |
+          XCODE="$(find /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort | tail -1)"
+          test -n "$XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+          swift --version
+
+      - name: Restore Swift and CEF cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            .cef
+          key: kestrel-cef-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift') }}
+
+      - name: Build and bundle the macOS app
+        run: ./build.sh release
+
+      - name: Archive the app bundle
+        env:
+          RUNNER_ARCH: ${{ runner.arch }}
+        run: ditto -c -k --keepParent build/Kestrel.app "$RUNNER_TEMP/Kestrel-Chromium-macOS-${RUNNER_ARCH}.zip"
+
+      - name: Upload app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-macOS-${{ runner.arch }}
+          path: ${{ runner.temp }}/Kestrel-Chromium-macOS-${{ runner.arch }}.zip
+          if-no-files-found: error
+          retention-days: 30
