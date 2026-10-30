@@ -35,6 +35,7 @@ swift package \
 # CefSwift assembles and signs the CEF framework and helper apps. Add Kestrel's
 # icon to the completed bundle, then re-sign the app container so its resource
 # seal includes the icon while leaving the nested CEF signatures intact.
+mkdir -p "$APP/Contents/Resources"
 cp "$ROOT/KestrelWebKit/Kestrel.icns" "$APP/Contents/Resources/Kestrel.icns"
 /usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string Kestrel.icns' "$APP/Contents/Info.plist" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile Kestrel.icns' "$APP/Contents/Info.plist"
