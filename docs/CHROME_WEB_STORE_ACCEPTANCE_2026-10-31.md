@@ -13,6 +13,8 @@ The store's “Switch to Chrome” recommendation banner appeared in the same se
 
 ## Quit/restart follow-up
 
+The subsequent [source investigation and ordinary-user edge-case map](CHROMIUM_CRASH_REVIEW_2026-10-31.md) ranks the likely causes and proposed fixes. It distinguishes source-confirmed lifecycle gaps from the crash sequence reproduced here.
+
 The first crash stack showed the pinned CefSwift revision synchronously re-entering `NSApp.terminate` from the last registered browser's `OnBeforeClose` callback, reaching `CefRuntime.shutdown()`. A revision-checked experiment deferred that final termination request to the main queue. It built and ran in [run 41192769207](https://github.com/shay2000/Kestrel-chromium/actions/runs/41192769207), source `74ed60ae41d654546075322873406489a81ed8b7`.
 
 **The follow-up failed too.** Both extensions installed again, and Dark Reader produced ten styles and a dark background before restart. Both package manifests remained after restart. However, Dark Reader did not inject its styles afterwards. The original process, PID 5680, crashed with `EXC_BAD_ACCESS`/`SIGSEGV` in CEF shutdown; its stack now reached shutdown from the queued termination closure. The newly launched process was PID 10181. Deferring termination alone did not fix the crash or post-restart activation, so that experiment was removed from the build. The final build retains the pinned upstream CefSwift implementation. The exact cause of the native shutdown failure, and whether it causes the activation failure, remain unresolved.

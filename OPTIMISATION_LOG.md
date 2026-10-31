@@ -1,5 +1,9 @@
 # Application cleanup and optimisation
 
+## Chromium shutdown source review — 31 October 2026
+
+Reviewed Kestrel `9a45595`, the exact pinned CefSwift revision and matching CEF `4fa4ab5`. The leading recorded-crash hypothesis is premature shutdown with native browsers missing from the wrapper registry. Source confirms the default-client hook is unset, shared-client popup close ignores the callback browser ID, pending creation has no quit gate, quit cancellation has no reset, and cancellable tab close discards ownership immediately. Recorded normal-user triggers, proposed fixes, diagnostic ordering and Mac reproduction criteria in [the crash review](docs/CHROMIUM_CRASH_REVIEW_2026-10-31.md). Post-restart extension activation remains a separate unresolved observation. Documentation only; no new runtime fix, Mac run or passing acceptance is claimed.
+
 ## Native Chrome Web Store acceptance — 31 October 2026
 
 Operated the packaged CEF app on macOS 26.6.2 ARM64 / Xcode 26.6 / Swift 6.3.3 using real Google Translate and Dark Reader Web Store links. Both native permission prompts and installations passed; Dark Reader changed example.com. Added repeatable runner UI acceptance with screenshots, fixed page diagnostics and native permission confirmation, correct extension IDs, live page effects, quit/restart and crash-report checks. Retained CEF's real default Chromium identity and made the MV3 fixture marker legible in runner captures.
