@@ -49,6 +49,16 @@ struct ChromiumLifecycleAcceptance {
                 }
             }
             lines = try Probe.capture("native-hybrid")
+            let hybridText = lines.map(\.text).joined(separator: " ")
+            if hybridText.contains("Bluetooth must be on") && hybridText.contains("passkey") {
+                let turnOn = lines.filter { $0.text == "Turn on" }
+                if turnOn.count == 1, let button = turnOn.first {
+                    Probe.clickScreen(button.box)
+                    Probe.record("runner_bluetooth_power_request", ["choice":"Turn on", "disposableRunner":true])
+                    await Probe.pause(4)
+                    lines = try Probe.capture("native-hybrid")
+                }
+            }
             try Probe.dumpAX("native-hybrid-ax.json")
             let barcode = VNDetectBarcodesRequest(); barcode.symbologies = [.qr]
             try VNImageRequestHandler(url: Probe.output.appendingPathComponent("native-hybrid.png")).perform([barcode])

@@ -1,5 +1,5 @@
 diff --git a/Sources/CefKit/BrowserClient.swift b/Sources/CefKit/BrowserClient.swift
-index 44a10e0..21452d2 100644
+index 44a10e0..f0a50bc 100644
 --- a/Sources/CefKit/BrowserClient.swift
 +++ b/Sources/CefKit/BrowserClient.swift
 @@ -12,6 +12,7 @@ import Foundation
@@ -61,7 +61,7 @@ index 44a10e0..21452d2 100644
 +                if let pending = owner.pendingOSRBrowser {
 +                    wrapper = pending
 +                    owner.pendingOSRBrowser = nil
-+                } else if let primary = owner.browser, !primary.hasRawBrowser {
++                } else if let primary = owner.browser, primary.id == -1 {
 +                    wrapper = primary
 +                } else {
 +                    // A popup may share its opener's CEF client. Give its ID a
@@ -96,7 +96,7 @@ index 44a10e0..21452d2 100644
 +            defer { cefRelease(browser.map(UnsafeMutableRawPointer.init)) }
              cefRelease(frame.map(UnsafeMutableRawPointer.init))
 -            guard let client = BrowserClient.owner(handlerSelf.map(UnsafeMutableRawPointer.init)) else { return 0 }
-+            guard let client = BrowserClient.owner(handlerSelf.map(UnsafeMutableRawPointer.init), for: browser) else { return 0 }
++            guard let client = BrowserClient.owner(handlerSelf.map(UnsafeMutableRawPointer.init), for: browser) else { return 1 }
              let url = URL(string: CefStringUtil.string(from: targetURL))
              let frameName = CefStringUtil.string(from: targetFrameName)
              let disposition = CefWindowOpenDisposition(cefValue: targetDisposition)
