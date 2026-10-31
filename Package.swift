@@ -49,6 +49,7 @@ let package = Package(
                 "KestrelWebKit/WebKitConfiguration.swift",
                 "KestrelWebKit/Info.plist",
                 "KestrelWebKit/Entitlements",
+                "KestrelWebKit/Assets.xcassets",
                 "KestrelWebKit/Kestrel.icns"
             ],
             sources: ["KestrelWebKit", "KestrelChromium"],
