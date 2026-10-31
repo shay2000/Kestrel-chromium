@@ -44,6 +44,13 @@ if [[ -z "$SPARKLE_FRAMEWORK" || ! -d "$SPARKLE_FRAMEWORK" ]]; then
 fi
 mkdir -p "$APP/Contents/Frameworks"
 cp -R "$SPARKLE_FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
+# SwiftPM links the executable to Sparkle with @rpath, but CefSwift's app
+# template does not include the app-level Frameworks directory in its runpath.
+# Add it explicitly so dyld can resolve the framework from this bundle.
+MAIN_EXECUTABLE="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
+if ! otool -l "$MAIN_EXECUTABLE" | grep -Fq '@executable_path/../Frameworks'; then
+  install_name_tool -add_rpath '@executable_path/../Frameworks' "$MAIN_EXECUTABLE"
+fi
 cp "$ROOT/licenses/Sparkle-LICENSE.txt" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
 RESOURCE_BUNDLE="$(find "$ROOT/.build" -type d -name 'KestrelChromium_KestrelWebKit.bundle' -path "*/$CONFIG/*" -print -quit)"
 if [[ -z "$RESOURCE_BUNDLE" || ! -d "$RESOURCE_BUNDLE" ]]; then
