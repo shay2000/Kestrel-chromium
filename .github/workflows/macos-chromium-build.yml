@@ -66,6 +66,8 @@ jobs:
 
       - id: launch-smoke
         name: Launch the app and capture first-run screenshot
+        env:
+          KESTREL_SMOKE_DEBUG_PORT: 9333
         run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke" launch
         shell: bash
 

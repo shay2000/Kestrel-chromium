@@ -39,7 +39,11 @@ collect_failure_evidence() {
 
 case "$STAGE" in
   launch)
-    open -a "$APP" 2>&1 | tee -a "$EVIDENCE_DIR/launch.txt"
+    if [[ -n "${KESTREL_SMOKE_DEBUG_PORT:-}" ]]; then
+      open -a "$APP" --args "--remote-debugging-port=$KESTREL_SMOKE_DEBUG_PORT" --force-renderer-accessibility 2>&1 | tee -a "$EVIDENCE_DIR/launch.txt"
+    else
+      open -a "$APP" 2>&1 | tee -a "$EVIDENCE_DIR/launch.txt"
+    fi
     PID=""
     for _ in $(seq 1 30); do
       PID="$(pgrep -x "$EXECUTABLE" | head -n 1 || true)"

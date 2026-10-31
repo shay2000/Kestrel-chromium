@@ -17,6 +17,9 @@ struct ChromeWebStoreAcceptance {
     static var app = URL(fileURLWithPath: "/")
     static var output = URL(fileURLWithPath: "/")
     static var process: Process?
+    static var testedPID: pid_t?
+    static var sockets: [String: URLSessionWebSocketTask] = [:]
+    static var nextCommandID = 0
     static let port = 9333
     static var uaProbe = false
     static let items = [
@@ -32,7 +35,7 @@ struct ChromeWebStoreAcceptance {
             app = URL(fileURLWithPath: CommandLine.arguments[1]).standardizedFileURL
             output = URL(fileURLWithPath: CommandLine.arguments[2]).standardizedFileURL
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-            try await launch()
+            try await launch(reuse: true)
             for item in items { try await install(id: item.id, slug: item.slug, name: item.name) }
             try await verifyDarkReader(stage: "before-restart")
             try await launch()
@@ -49,6 +52,7 @@ struct ChromeWebStoreAcceptance {
         } catch {
             try? capture("failure")
             try? dumpAX("failure-ax.json")
+            collectCrashReports()
             try? save("result.json", ["passed": false, "runtimeUserAgentProbe": uaProbe,
                                      "error": error.localizedDescription])
             fputs("Chrome Web Store acceptance failed: \(error.localizedDescription)\n", stderr)
@@ -56,8 +60,21 @@ struct ChromeWebStoreAcceptance {
         }
     }
 
+    static func collectCrashReports() {
+        let reports = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/DiagnosticReports")
+        guard let files = try? FileManager.default.contentsOfDirectory(at: reports, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        let destination = output.appendingPathComponent("crash-reports")
+        try? FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        for file in files where file.lastPathComponent.hasPrefix("Kestrel") {
+            guard let modified = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                  Date().timeIntervalSince(modified) < 3600 else { continue }
+            try? FileManager.default.copyItem(at: file, to: destination.appendingPathComponent(file.lastPathComponent))
+            if let text = try? String(contentsOf: file, encoding: .utf8) { record("crash_report", ["file": file.lastPathComponent, "text": String(text.prefix(20000))]) }
+        }
+    }
+
     static func record(_ event: String, _ details: [String: Any] = [:]) {
-        let value = ["event": event, "details": details] as [String: Any]
+        let value = ["event": event, "details": details, "time": ISO8601DateFormatter().string(from: Date())] as [String: Any]
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
               let text = String(data: data, encoding: .utf8) else { return }
         print(text)
@@ -81,12 +98,21 @@ struct ChromeWebStoreAcceptance {
 
     static func pause(_ seconds: Double = 1) async { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
 
-    static func launch() async throws {
+    static func launch(reuse: Bool = false) async throws {
+        if reuse, let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.shayprasad.Kestrel").first(where: { $0.bundleURL?.standardizedFileURL.path == app.path }),
+           (try? await targets()) != nil {
+            testedPID = running.processIdentifier
+            running.activate(options: [.activateIgnoringOtherApps])
+            record("reused_running_app", ["pid": running.processIdentifier, "bundle": app.path])
+            return
+        }
+        for socket in sockets.values { socket.cancel(with: .normalClosure, reason: nil) }
+        sockets = [:]
         for running in NSRunningApplication.runningApplications(withBundleIdentifier: "com.shayprasad.Kestrel")
-            where running.bundleURL?.standardizedFileURL == app { running.terminate() }
+            where running.bundleURL?.standardizedFileURL.path == app.path { running.terminate() }
         for _ in 0..<15 {
             if NSRunningApplication.runningApplications(withBundleIdentifier: "com.shayprasad.Kestrel")
-                .allSatisfy({ $0.bundleURL?.standardizedFileURL != app }) { break }
+                .allSatisfy({ $0.bundleURL?.standardizedFileURL.path != app.path }) { break }
             await pause()
         }
         let child = Process()
@@ -96,7 +122,7 @@ struct ChromeWebStoreAcceptance {
         FileManager.default.createFile(atPath: log.path, contents: nil)
         child.standardOutput = try FileHandle(forWritingTo: log)
         child.standardError = child.standardOutput
-        try child.run(); process = child
+        try child.run(); process = child; testedPID = child.processIdentifier
         for _ in 0..<30 {
             if child.isRunning, let running = NSRunningApplication(processIdentifier: child.processIdentifier) {
                 running.activate(options: [.activateIgnoringOtherApps])
@@ -128,16 +154,23 @@ struct ChromeWebStoreAcceptance {
     static func cdp(_ page: [String: Any], _ method: String, _ params: [String: Any] = [:]) async throws -> [String: Any] {
         guard let rawURL = page["webSocketDebuggerUrl"] as? String, let url = URL(string: rawURL),
               url.host == "127.0.0.1" || url.host == "localhost" else { throw StoreProbeError(message: "No loopback page endpoint") }
-        let socket = URLSession.shared.webSocketTask(with: url); socket.resume()
-        let timeout = Task { await pause(12); socket.cancel(with: .goingAway, reason: nil) }
-        defer { timeout.cancel(); socket.cancel(with: .normalClosure, reason: nil) }
-        let data = try JSONSerialization.data(withJSONObject: ["id": 1, "method": method, "params": params])
+        let socket: URLSessionWebSocketTask
+        if let existing = sockets[rawURL] { socket = existing }
+        else { socket = URLSession.shared.webSocketTask(with: url); socket.resume(); sockets[rawURL] = socket }
+        let timeout = Task {
+            do { try await Task.sleep(nanoseconds: 12_000_000_000); socket.cancel(with: .goingAway, reason: nil) }
+            catch { }
+        }
+        defer { timeout.cancel() }
+        nextCommandID += 1
+        let commandID = nextCommandID
+        let data = try JSONSerialization.data(withJSONObject: ["id": commandID, "method": method, "params": params])
         try await socket.send(.string(String(decoding: data, as: UTF8.self)))
         while true {
             let message = try await socket.receive()
             let bytes: Data
             switch message { case .data(let value): bytes = value; case .string(let value): bytes = Data(value.utf8); @unknown default: continue }
-            guard let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any], object["id"] as? Int == 1 else { continue }
+            guard let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any], object["id"] as? Int == commandID else { continue }
             if let error = object["error"] { throw StoreProbeError(message: "CDP \(method): \(error)") }
             return object["result"] as? [String: Any] ?? [:]
         }
@@ -170,7 +203,10 @@ struct ChromeWebStoreAcceptance {
         try save("\(slug)-baseline.json", baseline); record("store_baseline", ["name": name, "state": baseline])
         try capture("\(slug)-baseline")
         var state = baseline as? [String: Any] ?? [:]
-        if (state["text"] as? String)?.localizedCaseInsensitiveContains("Switch to Chrome") == true {
+        await clearRunnerDialogues()
+        if try await clickPageButton(page, label: "No thanks") { await pause(2) }
+        if try await buttonLocation(page, label: "Add to Chrome") == nil,
+           (state["text"] as? String)?.localizedCaseInsensitiveContains("Switch to Chrome") == true {
             let version = try await cdp(page, "Browser.getVersion")
             let product = version["product"] as? String ?? ""
             let original = state["userAgent"] as? String ?? ""
@@ -186,16 +222,13 @@ struct ChromeWebStoreAcceptance {
             try save("\(slug)-engine-ua.json", state)
             record("engine_ua_probe", ["name": name, "product": product, "state": state])
             try capture("\(slug)-engine-ua")
+            if try await clickPageButton(page, label: "No thanks") { await pause(2) }
         }
-        let location = try await evaluate(page, """
-        (()=>{const a=Array.from(document.querySelectorAll('button')).filter(e=>e.innerText.trim()==='Add to Chrome'&&!e.disabled).map(e=>e.getBoundingClientRect()).filter(r=>r.width>0&&r.height>0&&r.top>=0&&r.bottom<=innerHeight);return a.length===1?{x:a[0].x+a[0].width/2,y:a[0].y+a[0].height/2}:null;})()
-        """)
-        guard let point = location as? [String: Any], let x = point["x"] as? Double, let y = point["y"] as? Double else {
+        try capture("\(slug)-before-install")
+        guard try await clickPageButton(page, label: "Add to Chrome") else {
             throw StoreProbeError(message: "No unique enabled visible Add to Chrome button for \(name)")
         }
-        _ = try await cdp(page, "Input.dispatchMouseEvent", ["type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1])
-        _ = try await cdp(page, "Input.dispatchMouseEvent", ["type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1])
-        record("clicked_store_install", ["name": name, "x": x, "y": y])
+        record("clicked_store_install", ["name": name])
         try await confirmNativeInstall(name: name, slug: slug)
         for _ in 0..<40 {
             if let manifest = try installedManifest(id: id) {
@@ -209,6 +242,40 @@ struct ChromeWebStoreAcceptance {
         throw StoreProbeError(message: "Native approval did not create the installed extension: \(name)")
     }
 
+    static func buttonLocation(_ page: [String: Any], label: String) async throws -> [String: Any]? {
+        let text = String(decoding: try JSONEncoder().encode(label), as: UTF8.self)
+        return try await evaluate(page, """
+        (()=>{const a=Array.from(document.querySelectorAll('button')).filter(e=>e.innerText.trim()===\(text)&&!e.disabled).map(e=>({e,r:e.getBoundingClientRect()})).filter(({e,r})=>r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)));return a.length===1?{x:a[0].r.x+a[0].r.width/2,y:a[0].r.y+a[0].r.height/2}:null;})()
+        """) as? [String: Any]
+    }
+    static func clickPageButton(_ page: [String: Any], label: String) async throws -> Bool {
+        guard let point = try await buttonLocation(page, label: label), let x = point["x"] as? Double, let y = point["y"] as? Double else { return false }
+        _ = try await cdp(page, "Input.dispatchMouseEvent", ["type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1])
+        _ = try await cdp(page, "Input.dispatchMouseEvent", ["type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1])
+        record("page_button", ["label": label, "x": x, "y": y]); return true
+    }
+
+    static func clearRunnerDialogues() async {
+        guard let lines = try? capture("runner-dialogues") else { return }
+        let text = lines.map(\.text).joined(separator: " ").lowercased()
+        let label: String?
+        if text.contains("find") && text.contains("devices on local networks") && text.contains("hosted-compute") { label = "Allow" }
+        else if text.contains("kestrel chromium quit unexpectedly") { label = "Ignore" }
+        else { label = nil }
+        if let label, let target = lines.first(where: { $0.text == label }) {
+            clickScreen(target.box)
+            record("runner_dialogue", ["choice": label, "mainProcessAlive": testedPID.flatMap(NSRunningApplication.init(processIdentifier:))?.isTerminated == false])
+            await pause(2)
+        }
+    }
+    static func clickScreen(_ box: CGRect) {
+        let display = CGDisplayBounds(CGMainDisplayID())
+        let point = CGPoint(x: display.minX + box.midX * display.width, y: display.minY + (1 - box.midY) * display.height)
+        for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+            CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+        }
+    }
+
     static func installedManifest(id: String) throws -> URL? {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let root = support.appendingPathComponent("com.shayprasad.Kestrel/CefSwift/Default/Extensions/\(id)")
@@ -218,7 +285,7 @@ struct ChromeWebStoreAcceptance {
     }
 
     static func axNodes() -> [AXUIElement] {
-        guard let pid = process?.processIdentifier else { return [] }
+        guard let pid = testedPID else { return [] }
         let root = AXUIElementCreateApplication(pid); AXUIElementSetMessagingTimeout(root, 1)
         var nodes: [AXUIElement] = []
         func visit(_ node: AXUIElement, _ depth: Int) {
@@ -280,6 +347,17 @@ struct ChromeWebStoreAcceptance {
         }
         try lines.map(\.text).joined(separator: "\n").write(to: output.appendingPathComponent(name + ".ocr.txt"), atomically: true, encoding: .utf8)
         record("capture", ["name": name, "text": String(lines.map(\.text).joined(separator: "\n").prefix(8000))])
+        if name == "google-translate-before-install" || name == "google-translate-prompt-0" || name == "dark-reader-after-restart" || name == "failure",
+           let source = NSImage(contentsOf: url)?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            let width = min(source.width, 1280), height = source.height * width / source.width
+            if let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
+                if let preview = context.makeImage(), let jpeg = NSBitmapImageRep(cgImage: preview).representation(using: .jpeg, properties: [.compressionFactor: 0.6]) {
+                    print("KESTREL_CWS_IMAGE \(name) \(jpeg.base64EncodedString())")
+                }
+            }
+        }
         return lines
     }
 
