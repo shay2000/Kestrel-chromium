@@ -70,6 +70,8 @@ struct ChromiumLifecycleAcceptance {
             }
             try await verifyDraft(page, expected: "Unsaved draft survives Stay")
             Probe.record("rapid_tab_close_parent_survived", ["cycles":5])
+            // Deliver a new URL and quit immediately, without waiting for its target.
+            try Probe.command("/usr/bin/open", ["-a", Probe.app.path, fixture + "?quit-during-create=1"])
             try await Probe.launch()
             await Probe.pause(15)
             try require(!Probe.collectCrashReports(), "A tested app process crashed")

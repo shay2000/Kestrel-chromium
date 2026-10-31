@@ -61,6 +61,7 @@ struct ChromeWebStoreAcceptance {
             if !failures.isEmpty { throw StoreProbeError(message: failures.joined(separator: "; ")) }
             await pause(15)
             guard !collectCrashReports() else { throw StoreProbeError(message: "A tested Kestrel process crashed during quit/restart") }
+            collectLifecycleLog()
             try save("result.json", ["passed": true, "runtimeUserAgentProbe": uaProbe,
                                      "installedIDs": items.map(\.id), "restartRuntimePassed": true])
             print("Chrome Web Store native install and restart acceptance passed. User-agent probe: \(uaProbe)")

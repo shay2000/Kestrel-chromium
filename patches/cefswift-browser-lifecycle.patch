@@ -1,5 +1,5 @@
 diff --git a/Sources/CefKit/BrowserClient.swift b/Sources/CefKit/BrowserClient.swift
-index 44a10e0..6f8351f 100644
+index 44a10e0..21452d2 100644
 --- a/Sources/CefKit/BrowserClient.swift
 +++ b/Sources/CefKit/BrowserClient.swift
 @@ -12,6 +12,7 @@ import Foundation
@@ -10,10 +10,14 @@ index 44a10e0..6f8351f 100644
  
      // Buffered early state (pre-attach).
      private var pendingTitle: String?
-@@ -70,6 +71,19 @@ final class BrowserClient {
-         cefOwner(BrowserClient.self, cefSelf)
-     }
- 
+@@ -67,7 +68,20 @@ final class BrowserClient {
+     /// Recovers the BrowserClient from a CEF callback's `self` pointer.
+     /// Must run on the main thread (CEF UI thread).
+     private nonisolated static func owner(_ cefSelf: UnsafeMutableRawPointer?) -> BrowserClient? {
+-        cefOwner(BrowserClient.self, cefSelf)
++        cefOwner(BrowserClient.self, cefSelf) ?? cefOwner(CefClientLifetime.self, cefSelf)?.client
++    }
++
 +    fileprivate nonisolated static func owner(
 +        _ cefSelf: UnsafeMutableRawPointer?, for raw: UnsafeMutablePointer<cef_browser_t>?
 +    ) -> BrowserClient? {
@@ -22,14 +26,12 @@ index 44a10e0..6f8351f 100644
 +        return MainActor.assumeIsolated {
 +            if let routed = CefRuntime.shared.browser(withID: id)?.client { return routed }
 +            // Early callbacks may precede adoption of a root browser.
-+            if owner.browser?.hasRawBrowser != true { return owner }
++            if owner.browser?.id == -1 { return owner }
 +            return nil
 +        }
-+    }
-+
-     // MARK: Struct construction
+     }
  
-     /// Builds the cef_client_t graph. The returned pointer carries one
+     // MARK: Struct construction
 @@ -77,31 +91,38 @@ final class BrowserClient {
      /// creation).
      func makeClient() -> UnsafeMutablePointer<cef_client_t> {
@@ -276,7 +278,25 @@ index 44a10e0..6f8351f 100644
              MainActor.assumeIsolated {
                  guard let cefBrowser = client.browser else { return }
                  cefBrowser.delegate?.browser(cefBrowser, downloadDidProgress: download)
-@@ -427,10 +449,11 @@ final class BrowserClient {
+@@ -352,7 +374,16 @@ final class BrowserClient {
+             makeRenderHandler()
+         }
+ 
+-        let client = cefAllocate(cef_client_t.self, owner: self)
++        // Handler getters return additional refs to CEF. Their original refs
++        // belong to the client lifetime, not to the retained Swift owner itself.
++        // Releasing these when the CEF client dies breaks the handler/owner cycle.
++        let handlers = [lifeSpanPointer.map(UnsafeMutableRawPointer.init), loadPointer.map(UnsafeMutableRawPointer.init),
++                        displayPointer.map(UnsafeMutableRawPointer.init), downloadPointer.map(UnsafeMutableRawPointer.init),
++                        jsDialogPointer.map(UnsafeMutableRawPointer.init), contextMenuPointer.map(UnsafeMutableRawPointer.init),
++                        permissionPointer.map(UnsafeMutableRawPointer.init), requestPointer.map(UnsafeMutableRawPointer.init),
++                        keyboardPointer.map(UnsafeMutableRawPointer.init), focusPointer.map(UnsafeMutableRawPointer.init),
++                        renderPointer.map(UnsafeMutableRawPointer.init)].compactMap { $0 }
++        let client = cefAllocate(cef_client_t.self, owner: CefClientLifetime(client: self, handlers: handlers))
+         client.pointee.get_render_handler = { clientSelf in
+             guard let me = BrowserClient.owner(clientSelf.map(UnsafeMutableRawPointer.init)),
+                   let handler = me.renderPointer else { return nil }
+@@ -427,10 +458,11 @@ final class BrowserClient {
      /// on the main actor, calling `body` only when both exist.
      nonisolated static func withBrowser<R: Sendable>(
          _ handlerSelf: UnsafeMutableRawPointer?,
@@ -289,7 +309,7 @@ index 44a10e0..6f8351f 100644
          return MainActor.assumeIsolated {
              guard let browser = client.browser else { return fallback }
              return body(client, browser)
-@@ -494,7 +517,7 @@ extension BrowserClient {
+@@ -494,7 +526,7 @@ extension BrowserClient {
          let handler = cefAllocate(cef_jsdialog_handler_t.self, owner: self)
          handler.pointee.on_jsdialog = {
              handlerSelf, browser, originURL, dialogType, messageText, defaultPromptText, callback, suppressMessage in
@@ -298,7 +318,7 @@ index 44a10e0..6f8351f 100644
              guard let callback else {
                  suppressMessage?.pointee = 0
                  return 0
-@@ -506,33 +529,36 @@ extension BrowserClient {
+@@ -506,33 +538,36 @@ extension BrowserClient {
                  origin: CefStringUtil.string(from: originURL)
              )
              let wrapper = CefJSDialogCallback(raw: callback)  // owns the +1
@@ -342,7 +362,7 @@ index 44a10e0..6f8351f 100644
          }
          jsDialogPointer = handler
      }
-@@ -542,18 +568,18 @@ extension BrowserClient {
+@@ -542,18 +577,18 @@ extension BrowserClient {
      private func makeContextMenuHandler() {
          let handler = cefAllocate(cef_context_menu_handler_t.self, owner: self)
          handler.pointee.on_before_context_menu = { handlerSelf, browser, frame, params, model in
@@ -364,7 +384,7 @@ index 44a10e0..6f8351f 100644
              cefRelease(frame.map(UnsafeMutableRawPointer.init))
              guard let model, let callback else {
                  cefRelease(model.map(UnsafeMutableRawPointer.init))
-@@ -569,7 +595,7 @@ extension BrowserClient {
+@@ -569,7 +604,7 @@ extension BrowserClient {
              // CEF treats a disconnected callback paired with a false return as
              // an error and force-sets is_handled=true, which suppresses the
              // native menu entirely. We simply drop our +1 ref on it.
@@ -373,7 +393,7 @@ index 44a10e0..6f8351f 100644
                  client.osrHost != nil
              }
              if !isOSR {
-@@ -579,7 +605,7 @@ extension BrowserClient {
+@@ -579,7 +614,7 @@ extension BrowserClient {
              let menu = CefMenuModel(raw: model)
              let viewPoint = params.map { CGPoint(x: CGFloat($0.pointee.get_xcoord?($0) ?? 0), y: CGFloat($0.pointee.get_ycoord?($0) ?? 0)) } ?? .zero
              let wrapper = CefRunContextMenuCallback(raw: callback)  // owns the +1
@@ -382,7 +402,7 @@ index 44a10e0..6f8351f 100644
                  guard let host = client.osrHost else {
                      // Defensive: osrHost vanished between the two checks.
                      wrapper.cancel()
-@@ -590,18 +616,18 @@ extension BrowserClient {
+@@ -590,18 +625,18 @@ extension BrowserClient {
              }
          }
          handler.pointee.on_context_menu_command = { handlerSelf, browser, frame, params, commandID, _ in
@@ -405,7 +425,7 @@ index 44a10e0..6f8351f 100644
                  cefBrowser.delegate?.browserContextMenuDidClose(cefBrowser)
              }
          }
-@@ -614,37 +640,46 @@ extension BrowserClient {
+@@ -614,37 +649,50 @@ extension BrowserClient {
          let handler = cefAllocate(cef_permission_handler_t.self, owner: self)
          handler.pointee.on_request_media_access_permission = {
              handlerSelf, browser, frame, requestingOrigin, requestedPermissions, callback in
@@ -425,6 +445,7 @@ index 44a10e0..6f8351f 100644
 -                    callback.pointee.cancel?(callback)
 +            let request = CefPermissionRequest(kinds: kinds, origin: CefStringUtil.string(from: requestingOrigin))
 +            let handled = BrowserClientCallbacks.run(handlerSelf, browser: browser, default: Int32(0)) { _, cefBrowser in
++                let promptID = CefRuntime.shared.beginPrompt()
 +                var resolved = false
 +                let completion: @MainActor (CefPermissionDecision) -> Void = { decision in
 +                    guard !resolved else { return }
@@ -432,6 +453,7 @@ index 44a10e0..6f8351f 100644
 +                    if decision == .allow { callback.pointee.cont?(callback, kinds.mediaMask(within: requestedPermissions)) }
 +                    else { callback.pointee.cancel?(callback) }
 +                    cefRelease(UnsafeMutableRawPointer(callback))
++                    CefRuntime.shared.endPrompt(promptID)
                  }
 -                cefRelease(UnsafeMutableRawPointer(callback))
 +                if cefBrowser.delegate?.browser(cefBrowser, requestsPermission: request, completion: completion) == true { return 1 }
@@ -455,12 +477,14 @@ index 44a10e0..6f8351f 100644
 -                cefRelease(UnsafeMutableRawPointer(callback))
 +            let request = CefPermissionRequest(kinds: .fromRequestTypes(requestedPermissions), origin: CefStringUtil.string(from: requestingOrigin))
 +            let handled = BrowserClientCallbacks.run(handlerSelf, browser: browser, default: Int32(0)) { _, cefBrowser in
++                let promptID = CefRuntime.shared.beginPrompt()
 +                var resolved = false
 +                let completion: @MainActor (CefPermissionDecision) -> Void = { decision in
 +                    guard !resolved else { return }
 +                    resolved = true
 +                    callback.pointee.cont?(callback, decision.cefResult)
 +                    cefRelease(UnsafeMutableRawPointer(callback))
++                    CefRuntime.shared.endPrompt(promptID)
 +                }
 +                if cefBrowser.delegate?.browser(cefBrowser, requestsPermission: request, completion: completion) == true { return 1 }
 +                completion(cefBrowser.delegate?.browser(cefBrowser, requestsPermission: request) ?? .deny)
@@ -471,7 +495,7 @@ index 44a10e0..6f8351f 100644
          }
          handler.pointee.on_dismiss_permission_prompt = { _, browser, _, _ in
              cefRelease(browser.map(UnsafeMutableRawPointer.init))
-@@ -657,7 +692,7 @@ extension BrowserClient {
+@@ -657,7 +705,7 @@ extension BrowserClient {
      private func makeRequestHandler() {
          let handler = cefAllocate(cef_request_handler_t.self, owner: self)
          handler.pointee.on_before_browse = { handlerSelf, browser, frame, request, userGesture, isRedirect in
@@ -480,7 +504,7 @@ index 44a10e0..6f8351f 100644
              cefRelease(frame.map(UnsafeMutableRawPointer.init))
              var urlString = ""
              if let request {
-@@ -667,7 +702,7 @@ extension BrowserClient {
+@@ -667,7 +715,7 @@ extension BrowserClient {
              let url = URL(string: urlString)
              let gesture = userGesture != 0
              let redirect = isRedirect != 0
@@ -489,7 +513,7 @@ index 44a10e0..6f8351f 100644
                  let decision = cefBrowser.delegate?.browser(
                      cefBrowser, decidePolicyForNavigation: url, isRedirect: redirect, userGesture: gesture
                  ) ?? .allow
-@@ -675,19 +710,19 @@ extension BrowserClient {
+@@ -675,19 +723,19 @@ extension BrowserClient {
              }
          }
          handler.pointee.on_open_urlfrom_tab = { handlerSelf, browser, frame, targetURL, _, _ in
@@ -513,7 +537,7 @@ index 44a10e0..6f8351f 100644
                  let override = cefBrowser.delegate?.browser(cefBrowser, didEncounterCertificateError: url, errorCode: code) ?? false
                  if override, let callback {
                      callback.pointee.cont?(callback)
-@@ -701,7 +736,7 @@ extension BrowserClient {
+@@ -701,7 +749,7 @@ extension BrowserClient {
          }
          handler.pointee.get_auth_credentials = {
              handlerSelf, browser, originURL, isProxy, host, port, realm, scheme, callback in
@@ -522,7 +546,7 @@ index 44a10e0..6f8351f 100644
              guard let callback else { return 0 }
              let challenge = CefAuthChallenge(
                  origin: CefStringUtil.string(from: originURL),
-@@ -730,10 +765,10 @@ extension BrowserClient {
+@@ -730,10 +778,10 @@ extension BrowserClient {
              }
          }
          handler.pointee.on_render_process_terminated = { handlerSelf, browser, status, errorCode, _ in
@@ -535,7 +559,7 @@ index 44a10e0..6f8351f 100644
                  cefBrowser.delegate?.browser(cefBrowser, renderProcessDidTerminate: reason, errorCode: code)
              }
          }
-@@ -748,18 +783,18 @@ extension BrowserClient {
+@@ -748,18 +796,18 @@ extension BrowserClient {
      private func makeKeyboardHandler() {
          let handler = cefAllocate(cef_keyboard_handler_t.self, owner: self)
          handler.pointee.on_pre_key_event = { handlerSelf, browser, event, _, _ in
@@ -558,7 +582,7 @@ index 44a10e0..6f8351f 100644
                  (cefBrowser.delegate?.browser(cefBrowser, handleKeyEvent: keyEvent, isBeforePage: false) ?? false) ? 1 : 0
              }
          }
-@@ -771,21 +806,21 @@ extension BrowserClient {
+@@ -771,21 +819,21 @@ extension BrowserClient {
      private func makeFocusHandler() {
          let handler = cefAllocate(cef_focus_handler_t.self, owner: self)
          handler.pointee.on_take_focus = { handlerSelf, browser, next in
@@ -586,7 +610,7 @@ index 44a10e0..6f8351f 100644
                  cefBrowser.delegate?.browserDidGainFocus(cefBrowser)
              }
          }
-@@ -799,10 +834,11 @@ extension BrowserClient {
+@@ -799,13 +847,26 @@ extension BrowserClient {
  enum BrowserClientCallbacks {
      static func run<R: Sendable>(
          _ handlerSelf: UnsafeMutableRawPointer?,
@@ -599,6 +623,21 @@ index 44a10e0..6f8351f 100644
          return MainActor.assumeIsolated {
              guard let browser = client.browser else { return fallback }
              return body(client, browser)
+         }
+     }
+ }
++
++// Each handler initially retains BrowserClient. Keep their initial C refs in a
++// separate owner so the last CEF client release can break that retention cycle.
++private final class CefClientLifetime {
++    let client: BrowserClient
++    let handlers: [UnsafeMutableRawPointer]
++    init(client: BrowserClient, handlers: [UnsafeMutableRawPointer]) {
++        self.client = client
++        self.handlers = handlers
++    }
++    deinit { for handler in handlers { cefRelease(handler) } }
++}
 diff --git a/Sources/CefKit/CefAppHandlers.swift b/Sources/CefKit/CefAppHandlers.swift
 index 3984214..7d879aa 100644
 --- a/Sources/CefKit/CefAppHandlers.swift
@@ -721,18 +760,31 @@ index cce60bd..523e76a 100644
  
      // MARK: Helpers
 diff --git a/Sources/CefKit/CefJSDialog.swift b/Sources/CefKit/CefJSDialog.swift
-index 18341fb..fa276f2 100644
+index 18341fb..f868638 100644
 --- a/Sources/CefKit/CefJSDialog.swift
 +++ b/Sources/CefKit/CefJSDialog.swift
-@@ -46,6 +46,7 @@ public struct CefJSDialog: Sendable, Equatable {
+@@ -46,15 +46,20 @@ public struct CefJSDialog: Sendable, Equatable {
  public final class CefJSDialogCallback: @unchecked Sendable {
      private let raw: UnsafeMutablePointer<cef_jsdialog_callback_t>
      private var consumed = false
 +    var onResolved: (@MainActor (Bool) -> Void)?
++    private let promptID: UUID
  
      /// Takes ownership of a +1 `cef_jsdialog_callback_t` reference.
      init(raw: UnsafeMutablePointer<cef_jsdialog_callback_t>) {
-@@ -63,6 +64,7 @@ public final class CefJSDialogCallback: @unchecked Sendable {
+         self.raw = raw
++        self.promptID = MainActor.assumeIsolated { CefRuntime.shared.beginPrompt() }
+     }
+ 
+     deinit {
+         if !consumed {
+             cefRelease(UnsafeMutableRawPointer(raw))
++            let id = promptID
++            Task { @MainActor in CefRuntime.shared.endPrompt(id) }
+         }
+     }
+ 
+@@ -63,10 +68,12 @@ public final class CefJSDialogCallback: @unchecked Sendable {
      public func `continue`(success: Bool, userInput: String? = nil) {
          guard !consumed else { return }
          consumed = true
@@ -740,7 +792,12 @@ index 18341fb..fa276f2 100644
          CefStringUtil.withCefString(userInput ?? "") { input in
              raw.pointee.cont?(raw, success ? 1 : 0, input)
          }
-@@ -79,7 +81,7 @@ public final class CefJSDialogCallback: @unchecked Sendable {
+         cefRelease(UnsafeMutableRawPointer(raw))
++        MainActor.assumeIsolated { CefRuntime.shared.endPrompt(promptID) }
+     }
+ 
+     /// Cancels the dialog (equivalent to `continue(success: false)`).
+@@ -79,7 +86,7 @@ public final class CefJSDialogCallback: @unchecked Sendable {
  /// the delegate does not override ``CefBrowserDelegate/browser(_:runJSDialog:callback:)``.
  @MainActor
  enum CefJSDialogPresenter {
@@ -749,7 +806,7 @@ index 18341fb..fa276f2 100644
          let alert = NSAlert()
          alert.messageText = dialog.origin.isEmpty ? "" : dialog.origin
          alert.informativeText = dialog.message
-@@ -100,20 +102,24 @@ enum CefJSDialogPresenter {
+@@ -100,20 +107,24 @@ enum CefJSDialogPresenter {
              promptField = field
          }
  
@@ -794,10 +851,10 @@ index 144ded0..05259e2 100644
  
      func start() {
 diff --git a/Sources/CefKit/CefRuntime.swift b/Sources/CefKit/CefRuntime.swift
-index b793569..e24f7b5 100644
+index b793569..95864cf 100644
 --- a/Sources/CefKit/CefRuntime.swift
 +++ b/Sources/CefKit/CefRuntime.swift
-@@ -111,7 +111,40 @@ public final class CefRuntime {
+@@ -111,7 +111,43 @@ public final class CefRuntime {
      private var appContext: CefAppContext?
      private var settings: MappedCefSettings?
      private var browsers: [Int32: CefBrowser] = [:]
@@ -806,6 +863,9 @@ index b793569..e24f7b5 100644
 +    private var isFinalising = false
 +    private var terminationGeneration = 0
 +    private var pendingBrowsers: [ObjectIdentifier: CefBrowser] = [:]
++    private var activePrompts = Set<UUID>()
++    func beginPrompt() -> UUID { let id = UUID(); activePrompts.insert(id); return id }
++    func endPrompt(_ id: UUID) { activePrompts.remove(id); scheduleTerminationIfReady() }
 +    public var isAcceptingBrowsers: Bool { isInitialized && !isTerminationRequested && !isFinalising }
 +    public static let terminationCancelled = Notification.Name("CefRuntimeTerminationCancelled")
 +    public static let terminationRequested = Notification.Name("CefRuntimeTerminationRequested")
@@ -839,19 +899,19 @@ index b793569..e24f7b5 100644
  
      private init() {}
  
-@@ -230,7 +263,10 @@ public final class CefRuntime {
+@@ -230,7 +266,10 @@ public final class CefRuntime {
      /// Shuts CEF down and unloads the framework. All browsers must already
      /// be closed. Call once, at process exit.
      public func shutdown() {
 -        guard isInitialized else { return }
-+        guard isInitialized, browsers.isEmpty, pendingBrowsers.isEmpty,
++        guard isInitialized, browsers.isEmpty, pendingBrowsers.isEmpty, activePrompts.isEmpty,
 +              CefChromeBrowser.liveWindowCount == 0, messagePump?.isPerformingWork != true else { return }
 +        isFinalising = true
 +        lifecycleLog("shutdown")
          messagePump?.stop()
          messagePump = nil
          CEFApplication.setTerminateHandler(nil)
-@@ -390,34 +426,54 @@ public final class CefRuntime {
+@@ -390,34 +429,54 @@ public final class CefRuntime {
      // MARK: Browser registry / termination
  
      func registerBrowser(_ browser: CefBrowser) {
@@ -880,12 +940,12 @@ index b793569..e24f7b5 100644
 +
 +    func scheduleTerminationIfReady() {
 +        guard isTerminationRequested, !isFinalising, browsers.isEmpty,
-+              pendingBrowsers.isEmpty, CefChromeBrowser.liveWindowCount == 0 else { return }
++              pendingBrowsers.isEmpty, activePrompts.isEmpty, CefChromeBrowser.liveWindowCount == 0 else { return }
 +        let generation = terminationGeneration
 +        DispatchQueue.main.async { [weak self] in
 +            guard let self, self.isTerminationRequested, !self.isFinalising,
 +                  generation == self.terminationGeneration, self.browsers.isEmpty,
-+                  self.pendingBrowsers.isEmpty, CefChromeBrowser.liveWindowCount == 0 else { return }
++                  self.pendingBrowsers.isEmpty, self.activePrompts.isEmpty, CefChromeBrowser.liveWindowCount == 0 else { return }
 +            // A nested AppKit loop can dispatch main-queue work inside a CEF callback.
 +            // Keep the pump alive until its outermost work slice has returned.
 +            guard self.messagePump?.isPerformingWork != true else {
@@ -923,10 +983,10 @@ index b793569..e24f7b5 100644
  }
 diff --git a/Tests/CefKitTests/KestrelLifecycleTests.swift b/Tests/CefKitTests/KestrelLifecycleTests.swift
 new file mode 100644
-index 0000000..746c30f
+index 0000000..a994270
 --- /dev/null
 +++ b/Tests/CefKitTests/KestrelLifecycleTests.swift
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,98 @@
 +import Foundation
 +import Testing
 +@testable import CCef
@@ -1001,6 +1061,16 @@ index 0000000..746c30f
 +        #expect(CefRuntime.shared.browser(withID: 98003)?.hasRawBrowser == true)
 +        closed(life, browser)
 +        #expect(CefRuntime.shared.browser(withID: 98003) == nil)
++    }
++    @Test func releasingClientBreaksHandlerOwnerCycle() {
++        weak var weakOwner: BrowserClient?
++        do {
++            let owner = BrowserClient()
++            weakOwner = owner
++            let client = owner.makeClient()
++            cefRelease(UnsafeMutableRawPointer(client))
++        }
++        #expect(weakOwner == nil)
 +    }
 +    @Test func duplicateCloseCompletesOnlyOnce() {
 +        let owner = BrowserClient(), observer = Observer()

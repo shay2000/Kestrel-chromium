@@ -213,6 +213,7 @@ struct KestrelChromiumApp: CefSwiftApp {
     var body: some Scene {
         WindowGroup("Kestrel") {
             ContentView(tabs: tabs, chat: chat, settings: settings)
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
                 .frame(minWidth: 700, minHeight: 520)
                 .preferredColorScheme(settings.appearanceMode.preferredColorScheme)
                 .animation(.easeInOut(duration: 0.22), value: settings.appearanceMode)
