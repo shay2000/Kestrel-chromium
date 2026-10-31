@@ -10,6 +10,12 @@ The Chromium build keeps its own browser profile. Cookies and history from a Web
 
 On first launch, Kestrel seeds YouTube, Gmail, Google Drive, X, Reddit, and OneDrive into both the bookmarks and the pinned site tiles above the tab list. Existing bookmark lists and pinned sites, including deliberately empty lists, are kept as they are.
 
+## Download the preview
+
+[Download the Apple silicon DMG](https://github.com/shay2000/Kestrel-chromium/releases/download/v1.0.0-chromium-preview.1/Kestrel-Chromium-1.0.0-arm64.dmg) · [SHA-256 checksum](https://github.com/shay2000/Kestrel-chromium/releases/download/v1.0.0-chromium-preview.1/Kestrel-Chromium-1.0.0-arm64.dmg.sha256) · [Release notes](https://github.com/shay2000/Kestrel-chromium/releases/tag/v1.0.0-chromium-preview.1)
+
+Chromium Preview 1 is ad-hoc signed and **not notarised**, targets macOS 14+, and was tested on macOS 26.6.2 ARM64. macOS may block its first launch. The release contains the exact verified DMG, with uploaded bytes downloaded again and checksum-checked; see [release provenance](docs/CHROMIUM_PREVIEW_RELEASE_2026-10-31.md). Physical phone/QR passkey sign-in remains unverified. Apple's official iCloud Passwords extension also needs Apple's accepted signed browser identity; Kestrel is absent from its current list. See [the Apple extension research](docs/APPLE_PASSWORDS_EXTENSION_2026-10-31.md).
+
 ## Port status
 
 The full app builds and launches on a standard GitHub macOS 26 ARM64 runner with Xcode 26.6. [Run 41208164060](https://github.com/shay2000/Kestrel-chromium/actions/runs/41208164060), source `a3e63faab8e002bfb2c1f618f4f1c0a9390f7ed0`, passed native CRX and lifecycle regressions, browser/MV3/selection smoke, real tab/quit cancellation with an unsaved background form, rapid/last-page closure, both Web Store installs and restart, the original WebKit 1.0.0 comparison and clean review-DMG packaging. Screenshots and logs are retained with the run.
