@@ -39,10 +39,15 @@ struct ChromeWebStoreAcceptance {
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
             try await launch(reuse: true)
             await widenRunnerWindow()
+            try await inspectWindowSurfaces(stage: "before-install")
             var installed = Set<String>()
             var failures: [String] = []
             for item in items {
-                do { try await install(id: item.id, slug: item.slug, name: item.name); installed.insert(item.id) }
+                do {
+                    try await install(id: item.id, slug: item.slug, name: item.name); installed.insert(item.id)
+                    await pause(5)
+                    try await inspectWindowSurfaces(stage: "after-\(item.slug)")
+                }
                 catch {
                     failures.append("\(item.name): \(error.localizedDescription)")
                     record("item_failed", ["name": item.name, "error": error.localizedDescription])
@@ -58,6 +63,7 @@ struct ChromeWebStoreAcceptance {
                 record("persisted", ["name": item.name, "manifest": manifest.path])
             }
             if installed.contains(items[1].id) { try await verifyDarkReader(stage: "after-restart") }
+            try await inspectWindowSurfaces(stage: "after-restart")
             if !failures.isEmpty { throw StoreProbeError(message: failures.joined(separator: "; ")) }
             await pause(15)
             guard !collectCrashReports() else { throw StoreProbeError(message: "A tested Kestrel process crashed during quit/restart") }
@@ -370,6 +376,45 @@ struct ChromeWebStoreAcceptance {
     static func ax(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
         var value: CFTypeRef?; return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
     }
+
+    static func inspectWindowSurfaces(stage: String) async throws {
+        guard let pid = testedPID else { throw StoreProbeError(message: "No tested process for window census") }
+        let root = AXUIElementCreateApplication(pid)
+        var windows: [[String: Any]] = []
+        var chromeToolbars = 0
+        for window in ax(root, "AXWindows") as? [AXUIElement] ?? [] {
+            var controls: [[String: String]] = []
+            var visited = 0
+            func visit(_ node: AXUIElement, _ depth: Int) {
+                guard depth < 35, visited < 5000 else { return }; visited += 1
+                let role = String(describing: ax(node, "AXRole") ?? "" as CFString)
+                let description = String(describing: ax(node, "AXDescription") ?? "" as CFString)
+                let title = String(describing: ax(node, "AXTitle") ?? "" as CFString)
+                if role == "AXToolbar" || role == "AXTabGroup" || role == "AXTextField" ||
+                    description.localizedCaseInsensitiveContains("address and search bar") {
+                    controls.append(["role": role, "description": description, "title": title])
+                }
+                if description.localizedCaseInsensitiveContains("address and search bar") { chromeToolbars += 1 }
+                for child in ax(node, "AXChildren") as? [AXUIElement] ?? [] { visit(child, depth + 1) }
+            }
+            visit(window, 0)
+            windows.append(["title": String(describing: ax(window, "AXTitle") ?? "" as CFString),
+                            "subrole": String(describing: ax(window, "AXSubrole") ?? "" as CFString), "controls": controls])
+        }
+        let visible = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? [])
+            .filter { ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) }
+        let pages = try await targets().map { target in
+            Dictionary(uniqueKeysWithValues: ["id", "type", "url", "title"].map { ($0, target[$0] ?? "") })
+        }
+        let value: [String: Any] = ["stage": stage, "windows": windows, "visible": visible,
+                                  "targets": pages, "chromeToolbarCount": chromeToolbars]
+        record("window_census", value)
+        try save("window-census-\(stage).json", value)
+        try capture("window-census-\(stage)")
+        if ProcessInfo.processInfo.environment["KESTREL_ASSERT_HOSTED_EXTENSION_WINDOWS"] == "1", chromeToolbars > 0 {
+            throw StoreProbeError(message: "A separate Chromium toolbar/window escaped Kestrel after \(stage)")
+        }
+    }
     static func dumpAX(_ name: String) throws {
         try save(name, axNodes().map { node in Dictionary(uniqueKeysWithValues: ["AXRole", "AXTitle", "AXDescription", "AXValue"].map { ($0, String(describing: ax(node, $0) ?? "" as CFString).prefix(400).description) }) })
     }
@@ -428,7 +473,7 @@ struct ChromeWebStoreAcceptance {
         }
         try lines.map(\.text).joined(separator: "\n").write(to: output.appendingPathComponent(name + ".ocr.txt"), atomically: true, encoding: .utf8)
         record("capture", ["name": name, "text": String(lines.map(\.text).joined(separator: "\n").prefix(8000))])
-        if name == "google-translate-before-install" || name == "google-translate-prompt-0" || name == "dark-reader-after-restart" || name == "failure",
+        if name == "google-translate-before-install" || name == "google-translate-prompt-0" || name == "dark-reader-after-restart" || name.hasPrefix("window-census-") || name == "failure",
            let source = NSImage(contentsOf: url)?.cgImage(forProposedRect: nil, context: nil, hints: nil) {
             let width = min(source.width, 1280), height = source.height * width / source.width
             if let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
