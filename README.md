@@ -2,7 +2,7 @@
 
 Kestrel Chromium is the Chromium-engine build of the Kestrel macOS browser. It embeds the Chrome-style Chromium runtime through [CEF](https://bitbucket.org/chromiumembedded/cef/) and [CefSwift](https://github.com/Rajaniraiyn/CefSwift); web pages are rendered by Chromium, not `WKWebView`.
 
-The app carries over Kestrel's SwiftUI browser, tabs and split view, assistant and provider integrations, bounded page operator, local profile fill, MCP server, bookmarks, settings, updater, and optional Codex host. Chromium backs each tab and the extension manager. The built-in `chrome://extensions` page uses Chromium's own runtime. Kestrel Settings can review and import Manifest V3 extension folders, ZIP archives, and CRX packages; approved extensions load when Kestrel starts.
+The app carries over Kestrel's SwiftUI browser, tabs and split view, assistant and provider integrations, bounded page operator, local profile fill, MCP server, bookmarks, settings, updater, and optional Codex host. Chromium backs each tab and the extension manager. The built-in `chrome://extensions` page uses Chromium's own runtime. Kestrel Settings stages Manifest V3 extension folders, ZIP archives, and CRX packages for permission review; approved extensions load when Kestrel starts. Compatibility varies by extension and has not been established for the Chrome Web Store catalogue as a whole.
 
 The Chromium build keeps its own browser profile. Cookies and history from a WebKit build are not migrated. Assistant and app settings continue to use Kestrel's existing local settings and Keychain stores.
 
@@ -10,9 +10,9 @@ On first launch, Kestrel seeds YouTube, Gmail, Google Drive, X, Reddit, and OneD
 
 ## Port status
 
-The full app builds and launches on a GitHub hosted macOS 26 ARM64 runner with Xcode 26.6. [Run 41159095104](https://github.com/shay2000/Kestrel-chromium/actions/runs/41159095104) passed the app build/archive, fresh launch, screenshot text checks for all six first-run bookmarks, rendered `example.com`, and opened the Google Translate listing on the Chrome Web Store. Its artifacts include the app archive and runner screenshots.
+The full app builds and launches on a GitHub hosted macOS 26 ARM64 runner with Xcode 26.6. [Run 41163450380](https://github.com/shay2000/Kestrel-chromium/actions/runs/41163450380) passed the app build, first-run bookmark/pin screenshot, `example.com` navigation, drag text selection, Chrome Web Store listing, and a same-run launch of the original WebKit 1.0.0 app on that page. A Manifest V3 smoke extension also ran its content script, service-worker message and storage round-trip. The run contains the Mac app archive, a side-by-side WebKit comparison, and runner screenshots.
 
-The Web Store listing displays “Switch to Chrome to install extensions and themes” in Kestrel, so direct Chrome Web Store installation is not supported by this CEF build. The listing itself renders. Kestrel's separate extension importer is implemented for reviewed Manifest V3 CRX, ZIP, and unpacked packages; its runtime install flow still needs a dedicated acceptance check. Website passkeys remain unverified in the ad-hoc build and depend on Apple's managed browser capabilities; see [PASSKEY_SUPPORT.md](PASSKEY_SUPPORT.md). The build is not notarized for distribution.
+The Web Store listing displays “Switch to Chrome to install extensions and themes” in Kestrel, so its direct install button is unavailable. The MV3 smoke proves only basic extension execution; a representative catalogue, the importer UI, and Chrome Web Store installation have not passed runtime acceptance. Website passkey registration and sign-in also remain unverified; see [PASSKEY_SUPPORT.md](PASSKEY_SUPPORT.md). The workflow now assembles a versioned Apple Silicon DMG for review, but it is ad-hoc signed and not notarized for public distribution.
 
 One material difference remains in page automation: CefSwift exposes JavaScript execution in the page's main world. Kestrel's CEF operator keeps its fixed scripts, bounded data, action allow-list, approvals, and revalidation, but does not retain WebKit's isolated JavaScript world. Do not treat that as equivalent isolation or use model-supplied JavaScript/selectors.
 
@@ -27,7 +27,7 @@ open build/Kestrel.app
 
 Use `./build.sh debug` for a debug configuration. CEF's helper processes use Chromium's sandbox. The generated app is ad-hoc signed for local development; it is not notarized for distribution.
 
-The `macos-26` GitHub Actions workflow builds pull requests and can be run manually. It reports the runner's macOS/Xcode versions and uploads a zipped `Kestrel.app` artifact plus the build log. It compiles and packages the app; it does not launch the app or claim browser acceptance.
+The `macos-26` GitHub Actions workflow builds pull requests and can be run manually. It reports the runner's macOS/Xcode versions, launches and smoke-checks the app, runs the WebKit comparison, then uploads a clean zipped app, a versioned `.dmg` with SHA-256 checksum, screenshots, and the build log. The DMG is an ad-hoc signed review build, not a notarized public release.
 
 ## CEF dependency and licensing
 

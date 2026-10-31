@@ -53,17 +53,6 @@ jobs:
           codesign --force --sign - build/Kestrel.app
         shell: bash
 
-      - name: Archive the app bundle
-        run: ditto -c -k --keepParent build/Kestrel.app "$RUNNER_TEMP/Kestrel-Chromium-macOS.zip"
-
-      - name: Upload app bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kestrel-Chromium-macOS
-          path: ${{ runner.temp }}/Kestrel-Chromium-macOS.zip
-          if-no-files-found: error
-          retention-days: 30
-
       - name: Configure the Manifest V3 extension smoke fixture
         run: >-
           defaults write com.shayprasad.Kestrel
@@ -129,6 +118,43 @@ jobs:
           compare-original
           "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/after-url-open.png"
         shell: bash
+
+      - name: Remove the smoke fixture and prepare clean distribution files
+        run: |
+          defaults delete com.shayprasad.Kestrel kestrel.chromium.approved-extension-paths.v1 2>/dev/null || true
+          rm -rf build/Kestrel.app/Contents/Resources/ChromiumExtensionSmoke
+          codesign --force --deep --sign - build/Kestrel.app
+          codesign --verify --deep --strict --verbose=2 build/Kestrel.app
+          ditto -c -k --keepParent build/Kestrel.app "$RUNNER_TEMP/Kestrel-Chromium-macOS.zip"
+
+          STAGING="$RUNNER_TEMP/Kestrel-Chromium-DMG"
+          mkdir -p "$STAGING"
+          ditto build/Kestrel.app "$STAGING/Kestrel.app"
+          ln -s /Applications "$STAGING/Applications"
+          VERSION="$(cat VERSION)"
+          DMG="$RUNNER_TEMP/Kestrel-Chromium-${VERSION}-arm64.dmg"
+          hdiutil create -volname "Kestrel Chromium ${VERSION}" \
+            -srcfolder "$STAGING" -ov -format UDZO "$DMG"
+          (cd "$RUNNER_TEMP" && shasum -a 256 "$(basename "$DMG")" > "$(basename "$DMG").sha256")
+        shell: bash
+
+      - name: Upload clean app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-macOS
+          path: ${{ runner.temp }}/Kestrel-Chromium-macOS.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload versioned DMG and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-macOS-DMG
+          path: |
+            ${{ runner.temp }}/Kestrel-Chromium-*.dmg
+            ${{ runner.temp }}/Kestrel-Chromium-*.dmg.sha256
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload WebKit versus Chromium comparison
         if: always()

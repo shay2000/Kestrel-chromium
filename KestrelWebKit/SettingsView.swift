@@ -963,10 +963,10 @@ struct SettingsView: View {
     @ViewBuilder
     private var passkeysSection: some View {
         SettingsCard("Passkeys") {
-            Text("Kestrel's Chromium runtime handles website WebAuthn and passkey requests. The credential providers available depend on macOS, the authenticator and the signed app build.")
+            Text("The Chromium engine can receive website WebAuthn requests, but passkey registration and sign-in have not been verified in Kestrel. Apple credential-provider access may require browser capabilities in the signed app.")
                 .font(KestrelTypography.chromeDetail)
                 .foregroundStyle(Color.primary.opacity(0.66))
-            Text("Kestrel does not read or store credentials. It receives only a success or failure signal so it can offer to open the page in your default browser if a passkey attempt cannot finish.")
+            Text("Kestrel does not read or store credentials. If an explicit passkey attempt fails, it can offer to open the page in your default browser.")
                 .font(KestrelTypography.chromeDetail)
                 .foregroundStyle(Color.primary.opacity(0.66))
         }
