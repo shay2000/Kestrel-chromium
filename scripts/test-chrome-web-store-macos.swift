@@ -55,6 +55,9 @@ struct ChromeWebStoreAcceptance {
                 }
             }
             if installed.contains(items[1].id) { try await verifyDarkReader(stage: "before-restart") }
+            if ProcessInfo.processInfo.environment["KESTREL_REQUIRE_EXTENSION_WINDOW_FIXTURE"] == "1" {
+                try await verifyFixtureOptions()
+            }
             if !installed.isEmpty { try await launch(); await widenRunnerWindow() }
             for item in items where installed.contains(item.id) {
                 guard let manifest = try installedManifest(id: item.id) else {
@@ -411,9 +414,38 @@ struct ChromeWebStoreAcceptance {
         record("window_census", value)
         try save("window-census-\(stage).json", value)
         try capture("window-census-\(stage)")
-        if ProcessInfo.processInfo.environment["KESTREL_ASSERT_HOSTED_EXTENSION_WINDOWS"] == "1", chromeToolbars > 0 {
+        if chromeToolbars > 0 {
             throw StoreProbeError(message: "A separate Chromium toolbar/window escaped Kestrel after \(stage)")
         }
+        if stage == "after-dark-reader", !pages.contains(where: { ($0["url"] as? String)?.hasPrefix("https://darkreader.org/help/") == true }) {
+            throw StoreProbeError(message: "Dark Reader's welcome page was lost instead of opening as a Kestrel tab")
+        }
+    }
+
+    static func verifyFixtureOptions() async throws {
+        var worker: [String: Any]?
+        for _ in 0..<10 {
+            for target in try await targets() where target["type"] as? String == "service_worker" {
+                guard let text = target["url"] as? String, URL(string: text)?.path == "/background.js" else { continue }
+                if try await evaluate(target, "chrome.runtime.getManifest().name") as? String == "Kestrel Chromium Extension Smoke" {
+                    worker = target; break
+                }
+            }
+            if worker != nil { break }; await pause()
+        }
+        guard let worker, let text = worker["url"] as? String, let host = URL(string: text)?.host else {
+            throw StoreProbeError(message: "No disposable extension worker for native options-page acceptance")
+        }
+        let result = try await cdp(worker, "Runtime.evaluate", ["expression": "chrome.runtime.openOptionsPage().then(()=>true)", "awaitPromise": true, "returnByValue": true])
+        guard result["exceptionDetails"] == nil, (result["result"] as? [String: Any])?["value"] as? Bool == true else {
+            throw StoreProbeError(message: "The actual extension options API failed: \(result)")
+        }
+        let page = try await target(matching: "chrome-extension://\(host)/options.html")
+        guard try await evaluate(page, "document.body.innerText.includes('Kestrel extension options fixture')") as? Bool == true else {
+            throw StoreProbeError(message: "The extension options document did not load in Kestrel")
+        }
+        try await inspectWindowSurfaces(stage: "extension-options")
+        record("extension_options_hosted", ["extensionID": host, "apiSucceeded": true])
     }
     static func dumpAX(_ name: String) throws {
         try save(name, axNodes().map { node in Dictionary(uniqueKeysWithValues: ["AXRole", "AXTitle", "AXDescription", "AXValue"].map { ($0, String(describing: ax(node, $0) ?? "" as CFString).prefix(400).description) }) })

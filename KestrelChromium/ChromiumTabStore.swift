@@ -717,6 +717,35 @@ final class TabStore: ObservableObject {
         return chrome
     }
 
+    /// Chromium's post-install notification asks for a normal tabbed browser;
+    /// CEF Views hosts are popup-style internally, so Chromium creates a second
+    /// full Chrome window. Keep installation/profile state in the runtime, but
+    /// dismiss its blank UI and show onboarding GET pages as Kestrel tabs.
+    func routeChromeUIBrowser(_ browser: CefBrowser) {
+        var resolved = false
+        browser.onBeforeMainFrameNavigation = { [weak self, weak browser] url, method in
+            guard !resolved else { return true }
+            resolved = true
+            let destination = ChromiumExtensionNavigation.destination(
+                url, method: method, usesDefaultProfile: browser?.usesGlobalRequestContext == true
+            )
+            // Never destroy/create browsers while Chromium is adding a tab or
+            // in OnBeforeBrowse. Cancel the original navigation first; it has
+            // not loaded a form, account page or extension script to duplicate.
+            DispatchQueue.main.async { [weak self, weak browser] in
+                browser?.nativeView?.window?.orderOut(nil)
+                if let destination, let self, CefRuntime.shared.isAcceptingBrowsers {
+                    _ = self.newTab(urlString: destination.absoluteString)
+                }
+                browser?.close(force: false)
+            }
+            return true
+        }
+        DispatchQueue.main.async { [weak browser] in
+            browser?.nativeView?.window?.orderOut(nil)
+        }
+    }
+
     /// Whether a live page exists for this tab.
     ///
     /// Exposed so the rule that an assistant tab never gets a browser can be

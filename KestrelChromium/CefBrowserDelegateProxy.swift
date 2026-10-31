@@ -56,6 +56,7 @@ final class CefBrowserDelegateProxy: CefBrowserDelegate {
         let scheme = url.scheme?.lowercased() ?? ""
         if ["http", "https"].contains(scheme) { return url.host == nil ? .cancel : .allow }
         if URLNormalisation.chromiumInternalURL(from: url.absoluteString) != nil { return .allow }
+        if URLNormalisation.chromiumExtensionURL(from: url.absoluteString) != nil { return .allow }
         let externalSchemes: Set<String> = ["mailto", "tel", "sms", "facetime", "maps", "itms-apps"]
         guard userGesture, externalSchemes.contains(scheme),
               tabs?.openExternalNavigation(url) == true else { return .cancel }

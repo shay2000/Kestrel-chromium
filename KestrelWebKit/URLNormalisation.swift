@@ -269,6 +269,7 @@ enum URLNormalisation {
         guard !value.isEmpty else { return nil }
 
         if let internalPage = chromiumInternalURL(from: value) { return internalPage }
+        if let extensionPage = chromiumExtensionURL(from: value) { return extensionPage }
 
         if let url = explicitHTTPURL(from: value) { return url }
         if let url = SearchShortcut.bangDestination(from: value, using: engineForBangs) { return url }
@@ -294,6 +295,16 @@ enum URLNormalisation {
               components.user == nil, components.password == nil,
               let url = components.url else { return nil }
         return url
+    }
+
+    /// Preserve a Chromium extension's own origin when its options page opens.
+    /// Chromium still enforces installed-resource and extension-origin access.
+    static func chromiumExtensionURL(from value: String) -> URL? {
+        guard let parts = URLComponents(string: value),
+              parts.scheme?.lowercased() == "chrome-extension", let host = parts.host,
+              host.count == 32, host.allSatisfy({ ("a"..."p").contains(String($0)) }),
+              parts.user == nil, parts.password == nil, parts.port == nil else { return nil }
+        return parts.url
     }
 
     /// Returns a URL only when the text already names an http/https address.

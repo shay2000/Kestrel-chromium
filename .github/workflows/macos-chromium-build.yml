@@ -132,6 +132,8 @@ jobs:
 
       - name: Operate native Chrome Web Store installs and verify restart
         if: always() && steps.launch-smoke.outcome == 'success'
+        env:
+          KESTREL_REQUIRE_EXTENSION_WINDOW_FIXTURE: "1"
         run: |
           swiftc -swift-version 5 -parse-as-library scripts/test-chrome-web-store-macos.swift -o "$RUNNER_TEMP/kestrel-web-store-test"
           "$RUNNER_TEMP/kestrel-web-store-test" "$GITHUB_WORKSPACE/build/Kestrel.app" \

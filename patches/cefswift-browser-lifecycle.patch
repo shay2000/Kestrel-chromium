@@ -1,16 +1,17 @@
 diff --git a/Sources/CefKit/BrowserClient.swift b/Sources/CefKit/BrowserClient.swift
-index 44a10e0..f0a50bc 100644
+index 44a10e0..968cad4 100644
 --- a/Sources/CefKit/BrowserClient.swift
 +++ b/Sources/CefKit/BrowserClient.swift
-@@ -12,6 +12,7 @@ import Foundation
+@@ -12,6 +12,8 @@ import Foundation
  @MainActor
  final class BrowserClient {
      private(set) weak var browser: CefBrowser?
 +    var isSynchronousCreation = false
++    var isChromeUIClient = false
  
      // Buffered early state (pre-attach).
      private var pendingTitle: String?
-@@ -67,7 +68,20 @@ final class BrowserClient {
+@@ -67,7 +69,20 @@ final class BrowserClient {
      /// Recovers the BrowserClient from a CEF callback's `self` pointer.
      /// Must run on the main thread (CEF UI thread).
      private nonisolated static func owner(_ cefSelf: UnsafeMutableRawPointer?) -> BrowserClient? {
@@ -32,7 +33,7 @@ index 44a10e0..f0a50bc 100644
      }
  
      // MARK: Struct construction
-@@ -77,31 +91,38 @@ final class BrowserClient {
+@@ -77,31 +92,41 @@ final class BrowserClient {
      /// creation).
      func makeClient() -> UnsafeMutablePointer<cef_client_t> {
          let lifeSpan = cefAllocate(cef_life_span_handler_t.self, owner: self)
@@ -69,9 +70,12 @@ index 44a10e0..f0a50bc 100644
 +                    let routed = owner.browser == nil ? owner : BrowserClient()
 +                    wrapper = CefBrowser(raw: nil, client: routed, delegate: nil)
 +                    routed.attach(wrapper)
-                 }
++                }
 +                cefAddRef(UnsafeMutableRawPointer(raw))
 +                wrapper.adoptRaw(raw)
++                if owner.isChromeUIClient, raw.pointee.is_popup?(raw) != 1 {
++                    CefRuntime.shared.onChromeUIBrowserCreated?(wrapper)
+                 }
              }
 -            cefRelease(UnsafeMutableRawPointer(browser))
          }
@@ -88,7 +92,7 @@ index 44a10e0..f0a50bc 100644
              MainActor.assumeIsolated {
                  client.browser?.handleBeforeClose()
              }
-@@ -109,9 +130,9 @@ final class BrowserClient {
+@@ -109,9 +134,9 @@ final class BrowserClient {
          lifeSpan.pointee.on_before_popup = {
              handlerSelf, browser, frame, _, targetURL, targetFrameName, targetDisposition,
              userGesture, popupFeatures, _, _, _, _, _ in
@@ -100,7 +104,7 @@ index 44a10e0..f0a50bc 100644
              let url = URL(string: CefStringUtil.string(from: targetURL))
              let frameName = CefStringUtil.string(from: targetFrameName)
              let disposition = CefWindowOpenDisposition(cefValue: targetDisposition)
-@@ -122,7 +143,8 @@ final class BrowserClient {
+@@ -122,7 +147,8 @@ final class BrowserClient {
              // chrome). Everything else is handled in-process and returns 1, so
              // an OSR browser never gets a render-handler-less popup created.
              return MainActor.assumeIsolated {
@@ -110,7 +114,7 @@ index 44a10e0..f0a50bc 100644
                  let isOSR = client.osrHost != nil
                  let request = CefWindowOpenRequest(
                      targetURL: url,
-@@ -151,8 +173,8 @@ final class BrowserClient {
+@@ -151,8 +177,8 @@ final class BrowserClient {
  
          let load = cefAllocate(cef_load_handler_t.self, owner: self)
          load.pointee.on_loading_state_change = { handlerSelf, browser, isLoading, canGoBack, canGoForward in
@@ -121,7 +125,7 @@ index 44a10e0..f0a50bc 100644
              MainActor.assumeIsolated {
                  client.updateLoadingState(
                      isLoading: isLoading != 0,
-@@ -162,10 +184,10 @@ final class BrowserClient {
+@@ -162,10 +188,10 @@ final class BrowserClient {
              }
          }
          load.pointee.on_load_error = { handlerSelf, browser, frame, errorCode, errorText, failedURL in
@@ -134,7 +138,7 @@ index 44a10e0..f0a50bc 100644
              let text = CefStringUtil.string(from: errorText)
              let failed = CefStringUtil.string(from: failedURL)
              let code = Int(errorCode.rawValue)
-@@ -175,10 +197,10 @@ final class BrowserClient {
+@@ -175,10 +201,10 @@ final class BrowserClient {
              }
          }
          load.pointee.on_load_end = { handlerSelf, browser, frame, _ in
@@ -147,7 +151,7 @@ index 44a10e0..f0a50bc 100644
              MainActor.assumeIsolated {
                  // JS ↔ Swift bridge: late shim injection (see CefBridge docs;
                  // production pages should embed CefBridge.javascriptShim).
-@@ -195,22 +217,22 @@ final class BrowserClient {
+@@ -195,22 +221,22 @@ final class BrowserClient {
  
          let display = cefAllocate(cef_display_handler_t.self, owner: self)
          display.pointee.on_title_change = { handlerSelf, browser, title in
@@ -176,7 +180,7 @@ index 44a10e0..f0a50bc 100644
              var urls: [URL] = []
              if let iconURLs {
                  for index in 0..<cef_string_list_size(iconURLs) {
-@@ -230,8 +252,8 @@ final class BrowserClient {
+@@ -230,8 +256,8 @@ final class BrowserClient {
              }
          }
          display.pointee.on_fullscreen_mode_change = { handlerSelf, browser, fullscreen in
@@ -187,7 +191,7 @@ index 44a10e0..f0a50bc 100644
              let isFullscreen = fullscreen != 0
              MainActor.assumeIsolated {
                  guard let cefBrowser = client.browser else { return }
-@@ -239,16 +261,16 @@ final class BrowserClient {
+@@ -239,16 +265,16 @@ final class BrowserClient {
              }
          }
          display.pointee.on_loading_progress_change = { handlerSelf, browser, progress in
@@ -208,7 +212,7 @@ index 44a10e0..f0a50bc 100644
              let message = CefStringUtil.string(from: message)
              let source = CefStringUtil.string(from: source)
              let severity = CefLogSeverity(cefValue: level)
-@@ -266,23 +288,23 @@ final class BrowserClient {
+@@ -266,23 +292,23 @@ final class BrowserClient {
              return 0  // keep default logging behavior
          }
          display.pointee.on_status_message = { handlerSelf, browser, value in
@@ -238,7 +242,7 @@ index 44a10e0..f0a50bc 100644
                  cefBrowser.delegate?.browser(cefBrowser, didChangeCursor: cursor)
                  // OSR has no CEF window, so the host must apply the cursor.
                  client.osrHost?.osrDidChangeCursor(cursor)
-@@ -293,13 +315,13 @@ final class BrowserClient {
+@@ -293,13 +319,13 @@ final class BrowserClient {
  
          let download = cefAllocate(cef_download_handler_t.self, owner: self)
          download.pointee.can_download = { _, browser, _, _ in
@@ -254,7 +258,7 @@ index 44a10e0..f0a50bc 100644
              guard let item, let callback else {
                  cefRelease(item.map(UnsafeMutableRawPointer.init))
                  cefRelease(callback.map(UnsafeMutableRawPointer.init))
-@@ -309,7 +331,7 @@ final class BrowserClient {
+@@ -309,7 +335,7 @@ final class BrowserClient {
              let download = CefDownload(item: item)
              cefRelease(UnsafeMutableRawPointer(item))
              let name = CefStringUtil.string(from: suggestedName)
@@ -263,7 +267,7 @@ index 44a10e0..f0a50bc 100644
                  cefRelease(UnsafeMutableRawPointer(callback))
                  return 0
              }
-@@ -331,12 +353,12 @@ final class BrowserClient {
+@@ -331,12 +357,12 @@ final class BrowserClient {
              }
          }
          download.pointee.on_download_updated = { handlerSelf, browser, item, callback in
@@ -278,7 +282,7 @@ index 44a10e0..f0a50bc 100644
              MainActor.assumeIsolated {
                  guard let cefBrowser = client.browser else { return }
                  cefBrowser.delegate?.browser(cefBrowser, downloadDidProgress: download)
-@@ -352,7 +374,16 @@ final class BrowserClient {
+@@ -352,7 +378,16 @@ final class BrowserClient {
              makeRenderHandler()
          }
  
@@ -296,7 +300,7 @@ index 44a10e0..f0a50bc 100644
          client.pointee.get_render_handler = { clientSelf in
              guard let me = BrowserClient.owner(clientSelf.map(UnsafeMutableRawPointer.init)),
                    let handler = me.renderPointer else { return nil }
-@@ -427,10 +458,11 @@ final class BrowserClient {
+@@ -427,10 +462,11 @@ final class BrowserClient {
      /// on the main actor, calling `body` only when both exist.
      nonisolated static func withBrowser<R: Sendable>(
          _ handlerSelf: UnsafeMutableRawPointer?,
@@ -309,7 +313,7 @@ index 44a10e0..f0a50bc 100644
          return MainActor.assumeIsolated {
              guard let browser = client.browser else { return fallback }
              return body(client, browser)
-@@ -494,7 +526,7 @@ extension BrowserClient {
+@@ -494,7 +530,7 @@ extension BrowserClient {
          let handler = cefAllocate(cef_jsdialog_handler_t.self, owner: self)
          handler.pointee.on_jsdialog = {
              handlerSelf, browser, originURL, dialogType, messageText, defaultPromptText, callback, suppressMessage in
@@ -318,7 +322,7 @@ index 44a10e0..f0a50bc 100644
              guard let callback else {
                  suppressMessage?.pointee = 0
                  return 0
-@@ -506,33 +538,36 @@ extension BrowserClient {
+@@ -506,33 +542,36 @@ extension BrowserClient {
                  origin: CefStringUtil.string(from: originURL)
              )
              let wrapper = CefJSDialogCallback(raw: callback)  // owns the +1
@@ -362,7 +366,7 @@ index 44a10e0..f0a50bc 100644
          }
          jsDialogPointer = handler
      }
-@@ -542,18 +577,18 @@ extension BrowserClient {
+@@ -542,18 +581,18 @@ extension BrowserClient {
      private func makeContextMenuHandler() {
          let handler = cefAllocate(cef_context_menu_handler_t.self, owner: self)
          handler.pointee.on_before_context_menu = { handlerSelf, browser, frame, params, model in
@@ -384,7 +388,7 @@ index 44a10e0..f0a50bc 100644
              cefRelease(frame.map(UnsafeMutableRawPointer.init))
              guard let model, let callback else {
                  cefRelease(model.map(UnsafeMutableRawPointer.init))
-@@ -569,7 +604,7 @@ extension BrowserClient {
+@@ -569,7 +608,7 @@ extension BrowserClient {
              // CEF treats a disconnected callback paired with a false return as
              // an error and force-sets is_handled=true, which suppresses the
              // native menu entirely. We simply drop our +1 ref on it.
@@ -393,7 +397,7 @@ index 44a10e0..f0a50bc 100644
                  client.osrHost != nil
              }
              if !isOSR {
-@@ -579,7 +614,7 @@ extension BrowserClient {
+@@ -579,7 +618,7 @@ extension BrowserClient {
              let menu = CefMenuModel(raw: model)
              let viewPoint = params.map { CGPoint(x: CGFloat($0.pointee.get_xcoord?($0) ?? 0), y: CGFloat($0.pointee.get_ycoord?($0) ?? 0)) } ?? .zero
              let wrapper = CefRunContextMenuCallback(raw: callback)  // owns the +1
@@ -402,7 +406,7 @@ index 44a10e0..f0a50bc 100644
                  guard let host = client.osrHost else {
                      // Defensive: osrHost vanished between the two checks.
                      wrapper.cancel()
-@@ -590,18 +625,18 @@ extension BrowserClient {
+@@ -590,18 +629,18 @@ extension BrowserClient {
              }
          }
          handler.pointee.on_context_menu_command = { handlerSelf, browser, frame, params, commandID, _ in
@@ -425,7 +429,7 @@ index 44a10e0..f0a50bc 100644
                  cefBrowser.delegate?.browserContextMenuDidClose(cefBrowser)
              }
          }
-@@ -614,37 +649,50 @@ extension BrowserClient {
+@@ -614,37 +653,50 @@ extension BrowserClient {
          let handler = cefAllocate(cef_permission_handler_t.self, owner: self)
          handler.pointee.on_request_media_access_permission = {
              handlerSelf, browser, frame, requestingOrigin, requestedPermissions, callback in
@@ -495,25 +499,31 @@ index 44a10e0..f0a50bc 100644
          }
          handler.pointee.on_dismiss_permission_prompt = { _, browser, _, _ in
              cefRelease(browser.map(UnsafeMutableRawPointer.init))
-@@ -657,7 +705,7 @@ extension BrowserClient {
+@@ -657,17 +709,21 @@ extension BrowserClient {
      private func makeRequestHandler() {
          let handler = cefAllocate(cef_request_handler_t.self, owner: self)
          handler.pointee.on_before_browse = { handlerSelf, browser, frame, request, userGesture, isRedirect in
 -            cefRelease(browser.map(UnsafeMutableRawPointer.init))
 +            defer { cefRelease(browser.map(UnsafeMutableRawPointer.init)) }
++            let isMainFrame = frame.map { $0.pointee.is_main?($0) == 1 } ?? false
              cefRelease(frame.map(UnsafeMutableRawPointer.init))
              var urlString = ""
++            var method = ""
              if let request {
-@@ -667,7 +715,7 @@ extension BrowserClient {
+                 urlString = CefStringUtil.takingUserFree(request.pointee.get_url?(request)) ?? ""
++                method = CefStringUtil.takingUserFree(request.pointee.get_method?(request)) ?? ""
+                 cefRelease(UnsafeMutableRawPointer(request))
+             }
              let url = URL(string: urlString)
              let gesture = userGesture != 0
              let redirect = isRedirect != 0
 -            return BrowserClientCallbacks.run(handlerSelf, default: Int32(0)) { _, cefBrowser in
 +            return BrowserClientCallbacks.run(handlerSelf, browser: browser, default: Int32(0)) { _, cefBrowser in
++                if isMainFrame, cefBrowser.onBeforeMainFrameNavigation?(url, method) == true { return 1 }
                  let decision = cefBrowser.delegate?.browser(
                      cefBrowser, decidePolicyForNavigation: url, isRedirect: redirect, userGesture: gesture
                  ) ?? .allow
-@@ -675,19 +723,19 @@ extension BrowserClient {
+@@ -675,19 +731,19 @@ extension BrowserClient {
              }
          }
          handler.pointee.on_open_urlfrom_tab = { handlerSelf, browser, frame, targetURL, _, _ in
@@ -537,7 +547,7 @@ index 44a10e0..f0a50bc 100644
                  let override = cefBrowser.delegate?.browser(cefBrowser, didEncounterCertificateError: url, errorCode: code) ?? false
                  if override, let callback {
                      callback.pointee.cont?(callback)
-@@ -701,7 +749,7 @@ extension BrowserClient {
+@@ -701,7 +757,7 @@ extension BrowserClient {
          }
          handler.pointee.get_auth_credentials = {
              handlerSelf, browser, originURL, isProxy, host, port, realm, scheme, callback in
@@ -546,7 +556,7 @@ index 44a10e0..f0a50bc 100644
              guard let callback else { return 0 }
              let challenge = CefAuthChallenge(
                  origin: CefStringUtil.string(from: originURL),
-@@ -730,10 +778,10 @@ extension BrowserClient {
+@@ -730,10 +786,10 @@ extension BrowserClient {
              }
          }
          handler.pointee.on_render_process_terminated = { handlerSelf, browser, status, errorCode, _ in
@@ -559,7 +569,7 @@ index 44a10e0..f0a50bc 100644
                  cefBrowser.delegate?.browser(cefBrowser, renderProcessDidTerminate: reason, errorCode: code)
              }
          }
-@@ -748,18 +796,18 @@ extension BrowserClient {
+@@ -748,18 +804,18 @@ extension BrowserClient {
      private func makeKeyboardHandler() {
          let handler = cefAllocate(cef_keyboard_handler_t.self, owner: self)
          handler.pointee.on_pre_key_event = { handlerSelf, browser, event, _, _ in
@@ -582,7 +592,7 @@ index 44a10e0..f0a50bc 100644
                  (cefBrowser.delegate?.browser(cefBrowser, handleKeyEvent: keyEvent, isBeforePage: false) ?? false) ? 1 : 0
              }
          }
-@@ -771,21 +819,21 @@ extension BrowserClient {
+@@ -771,21 +827,21 @@ extension BrowserClient {
      private func makeFocusHandler() {
          let handler = cefAllocate(cef_focus_handler_t.self, owner: self)
          handler.pointee.on_take_focus = { handlerSelf, browser, next in
@@ -610,7 +620,7 @@ index 44a10e0..f0a50bc 100644
                  cefBrowser.delegate?.browserDidGainFocus(cefBrowser)
              }
          }
-@@ -799,13 +847,26 @@ extension BrowserClient {
+@@ -799,13 +855,26 @@ extension BrowserClient {
  enum BrowserClientCallbacks {
      static func run<R: Sendable>(
          _ handlerSelf: UnsafeMutableRawPointer?,
@@ -639,10 +649,10 @@ index 44a10e0..f0a50bc 100644
 +    deinit { for handler in handlers { cefRelease(handler) } }
 +}
 diff --git a/Sources/CefKit/CefAppHandlers.swift b/Sources/CefKit/CefAppHandlers.swift
-index 3984214..7d879aa 100644
+index 3984214..5a1c7ab 100644
 --- a/Sources/CefKit/CefAppHandlers.swift
 +++ b/Sources/CefKit/CefAppHandlers.swift
-@@ -33,6 +33,15 @@ final class CefAppContext: @unchecked Sendable {
+@@ -33,6 +33,16 @@ final class CefAppContext: @unchecked Sendable {
      func makeApp() -> UnsafeMutablePointer<cef_app_t> {
          let bp = cefAllocate(cef_browser_process_handler_t.self, owner: self)
          bp.pointee.on_context_initialized = { _ in }
@@ -650,6 +660,7 @@ index 3984214..7d879aa 100644
 +            nonisolated(unsafe) var result: UnsafeMutablePointer<cef_client_t>?
 +            MainActor.assumeIsolated {
 +                let client = BrowserClient()
++                client.isChromeUIClient = true
 +                result = client.makeClient()
 +                CefRuntime.shared.lifecycleLog("default-client")
 +            }
@@ -659,14 +670,27 @@ index 3984214..7d879aa 100644
              guard let owner = cefOwner(CefAppContext.self, handlerSelf.map(UnsafeMutableRawPointer.init)) else { return }
              owner.pump.scheduleWork(delayMilliseconds: delayMS)
 diff --git a/Sources/CefKit/CefBrowser.swift b/Sources/CefKit/CefBrowser.swift
-index e9df84c..3b119a9 100644
+index e9df84c..aa0b847 100644
 --- a/Sources/CefKit/CefBrowser.swift
 +++ b/Sources/CefKit/CefBrowser.swift
-@@ -51,6 +51,13 @@ public final class CefBrowser: Identifiable {
+@@ -51,6 +51,26 @@ public final class CefBrowser: Identifiable {
      /// Owned +1 reference to the underlying cef_browser_t; nil after close.
      private var raw: UnsafeMutablePointer<cef_browser_t>?
      let client: BrowserClient?
 +    public var onCloseCancelled: (() -> Void)?
++    /// Return true to cancel this main-frame request. Carries the actual HTTP
++    /// method so hosts never replay a POST as a GET. Subframes are excluded.
++    public var onBeforeMainFrameNavigation: ((URL?, String) -> Bool)?
++
++    /// Whether this browser uses the app's default profile. Hosts must not
++    /// forward another profile's navigation into their ordinary tabs.
++    public var usesGlobalRequestContext: Bool {
++        withHost { host in
++            guard let context = host.pointee.get_request_context?(host) else { return false }
++            defer { cefRelease(UnsafeMutableRawPointer(context)) }
++            return context.pointee.is_global?(context) == 1
++        } ?? false
++    }
 +    private var didClose = false
 +
 +    func closeWasCancelled() {
@@ -676,7 +700,7 @@ index e9df84c..3b119a9 100644
  
      init(raw: UnsafeMutablePointer<cef_browser_t>?, client: BrowserClient?, delegate: CefBrowserDelegate?) {
          self.raw = raw
-@@ -192,7 +199,7 @@ public final class CefBrowser: Identifiable {
+@@ -192,7 +212,7 @@ public final class CefBrowser: Identifiable {
      /// If a raw browser is already owned the extra reference is released —
      /// this guards against popup browsers reusing the same client.
      func adoptRaw(_ newRaw: UnsafeMutablePointer<cef_browser_t>) {
@@ -685,17 +709,18 @@ index e9df84c..3b119a9 100644
              cefRelease(UnsafeMutableRawPointer(newRaw))
              return
          }
-@@ -255,6 +262,9 @@ public final class CefBrowser: Identifiable {
+@@ -255,6 +275,10 @@ public final class CefBrowser: Identifiable {
      }
  
      func handleBeforeClose() {
 +        guard !didClose else { return }
 +        didClose = true
++        onBeforeMainFrameNavigation = nil
 +        CefRuntime.shared.abandonPendingBrowser(self)
          delegate?.browserDidClose(self)
          if let raw {
              cefRelease(UnsafeMutableRawPointer(raw))
-@@ -319,6 +329,8 @@ extension CefBrowser {
+@@ -319,6 +343,8 @@ extension CefBrowser {
  
          let requestContext = options.profile?.makeRequestContext()
  
@@ -878,10 +903,20 @@ index 144ded0..05259e2 100644
  
      func start() {
 diff --git a/Sources/CefKit/CefRuntime.swift b/Sources/CefKit/CefRuntime.swift
-index b793569..3575ff4 100644
+index b793569..aea14fc 100644
 --- a/Sources/CefKit/CefRuntime.swift
 +++ b/Sources/CefKit/CefRuntime.swift
-@@ -111,7 +111,44 @@ public final class CefRuntime {
+@@ -107,11 +107,54 @@ public final class CefRuntime {
+     /// call them via `window.cefSwift.invoke(name, params)`. See ``CefBridge``.
+     public let bridge = CefBridge()
+ 
++    /// Browsers created by Chrome UI rather than the app's Views factory.
++    /// The app can route their initial navigation into its own tab UI. Never
++    /// close a browser synchronously here: Chromium is still attaching it.
++    /// Explicit DevTools popups do not use this hook.
++    public var onChromeUIBrowserCreated: ((CefBrowser) -> Void)?
++
+     var messagePump: CefMessagePump?
      private var appContext: CefAppContext?
      private var settings: MappedCefSettings?
      private var browsers: [Int32: CefBrowser] = [:]
@@ -927,7 +962,7 @@ index b793569..3575ff4 100644
  
      private init() {}
  
-@@ -230,7 +267,10 @@ public final class CefRuntime {
+@@ -230,7 +273,10 @@ public final class CefRuntime {
      /// Shuts CEF down and unloads the framework. All browsers must already
      /// be closed. Call once, at process exit.
      public func shutdown() {
@@ -939,7 +974,7 @@ index b793569..3575ff4 100644
          messagePump?.stop()
          messagePump = nil
          CEFApplication.setTerminateHandler(nil)
-@@ -390,34 +430,54 @@ public final class CefRuntime {
+@@ -390,34 +436,54 @@ public final class CefRuntime {
      // MARK: Browser registry / termination
  
      func registerBrowser(_ browser: CefBrowser) {
@@ -1011,10 +1046,10 @@ index b793569..3575ff4 100644
  }
 diff --git a/Tests/CefKitTests/KestrelLifecycleTests.swift b/Tests/CefKitTests/KestrelLifecycleTests.swift
 new file mode 100644
-index 0000000..17f1cce
+index 0000000..e72cebd
 --- /dev/null
 +++ b/Tests/CefKitTests/KestrelLifecycleTests.swift
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,164 @@
 +import Foundation
 +import Testing
 +@testable import CCef
@@ -1074,6 +1109,10 @@ index 0000000..17f1cce
 +        #expect(observer.closed == 0)
 +    }
 +    @Test func chromeDefaultClientRegistersAnAuxiliaryBrowser() {
++        let previous = CefRuntime.shared.onChromeUIBrowserCreated
++        var routed: [Int32] = []
++        CefRuntime.shared.onChromeUIBrowserCreated = { routed.append($0.id) }
++        defer { CefRuntime.shared.onChromeUIBrowserCreated = previous }
 +        let context = CefAppContext(extraSwitches: [:], useMockKeychain: false,
 +                                   userCommandLineHook: nil, customSchemes: [], pump: CefMessagePump())
 +        let app = context.makeApp()
@@ -1087,8 +1126,54 @@ index 0000000..17f1cce
 +        }
 +        created(life, browser)
 +        #expect(CefRuntime.shared.browser(withID: 98003)?.hasRawBrowser == true)
++        #expect(routed == [98003])
 +        closed(life, browser)
 +        #expect(CefRuntime.shared.browser(withID: 98003) == nil)
++    }
++    @Test func explicitDevToolsPopupIsNotRoutedAsAnInstallWindow() {
++        let previous = CefRuntime.shared.onChromeUIBrowserCreated
++        var routed = false
++        CefRuntime.shared.onChromeUIBrowserCreated = { _ in routed = true }
++        defer { CefRuntime.shared.onChromeUIBrowserCreated = previous }
++        let owner = BrowserClient()
++        owner.isChromeUIClient = true
++        let client = owner.makeClient()
++        let life = client.pointee.get_life_span_handler!(client)!
++        let browser = raw(98006)
++        browser.pointee.is_popup = { _ in 1 }
++        created(life, browser)
++        #expect(!routed)
++        #expect(CefRuntime.shared.browser(withID: 98006) != nil)
++        closed(life, browser)
++        cefRelease(UnsafeMutableRawPointer(browser)); cefRelease(UnsafeMutableRawPointer(life)); cefRelease(UnsafeMutableRawPointer(client))
++    }
++    @Test func navigationInterceptionExcludesSubframesAndClearsAtClose() {
++        let owner = BrowserClient()
++        let browser = CefBrowser(raw: nil, client: owner, delegate: nil)
++        owner.attach(browser)
++        let client = owner.makeClient()
++        let life = client.pointee.get_life_span_handler!(client)!
++        let request = client.pointee.get_request_handler!(client)!
++        let pointer = raw(98007)
++        created(life, pointer)
++        var calls = 0
++        browser.onBeforeMainFrameNavigation = { _, method in
++            #expect(method == "") // Missing requests do not become GETs.
++            calls += 1
++            return true
++        }
++        let frame = cefAllocate(cef_frame_t.self, owner: Identity(1))
++        frame.pointee.is_main = { _ in 1 }
++        cefAddRef(UnsafeMutableRawPointer(pointer)); cefAddRef(UnsafeMutableRawPointer(frame))
++        #expect(request.pointee.on_before_browse!(request, pointer, frame, nil, 0, 0) == 1)
++        frame.pointee.is_main = { _ in 0 }
++        cefAddRef(UnsafeMutableRawPointer(pointer)); cefAddRef(UnsafeMutableRawPointer(frame))
++        #expect(request.pointee.on_before_browse!(request, pointer, frame, nil, 0, 0) == 0)
++        #expect(calls == 1)
++        closed(life, pointer)
++        #expect(browser.onBeforeMainFrameNavigation == nil)
++        cefRelease(UnsafeMutableRawPointer(frame)); cefRelease(UnsafeMutableRawPointer(pointer))
++        cefRelease(UnsafeMutableRawPointer(request)); cefRelease(UnsafeMutableRawPointer(life)); cefRelease(UnsafeMutableRawPointer(client))
 +    }
 +    @Test func releasingClientBreaksHandlerOwnerCycle() {
 +        weak var weakOwner: BrowserClient?

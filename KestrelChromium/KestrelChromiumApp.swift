@@ -34,6 +34,9 @@ struct KestrelChromiumApp: CefSwiftApp {
             searchEngine: settings.searchEngine,
             pinnedTabsDefaults: .standard
         )
+        CefRuntime.shared.onChromeUIBrowserCreated = { [weak tabs] browser in
+            tabs?.routeChromeUIBrowser(browser)
+        }
         let chat = AIChatStore()
         let mcpServer = KestrelMCPServer()
         let updater = KestrelUpdater()
