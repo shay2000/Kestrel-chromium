@@ -83,6 +83,12 @@ private struct KestrelNativeChromeMaterial: NSViewRepresentable {
         if #available(macOS 26.0, *) {
             let glass = NSGlassEffectView()
             glass.style = .regular
+            // macOS 27 adds a glass highlight animation for interactive
+            // surfaces. Kestrel's page is a separate CEF child window, so
+            // clicks in it must not animate the browser chrome behind it.
+            if glass.responds(to: NSSelectorFromString("setEffectIsInteractive:")) {
+                glass.setValue(false, forKey: "effectIsInteractive")
+            }
             // The window owns the outer corners. This single backdrop must
             // remain square at every internal sidebar/page boundary.
             glass.cornerRadius = 0
@@ -737,6 +743,11 @@ struct ContentView: View {
         let isActive = tabs.selectedID == tabID
         let isDisplayed = tabs.split.map { $0.side(containing: tabID) != nil } ?? isActive
         let isSearching = chat.isSearchingWeb && isActive
+        let hasInteractivePageBanner = isActive && (
+            browser.navigationFailure != nil
+                || browser.passkeyHandoffNeeded
+                || browser.browserHandoffError != nil
+        )
         // A blank page has no content to show. The persistent CEF browser is
         // parked until the tab gets an address.
         let hasNoPage = browser.addressText
@@ -781,6 +792,7 @@ struct ContentView: View {
             BrowserView(browserID: tabID, browserGeneration: tabs.pageGeneration(for: tabID),
                         makeChromeBrowser: { tabs.chromeBrowser(for: tabID) },
                         pageOverlay: pageOverlay,
+                        interactiveOverlayHeight: hasInteractivePageBanner ? 176 : 0,
                         onFocus: focusAction,
                         isHidden: hasNoPage, isVisible: isDisplayed)
                 .clipShape(pageShape)

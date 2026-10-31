@@ -6,7 +6,7 @@ The app carries over Kestrel's SwiftUI browser, tabs and split view, assistant a
 
 The Chromium build keeps its own browser profile. Cookies and history from a WebKit build are not migrated. Assistant and app settings continue to use Kestrel's existing local settings and Keychain stores.
 
-On first launch, Kestrel seeds YouTube, Gmail, Google Drive, X, Reddit, and OneDrive into the bookmarks when no bookmark list has been saved. Existing lists, including a deliberately empty list, are kept as they are.
+On first launch, Kestrel seeds YouTube, Gmail, Google Drive, X, Reddit, and OneDrive into both the bookmarks and the pinned site tiles above the tab list. Existing bookmark lists and pinned sites, including deliberately empty lists, are kept as they are.
 
 ## Port status
 

@@ -109,8 +109,23 @@ final class TabStore: ObservableObject {
         self.pinnedTabsDefaults = pinnedTabsDefaults
         self.pauseMediaPlayback = pauseMediaPlayback
         self.openExternalURL = openExternalURL
-        for pin in PinnedTabArchive.decode(pinnedTabsDefaults?.data(forKey: PinnedTabArchive.key)) {
-            collection.addTab(pin, select: false)
+        if let savedPins = pinnedTabsDefaults?.data(forKey: PinnedTabArchive.key) {
+            for pin in PinnedTabArchive.decode(savedPins) {
+                collection.addTab(pin, select: false)
+            }
+        } else if let pinnedTabsDefaults,
+                  pinnedTabsDefaults.object(forKey: PinnedTabArchive.key) == nil {
+            // Seed the pinned app row once. An encoded empty archive means the
+            // user deliberately cleared it, so it is left alone on later runs.
+            for bookmark in DefaultBrowserApps.bookmarks {
+                collection.addTab(BrowserTab(
+                    title: bookmark.title,
+                    urlString: bookmark.urlString,
+                    faviconURL: bookmark.faviconURL,
+                    isPinned: true
+                ), select: false)
+            }
+            savePins()
         }
         let isBlankLaunch = initialAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         collection.addTab(BrowserTab(urlString: initialAddress))

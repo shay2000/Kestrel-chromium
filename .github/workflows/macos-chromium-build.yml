@@ -84,6 +84,37 @@ jobs:
         run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke" webstore
         shell: bash
 
+      - name: Download the original WebKit 1.0.0 release
+        id: webkit-release
+        if: steps.store-smoke.outcome == 'success'
+        run: |
+          curl -fL --retry 3 \
+            https://github.com/shay2000/Kestrel-Browser/releases/download/v1.0.0/Kestrel-Browser.zip \
+            -o "$RUNNER_TEMP/Kestrel-Browser.zip"
+          mkdir -p "$RUNNER_TEMP/kestrel-webkit-release"
+          ditto -x -k "$RUNNER_TEMP/Kestrel-Browser.zip" "$RUNNER_TEMP/kestrel-webkit-release"
+          test -d "$RUNNER_TEMP/kestrel-webkit-release/Kestrel.app"
+        shell: bash
+
+      - name: Run the original WebKit release on the same page
+        if: steps.webkit-release.outcome == 'success'
+        run: >-
+          bash scripts/smoke-macos-app.sh
+          "$RUNNER_TEMP/kestrel-webkit-release/Kestrel.app"
+          "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/comparison"
+          compare-original
+          "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/after-url-open.png"
+        shell: bash
+
+      - name: Upload WebKit versus Chromium comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-WebKit-versus-Chromium
+          path: ${{ runner.temp }}/kestrel-chromium-runtime-smoke/comparison
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Upload Chrome Web Store screenshot
         if: always() && steps.store-smoke.outcome == 'success'
         uses: actions/upload-artifact@v4

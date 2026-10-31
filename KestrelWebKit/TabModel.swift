@@ -237,6 +237,20 @@ struct BrowserBookmark: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+/// Default destinations offered on a new install. The same list seeds the
+/// bookmark shelf and the pinned site tiles so the two first-run surfaces stay
+/// in sync.
+enum DefaultBrowserApps {
+    static let bookmarks = [
+        BrowserBookmark(title: "YouTube", urlString: "https://www.youtube.com/"),
+        BrowserBookmark(title: "Gmail", urlString: "https://mail.google.com/"),
+        BrowserBookmark(title: "Google Drive", urlString: "https://drive.google.com/"),
+        BrowserBookmark(title: "X", urlString: "https://x.com/"),
+        BrowserBookmark(title: "Reddit", urlString: "https://www.reddit.com/"),
+        BrowserBookmark(title: "OneDrive", urlString: "https://onedrive.live.com/")
+    ]
+}
+
 enum BrowserBookmarkImporter {
     static let maximumFileBytes = 10 * 1_024 * 1_024
     static let maximumBookmarks = 10_000

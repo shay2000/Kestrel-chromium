@@ -120,8 +120,44 @@ case "$STAGE" in
     printf 'Kestrel stayed alive for 20 seconds after opening the Google Translate listing on the Chrome Web Store.\n' \
       | tee -a "$EVIDENCE_DIR/launch.txt"
     ;;
+  compare-original)
+    CHROMIUM_SCREENSHOT="${4:?usage: smoke-macos-app.sh /path/to/Kestrel.app output-directory compare-original chromium-screenshot}"
+    if [[ ! -f "$CHROMIUM_SCREENSHOT" ]]; then
+      collect_failure_evidence "The Chromium comparison screenshot was not found: $CHROMIUM_SCREENSHOT"
+    fi
+
+    # Both app versions use the Kestrel bundle identifier and executable name.
+    # Stop Chromium so LaunchServices can start the requested WebKit release.
+    pkill -TERM -x "$EXECUTABLE" 2>/dev/null || true
+    for _ in $(seq 1 15); do
+      if ! pgrep -x "$EXECUTABLE" >/dev/null; then break; fi
+      sleep 1
+    done
+    open -n -a "$APP" 'https://example.com/' 2>&1 | tee -a "$EVIDENCE_DIR/launch.txt"
+    PID=""
+    for _ in $(seq 1 30); do
+      PID="$(pgrep -x "$EXECUTABLE" | head -n 1 || true)"
+      if [[ -n "$PID" ]]; then break; fi
+      sleep 1
+    done
+    if [[ -z "$PID" ]]; then
+      collect_failure_evidence "The original WebKit release did not launch."
+    fi
+    sleep 12
+    if ! kill -0 "$PID" 2>/dev/null; then
+      collect_failure_evidence "The original WebKit release exited during the comparison."
+    fi
+
+    screencapture -x "$EVIDENCE_DIR/original-webkit.png"
+    swift "$SCRIPT_DIR/verify-macos-screenshot.swift" "$EVIDENCE_DIR/original-webkit.png" "documentation examples"
+    swift "$SCRIPT_DIR/compare-macos-screenshots.swift" \
+      "$CHROMIUM_SCREENSHOT" "$EVIDENCE_DIR/original-webkit.png" \
+      "$EVIDENCE_DIR/webkit-vs-chromium.png"
+    printf 'The original WebKit 1.0.0 release and Chromium opened https://example.com/ on the same Mac runner.\n' \
+      | tee -a "$EVIDENCE_DIR/launch.txt"
+    ;;
   *)
-    echo "usage: smoke-macos-app.sh /path/to/Kestrel.app output-directory [launch|navigate|webstore]" >&2
+    echo "usage: smoke-macos-app.sh /path/to/Kestrel.app output-directory [launch|navigate|webstore|compare-original]" >&2
     exit 2
     ;;
 esac

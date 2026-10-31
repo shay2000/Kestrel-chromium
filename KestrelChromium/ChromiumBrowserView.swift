@@ -27,6 +27,7 @@ struct BrowserView: View {
     let browserGeneration: Int
     let makeChromeBrowser: @MainActor () -> CefChromeBrowser
     let pageOverlay: AnyView
+    var interactiveOverlayHeight: CGFloat = 0
     var onFocus: (() -> Void)? = nil
     var isHidden = false
     var isVisible = true
@@ -39,7 +40,9 @@ struct BrowserView: View {
             if let chromeBrowser, hostedBrowserID == browserID,
                hostedBrowserGeneration == browserGeneration, !isHidden {
                 PersistentChromeHost(browser: chromeBrowser, pageOverlay: pageOverlay,
-                                     isVisible: isVisible, onFocus: onFocus)
+                                     isVisible: isVisible,
+                                     interactiveOverlayHeight: interactiveOverlayHeight,
+                                     onFocus: onFocus)
             } else {
                 Color.clear
             }
@@ -62,6 +65,7 @@ private struct PersistentChromeHost: NSViewRepresentable {
     let browser: CefChromeBrowser
     let pageOverlay: AnyView
     let isVisible: Bool
+    let interactiveOverlayHeight: CGFloat
     let onFocus: (() -> Void)?
 
     func makeNSView(context: Context) -> PersistentChromeHostView {
@@ -69,6 +73,7 @@ private struct PersistentChromeHost: NSViewRepresentable {
         view.browser = browser
         view.pageOverlay = pageOverlay
         view.isVisible = isVisible
+        view.interactiveOverlayHeight = interactiveOverlayHeight
         view.onFocus = onFocus
         return view
     }
@@ -77,6 +82,7 @@ private struct PersistentChromeHost: NSViewRepresentable {
         nsView.browser = browser
         nsView.pageOverlay = pageOverlay
         nsView.isVisible = isVisible
+        nsView.interactiveOverlayHeight = interactiveOverlayHeight
         nsView.onFocus = onFocus
         nsView.updateOverlay()
     }
@@ -97,10 +103,13 @@ private final class PersistentChromeHostView: NSView {
     var pageOverlay: AnyView? {
         didSet { updateNativeOverlay() }
     }
+    var interactiveOverlayHeight: CGFloat = 0 {
+        didSet { updateNativeOverlay() }
+    }
     var onFocus: (() -> Void)?
 
     private var windowObservers: [NSObjectProtocol] = []
-    private var nativeOverlay: NSHostingView<AnyView>?
+    private var nativeOverlay: ClickThroughHostingView?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -166,9 +175,20 @@ private final class PersistentChromeHostView: NSView {
             nativeOverlay = nil
             return
         }
-        let host = nativeOverlay ?? NSHostingView(rootView: pageOverlay)
+        let host = nativeOverlay ?? ClickThroughHostingView(rootView: pageOverlay)
         host.rootView = pageOverlay
         host.frame = root.bounds
+        let interactionWidth = min(624, root.bounds.width)
+        let interactionHeight = min(max(0, interactiveOverlayHeight), root.bounds.height)
+        let interactionY = root.isFlipped
+            ? root.bounds.minY
+            : root.bounds.maxY - interactionHeight
+        host.interactiveRegion = CGRect(
+            x: root.bounds.midX - interactionWidth / 2,
+            y: interactionY,
+            width: interactionWidth,
+            height: interactionHeight
+        )
         host.autoresizingMask = [.width, .height]
         host.wantsLayer = true
         host.layer?.backgroundColor = NSColor.clear.cgColor
@@ -177,6 +197,18 @@ private final class PersistentChromeHostView: NSView {
             root.addSubview(host, positioned: .above, relativeTo: nil)
         }
         nativeOverlay = host
+    }
+
+    /// The SwiftUI overlay lives above CEF's view. Its decorative contents
+    /// should not intercept page clicks or text selection; only the small
+    /// centered banner area remains interactive when a banner is visible.
+    private final class ClickThroughHostingView: NSHostingView<AnyView> {
+        var interactiveRegion = CGRect.zero
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard interactiveRegion.contains(point) else { return nil }
+            return super.hitTest(point)
+        }
     }
 
     private func rebindWindowObservers() {

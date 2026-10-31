@@ -204,14 +204,7 @@ final class AppSettings: ObservableObject {
     private static let shareRegionWithAssistantKey = "kestrel.assistant.share-region.v1"
     private static let bookmarksKey = "kestrel.browser.bookmarks.v1"
     private static let defaultBookmarksSeededKey = "kestrel.browser.default-bookmarks-seeded.v1"
-    private static let firstRunBookmarks = [
-        BrowserBookmark(title: "YouTube", urlString: "https://www.youtube.com/"),
-        BrowserBookmark(title: "Gmail", urlString: "https://mail.google.com/"),
-        BrowserBookmark(title: "Google Drive", urlString: "https://drive.google.com/"),
-        BrowserBookmark(title: "X", urlString: "https://x.com/"),
-        BrowserBookmark(title: "Reddit", urlString: "https://www.reddit.com/"),
-        BrowserBookmark(title: "OneDrive", urlString: "https://onedrive.live.com/")
-    ]
+    private static let firstRunBookmarks = DefaultBrowserApps.bookmarks
     private static let recentSearchesKey = "kestrel.browser.recent-searches.v1"
     private static let assistantConversationsKey = "kestrel.assistant.conversations.v1"
     private static let recentSearchesLimit = 50
