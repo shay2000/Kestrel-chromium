@@ -659,7 +659,7 @@ index 3984214..7d879aa 100644
              guard let owner = cefOwner(CefAppContext.self, handlerSelf.map(UnsafeMutableRawPointer.init)) else { return }
              owner.pump.scheduleWork(delayMilliseconds: delayMS)
 diff --git a/Sources/CefKit/CefBrowser.swift b/Sources/CefKit/CefBrowser.swift
-index e9df84c..88ab316 100644
+index e9df84c..3b119a9 100644
 --- a/Sources/CefKit/CefBrowser.swift
 +++ b/Sources/CefKit/CefBrowser.swift
 @@ -51,6 +51,13 @@ public final class CefBrowser: Identifiable {
@@ -676,16 +676,26 @@ index e9df84c..88ab316 100644
  
      init(raw: UnsafeMutablePointer<cef_browser_t>?, client: BrowserClient?, delegate: CefBrowserDelegate?) {
          self.raw = raw
-@@ -255,6 +262,8 @@ public final class CefBrowser: Identifiable {
+@@ -192,7 +199,7 @@ public final class CefBrowser: Identifiable {
+     /// If a raw browser is already owned the extra reference is released —
+     /// this guards against popup browsers reusing the same client.
+     func adoptRaw(_ newRaw: UnsafeMutablePointer<cef_browser_t>) {
+-        guard raw == nil else {
++        guard raw == nil, !didClose else {
+             cefRelease(UnsafeMutableRawPointer(newRaw))
+             return
+         }
+@@ -255,6 +262,9 @@ public final class CefBrowser: Identifiable {
      }
  
      func handleBeforeClose() {
 +        guard !didClose else { return }
 +        didClose = true
++        CefRuntime.shared.abandonPendingBrowser(self)
          delegate?.browserDidClose(self)
          if let raw {
              cefRelease(UnsafeMutableRawPointer(raw))
-@@ -319,6 +328,8 @@ extension CefBrowser {
+@@ -319,6 +329,8 @@ extension CefBrowser {
  
          let requestContext = options.profile?.makeRequestContext()
  
@@ -718,7 +728,7 @@ index 9792836..2e076c4 100644
      public func browser(_ b: CefBrowser, decidePolicyForNavigation url: URL?, isRedirect: Bool, userGesture: Bool) -> CefNavigationDecision { .allow }
      public func browser(_ b: CefBrowser, didRequestNewTab url: URL?) -> Bool { false }
 diff --git a/Sources/CefKit/CefChromeBrowser.swift b/Sources/CefKit/CefChromeBrowser.swift
-index cce60bd..523e76a 100644
+index cce60bd..47702ee 100644
 --- a/Sources/CefKit/CefChromeBrowser.swift
 +++ b/Sources/CefKit/CefChromeBrowser.swift
 @@ -100,6 +100,8 @@ public final class CefChromeBrowser {
@@ -750,7 +760,15 @@ index cce60bd..523e76a 100644
          return chrome
      }
  
-@@ -263,6 +269,8 @@ public final class CefChromeBrowser {
+@@ -251,6 +257,7 @@ public final class CefChromeBrowser {
+     }
+ 
+     fileprivate func handleWindowDestroyed() {
++        CefRuntime.shared.abandonPendingBrowser(browser)
+         if let rawWindow {
+             cefRelease(UnsafeMutableRawPointer(rawWindow))
+         }
+@@ -263,6 +270,8 @@ public final class CefChromeBrowser {
          windowDelegate = nil
          onWindowDestroyed?()
          Self.liveInstances[ObjectIdentifier(self)] = nil
@@ -851,10 +869,10 @@ index 144ded0..05259e2 100644
  
      func start() {
 diff --git a/Sources/CefKit/CefRuntime.swift b/Sources/CefKit/CefRuntime.swift
-index b793569..95864cf 100644
+index b793569..3575ff4 100644
 --- a/Sources/CefKit/CefRuntime.swift
 +++ b/Sources/CefKit/CefRuntime.swift
-@@ -111,7 +111,43 @@ public final class CefRuntime {
+@@ -111,7 +111,44 @@ public final class CefRuntime {
      private var appContext: CefAppContext?
      private var settings: MappedCefSettings?
      private var browsers: [Int32: CefBrowser] = [:]
@@ -863,6 +881,7 @@ index b793569..95864cf 100644
 +    private var isFinalising = false
 +    private var terminationGeneration = 0
 +    private var pendingBrowsers: [ObjectIdentifier: CefBrowser] = [:]
++    var pendingBrowserCount: Int { pendingBrowsers.count }
 +    private var activePrompts = Set<UUID>()
 +    func beginPrompt() -> UUID { let id = UUID(); activePrompts.insert(id); return id }
 +    func endPrompt(_ id: UUID) { activePrompts.remove(id); scheduleTerminationIfReady() }
@@ -899,7 +918,7 @@ index b793569..95864cf 100644
  
      private init() {}
  
-@@ -230,7 +266,10 @@ public final class CefRuntime {
+@@ -230,7 +267,10 @@ public final class CefRuntime {
      /// Shuts CEF down and unloads the framework. All browsers must already
      /// be closed. Call once, at process exit.
      public func shutdown() {
@@ -911,7 +930,7 @@ index b793569..95864cf 100644
          messagePump?.stop()
          messagePump = nil
          CEFApplication.setTerminateHandler(nil)
-@@ -390,34 +429,54 @@ public final class CefRuntime {
+@@ -390,34 +430,54 @@ public final class CefRuntime {
      // MARK: Browser registry / termination
  
      func registerBrowser(_ browser: CefBrowser) {
@@ -983,10 +1002,10 @@ index b793569..95864cf 100644
  }
 diff --git a/Tests/CefKitTests/KestrelLifecycleTests.swift b/Tests/CefKitTests/KestrelLifecycleTests.swift
 new file mode 100644
-index 0000000..a994270
+index 0000000..17f1cce
 --- /dev/null
 +++ b/Tests/CefKitTests/KestrelLifecycleTests.swift
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,114 @@
 +import Foundation
 +import Testing
 +@testable import CCef
@@ -1071,6 +1090,22 @@ index 0000000..a994270
 +            cefRelease(UnsafeMutableRawPointer(client))
 +        }
 +        #expect(weakOwner == nil)
++    }
++    @Test func closedPendingCreationCannotBeAdoptedLater() {
++        let owner = BrowserClient()
++        let browser = CefBrowser(raw: nil, client: owner, delegate: nil)
++        owner.attach(browser)
++        let baseline = CefRuntime.shared.pendingBrowserCount
++        CefRuntime.shared.registerPendingBrowser(browser)
++        #expect(CefRuntime.shared.pendingBrowserCount == baseline + 1)
++        browser.handleBeforeClose()
++        #expect(CefRuntime.shared.pendingBrowserCount == baseline)
++        let pointer = raw(98005)
++        cefAddRef(UnsafeMutableRawPointer(pointer))
++        browser.adoptRaw(pointer)
++        #expect(!browser.hasRawBrowser)
++        #expect(CefRuntime.shared.browser(withID: 98005) == nil)
++        cefRelease(UnsafeMutableRawPointer(pointer))
 +    }
 +    @Test func duplicateCloseCompletesOnlyOnce() {
 +        let owner = BrowserClient(), observer = Observer()

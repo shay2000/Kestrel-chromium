@@ -74,7 +74,9 @@ struct ChromiumLifecycleAcceptance {
             _ = try await Probe.cdp(page, "WebAuthn.disable")
             // Opening then closing real targets exercises native browser callbacks.
             for index in 0..<5 {
+                try await newTabDashboard(index)
                 let rapid = try await Probe.open(fixture + "?rapid=\(index)")
+                try require(rapid["id"] as? String != page["id"] as? String, "New Tab reused the original form target")
                 try await closeTarget(rapid)
                 await Probe.pause(0.3)
             }
@@ -106,6 +108,22 @@ struct ChromiumLifecycleAcceptance {
     static func browserEndpoint() async throws -> [String: Any] {
         let (data, _) = try await URLSession.shared.data(from: URL(string:"http://127.0.0.1:9333/json/version")!)
         return try JSONSerialization.jsonObject(with:data) as? [String:Any] ?? [:]
+    }
+    static func newTabDashboard(_ index: Int) async throws {
+        let buttons = Probe.axNodes().filter { node in
+            String(describing: Probe.ax(node,"AXRole") ?? "" as CFString) == "AXButton" &&
+            ["AXTitle","AXDescription"].contains { name in
+                let label = String(describing: Probe.ax(node,name) ?? "" as CFString).lowercased().trimmingCharacters(in:.whitespaces)
+                return label == "new tab" || label == "+ new tab"
+            }
+        }
+        if buttons.count == 1, let button = buttons.first, AXUIElementPerformAction(button,"AXPress" as CFString) == .success {
+            await Probe.pause(0.3); return
+        }
+        let lines = try Probe.capture("new-tab-control-\(index)")
+        let matches = lines.filter { $0.text.range(of: #"^\+?\s*New Tab$"#,options:.regularExpression) != nil }
+        guard matches.count == 1, let button = matches.first else { throw StoreProbeError(message:"No unique visible New Tab control") }
+        Probe.clickScreen(button.box); await Probe.pause(0.3)
     }
     static func closeTarget(_ page: [String: Any]) async throws {
         guard let id = page["id"] as? String else { throw StoreProbeError(message:"No native target ID") }
