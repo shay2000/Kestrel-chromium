@@ -8,7 +8,7 @@ The Chromium build keeps its own browser profile. Cookies and history from a Web
 
 ## Port status
 
-This is a full application port, but the CEF runtime has not yet received visible macOS acceptance. CEF's Chrome-style browser is hosted in a child window over Kestrel's page area; the overlay arrangement, site permission prompts, downloads, passkeys, and extension action popups need on-device inspection.
+The full app compiles and packages on macOS. The first release build passed on a GitHub hosted macOS 26 ARM64 runner with Xcode 26.6. The [workflow run](https://github.com/shay2000/Kestrel-chromium/actions/runs/41152374823) contains the `Kestrel-Chromium-macOS` app archive and build log. The runner did not launch the app, so CEF's child-window overlay, site permission prompts, downloads, passkeys, and extension action popups still need visible macOS inspection.
 
 One material difference remains in page automation: CefSwift exposes JavaScript execution in the page's main world. Kestrel's CEF operator keeps its fixed scripts, bounded data, action allow-list, approvals, and revalidation, but does not retain WebKit's isolated JavaScript world. Do not treat that as equivalent isolation or use model-supplied JavaScript/selectors.
 
