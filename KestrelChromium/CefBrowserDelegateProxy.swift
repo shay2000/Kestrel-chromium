@@ -63,7 +63,7 @@ final class CefBrowserDelegateProxy: CefBrowserDelegate {
     }
 
     func browserDidClose(_ browser: CefBrowser) {
-        model?.kestrelDetach()
+        model?.kestrelDetach(matching: browser)
         model?.browserDidClose(browser)
     }
 
@@ -87,10 +87,11 @@ final class CefBrowserDelegateProxy: CefBrowserDelegate {
         model?.browser(browser, contextMenuCommand: commandID, params: params) ?? false
     }
 
-    func browser(_ browser: CefBrowser, requestsPermission request: CefPermissionRequest) -> CefPermissionDecision {
+    func browser(_ browser: CefBrowser, requestsPermission request: CefPermissionRequest,
+                 completion: @escaping @MainActor (CefPermissionDecision) -> Void) -> Bool {
         let originURL = URL(string: request.origin)
         guard let host = originURL?.host,
-              let scheme = originURL?.scheme?.lowercased(), ["http", "https"].contains(scheme) else { return .deny }
+              let scheme = originURL?.scheme?.lowercased(), ["http", "https"].contains(scheme) else { completion(.deny); return true }
         var labels: [String] = []
         if request.kinds.contains(.camera) { labels.append("camera") }
         if request.kinds.contains(.microphone) { labels.append("microphone") }
@@ -104,7 +105,7 @@ final class CefBrowserDelegateProxy: CefBrowserDelegate {
         if request.kinds.contains(.windowManagement) { labels.append("window management") }
         if request.kinds.contains(.downloads) { labels.append("multiple downloads") }
         if request.kinds.contains(.other) { labels.append("another browser capability") }
-        guard !labels.isEmpty else { return .deny }
+        guard !labels.isEmpty else { completion(.deny); return true }
 
         let alert = NSAlert()
         alert.messageText = "Allow \(host) to use \(labels.joined(separator: ", "))?"
@@ -112,7 +113,11 @@ final class CefBrowserDelegateProxy: CefBrowserDelegate {
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Allow")
         alert.addButton(withTitle: "Don’t Allow")
-        return alert.runModal() == .alertFirstButtonReturn ? .allow : .deny
+        guard let window = browser.nativeView?.window else { completion(.dismiss); return true }
+        alert.beginSheetModal(for: window) { response in
+            completion(response == .alertFirstButtonReturn ? .allow : .deny)
+        }
+        return true
     }
 
     func browser(_ browser: CefBrowser, renderProcessDidTerminate reason: CefTerminationReason, errorCode: Int) {

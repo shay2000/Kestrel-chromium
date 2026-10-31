@@ -83,6 +83,7 @@ final class TabStore: ObservableObject {
     private var browserStores: [UUID: BrowserStore] = [:]
     private var webViews: [UUID: CefWebViewModel] = [:]
     private var chromeBrowsers: [UUID: CefChromeBrowser] = [:]
+    private var pendingPageCloses: [UUID: () -> Void] = [:]
     private var browserDelegates: [UUID: CefBrowserDelegateProxy] = [:]
     private var cancellables: [UUID: AnyCancellable] = [:]
 
@@ -184,8 +185,10 @@ final class TabStore: ObservableObject {
            isBlank(selected) {
             // The empty tab's page is thrown away with it: a browser left
             // behind the chat would consume memory while its page has no UI.
-            discardPage(for: selected)
-            collection.makeAssistant(id: selected)
+            requestPageClose(for: selected) { [weak self] in
+                self?.discardPage(for: selected)
+                self?.collection.makeAssistant(id: selected)
+            }
             return selected
         }
 
@@ -204,16 +207,26 @@ final class TabStore: ObservableObject {
         return stored.isEmpty
     }
 
-    private func discardPage(for id: UUID) {
-        if let webView = webViews[id] {
-            browserStores[id]?.stopLoading()
-            pauseMediaPlayback(webView)
-            if let chrome = chromeBrowsers.removeValue(forKey: id) {
-                chrome.close()
-            } else {
-                webView.kestrelBrowser?.close()
-            }
+    /// Keep the tab, model and delegate alive while Chromium asks about unsaved work.
+    private func requestPageClose(for id: UUID, completion: @escaping () -> Void) {
+        guard pendingPageCloses[id] == nil else { return }
+        guard let chrome = chromeBrowsers[id], chrome.isWindowAlive else { completion(); return }
+        pendingPageCloses[id] = completion
+        chrome.browser.onCloseCancelled = { [weak self, weak chrome] in
+            guard let self, let chrome, self.chromeBrowsers[id] === chrome else { return }
+            self.pendingPageCloses[id] = nil
         }
+        chrome.close()
+    }
+
+    /// Releases app ownership only after confirmed native closure (or a browser-free tab).
+    private func discardPage(for id: UUID) {
+        if let model = webViews[id] {
+            browserStores[id]?.stopLoading()
+            model.kestrelDetach()
+        }
+        pendingPageCloses[id] = nil
+        chromeBrowsers[id] = nil
         browserStores[id] = nil
         webViews[id] = nil
         browserDelegates[id] = nil
@@ -365,6 +378,7 @@ final class TabStore: ObservableObject {
 
     @discardableResult
     func newTab(urlString: String = "", select: Bool = true) -> UUID {
+        guard CefRuntime.shared.isAcceptingBrowsers else { return selectedID }
         let tab = BrowserTab(urlString: urlString)
         collection.addTab(tab, select: select)
         // Keep a page-backed tab alive even when it opens in the background:
@@ -378,6 +392,11 @@ final class TabStore: ObservableObject {
     }
 
     func closeTab(id: UUID) {
+        guard tabs.contains(where: { $0.id == id }) else { return }
+        requestPageClose(for: id) { [weak self] in self?.finishClosingTab(id: id) }
+    }
+
+    private func finishClosingTab(id: UUID) {
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
         if tab.isPinned {
             // Closing a favourite releases its page; removing it is explicit Unpin.
@@ -590,10 +609,13 @@ final class TabStore: ObservableObject {
 
     func resetPinnedTab(id: UUID) {
         guard tabs.contains(where: { $0.id == id && $0.isPinned }) else { return }
-        discardPage(for: id)
-        advancePageGeneration(for: id)
-        collection.resetPinnedPage(id: id)
-        select(id: id)
+        requestPageClose(for: id) { [weak self] in
+            guard let self else { return }
+            self.discardPage(for: id)
+            self.advancePageGeneration(for: id)
+            self.collection.resetPinnedPage(id: id)
+            self.select(id: id)
+        }
     }
 
     func duplicateTab(id: UUID) {
@@ -668,8 +690,10 @@ final class TabStore: ObservableObject {
     /// Returns the persistent Chrome-runtime browser for a tab. The SwiftUI
     /// host may disappear while the user changes tabs; this CEF-owned browser
     /// stays alive so the page, history, forms and extension state survive.
-    func chromeBrowser(for id: UUID) -> CefChromeBrowser {
+    func chromeBrowser(for id: UUID) -> CefChromeBrowser? {
         if let existing = chromeBrowsers[id], existing.isWindowAlive { return existing }
+        guard CefRuntime.shared.isAcceptingBrowsers,
+              collection.tabs.contains(where: { $0.id == id }), pendingPageCloses[id] == nil else { return nil }
         let model = webView(for: id)
         var options = CefChromeBrowserOptions()
         options.isFrameless = true
@@ -684,8 +708,11 @@ final class TabStore: ObservableObject {
         chromeBrowsers[id] = chrome
         chrome.onWindowDestroyed = { [weak self, weak chrome] in
             guard let self, let chrome, self.chromeBrowsers[id] === chrome else { return }
+            let completion = self.pendingPageCloses.removeValue(forKey: id)
             self.chromeBrowsers[id] = nil
-            self.browserDelegates[id] = nil
+            if let completion { completion() }
+            else if !CefRuntime.shared.isTerminationRequested { self.finishClosingTab(id: id) }
+            else { self.discardPage(for: id) }
         }
         return chrome
     }

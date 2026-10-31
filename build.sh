@@ -22,6 +22,8 @@ case "$CONFIG" in
 esac
 
 cd "$ROOT"
+swift package resolve
+bash "$ROOT/scripts/apply-cefswift-patches.sh"
 swift package \
   --allow-writing-to-package-directory \
   --allow-network-connections all \

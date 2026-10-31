@@ -9,18 +9,29 @@ import Foundation
 /// This registry gives the app's observable model access to its CEF browser.
 @MainActor
 enum CefBrowserRegistry {
-    private static var browsers: [ObjectIdentifier: CefBrowser] = [:]
+    private struct Entry {
+        weak var model: CefWebViewModel?
+        let browser: CefBrowser
+    }
+    private static var browsers: [ObjectIdentifier: Entry] = [:]
 
     static func browser(for model: CefWebViewModel) -> CefBrowser? {
-        browsers[ObjectIdentifier(model)]
+        let key = ObjectIdentifier(model)
+        guard let entry = browsers[key], entry.model === model else {
+            browsers[key] = nil
+            return nil
+        }
+        return entry.browser
     }
 
     static func attach(_ browser: CefBrowser, to model: CefWebViewModel) {
-        browsers[ObjectIdentifier(model)] = browser
+        browsers[ObjectIdentifier(model)] = Entry(model: model, browser: browser)
     }
 
-    static func detach(from model: CefWebViewModel) {
-        browsers[ObjectIdentifier(model)] = nil
+    static func detach(from model: CefWebViewModel, matching browser: CefBrowser? = nil) {
+        let key = ObjectIdentifier(model)
+        guard browser == nil || browsers[key]?.browser === browser else { return }
+        browsers[key] = nil
     }
 }
 
@@ -32,8 +43,8 @@ extension CefWebViewModel {
         CefBrowserRegistry.attach(browser, to: self)
     }
 
-    func kestrelDetach() {
-        CefBrowserRegistry.detach(from: self)
+    func kestrelDetach(matching browser: CefBrowser? = nil) {
+        CefBrowserRegistry.detach(from: self, matching: browser)
     }
 
     func kestrelLoad(_ url: URL) {

@@ -25,7 +25,7 @@ enum BrowserScrollbars {
 struct BrowserView: View {
     let browserID: UUID
     let browserGeneration: Int
-    let makeChromeBrowser: @MainActor () -> CefChromeBrowser
+    let makeChromeBrowser: @MainActor () -> CefChromeBrowser?
     let pageOverlay: AnyView
     var isOverlayVisible = true
     var interactiveOverlayHeight: CGFloat = 0
