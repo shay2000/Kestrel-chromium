@@ -2,7 +2,15 @@
 
 Checked 30 September 2026 on macOS 27.0 (26A428), Xcode 27.0 (27A266a).
 
-## Supported route for Kestrel
+## Chromium port status — 31 October 2026
+
+The Chromium product uses CEF and does not use `WKWebView` for page content. Its passkey handoff observes WebAuthn completion or failure and offers to reopen the page in the default browser; this is not evidence of successful in-app passkey authentication. The current hosted Mac build is ad-hoc signed and lacks Apple's managed browser capabilities, so arbitrary-site passkeys are not yet verified or supported as a release claim. Apple requires approval through an organisation's Developer account for its browser passkey entitlement.
+
+The Mac smoke run [41156384216](https://github.com/shay2000/Kestrel-chromium/actions/runs/41156384216) rendered the Google Translate listing from the Chrome Web Store. The page showed “Switch to Chrome to install extensions and themes,” so the store's direct install flow is not available in this CEF build. Kestrel's separate Chromium importer is implemented for permission-reviewed Manifest V3 CRX, ZIP, and unpacked packages, but that import path has not yet received runtime acceptance. CEF also has no verified native-messaging integration for Apple's iCloud Passwords extension.
+
+The remainder of this document describes the legacy WebKit route and the Apple approval steps that would be needed for the browser entitlement.
+
+## Legacy WebKit target
 
 Keep authentication in `WKWebView`. Apple documents automatic Web Authentication handling there. Kestrel already uses the default website data store and gates its Settings permission request on both signed browser capabilities. [Apple: passkey use in web browsers](https://developer.apple.com/documentation/authenticationservices/passkey-use-in-web-browsers).
 

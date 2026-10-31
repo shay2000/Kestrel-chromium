@@ -6,9 +6,13 @@ The app carries over Kestrel's SwiftUI browser, tabs and split view, assistant a
 
 The Chromium build keeps its own browser profile. Cookies and history from a WebKit build are not migrated. Assistant and app settings continue to use Kestrel's existing local settings and Keychain stores.
 
+On first launch, Kestrel seeds YouTube, Gmail, Google Drive, X, Reddit, and OneDrive into the bookmarks when no bookmark list has been saved. Existing lists, including a deliberately empty list, are kept as they are.
+
 ## Port status
 
-The full app compiles and packages on macOS. The first release build passed on a GitHub hosted macOS 26 ARM64 runner with Xcode 26.6. The [workflow run](https://github.com/shay2000/Kestrel-chromium/actions/runs/41152374823) contains the `Kestrel-Chromium-macOS` app archive and build log. The runner did not launch the app, so CEF's child-window overlay, site permission prompts, downloads, passkeys, and extension action popups still need visible macOS inspection.
+The full app builds and launches on a GitHub hosted macOS 26 ARM64 runner with Xcode 26.6. The [latest run](https://github.com/shay2000/Kestrel-chromium/actions/runs/41156384216) passed build and launch checks, rendered `example.com`, and opened the Google Translate listing on the Chrome Web Store. Its artifacts include the app archive and runner screenshots.
+
+The Web Store listing displays “Switch to Chrome to install extensions and themes” in Kestrel, so direct Chrome Web Store installation is not supported by this CEF build. The listing itself renders. Kestrel's separate extension importer is implemented for reviewed Manifest V3 CRX, ZIP, and unpacked packages; its runtime install flow still needs a dedicated acceptance check. Website passkeys remain unverified in the ad-hoc build and depend on Apple's managed browser capabilities; see [PASSKEY_SUPPORT.md](PASSKEY_SUPPORT.md). The build is not notarized for distribution.
 
 One material difference remains in page automation: CefSwift exposes JavaScript execution in the page's main world. Kestrel's CEF operator keeps its fixed scripts, bounded data, action allow-list, approvals, and revalidation, but does not retain WebKit's isolated JavaScript world. Do not treat that as equivalent isolation or use model-supplied JavaScript/selectors.
 
