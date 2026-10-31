@@ -4,6 +4,8 @@ Run `swift test` on Linux for the platform-neutral suite. The retained WebKit in
 
 For native CRX verification on macOS, run `bash scripts/test-crx-package.sh`. It compiles the production `CRXPackage.swift` with its XCTest cases, using Xcode's CryptoKit/Security implementations and ephemeral signing keys. This suite checks cryptographic package/identity validation, not the Settings file picker, permission review UI or an imported extension running after restart. The Chromium build workflow runs it and uploads its log separately from browser smoke evidence.
 
+For actual Chrome Web Store installation, the macOS workflow operates `scripts/test-chrome-web-store-macos.swift` in the disposable runner. It requires the native install prompt, correct package IDs, live Dark Reader styles and a clean restart. [The store test record](../docs/CHROME_WEB_STORE_ACCEPTANCE_2026-10-31.md) distinguishes installation from remaining acceptance.
+
 The following coverage descriptions and live-test flags are retained for the original WebKit implementation:
 
 - Chat lifetime and routing: `AssistantRoutingRegressionTests` and `TabModelTests`.
