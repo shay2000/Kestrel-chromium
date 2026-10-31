@@ -440,12 +440,24 @@ struct ChromeWebStoreAcceptance {
         guard result["exceptionDetails"] == nil, (result["result"] as? [String: Any])?["value"] as? Bool == true else {
             throw StoreProbeError(message: "The actual extension options API failed: \(result)")
         }
-        let page = try await target(matching: "chrome-extension://\(host)/options.html")
+        let address = "chrome-extension://\(host)/options.html"
         var loaded = false
+        await pause(0.3)
         for _ in 0..<30 {
-            if try await evaluate(page, "document.readyState === 'complete' && Boolean(document.body?.innerText.includes('Kestrel extension options fixture'))") as? Bool == true {
-                loaded = true; break
+            // The native provisional target is deliberately retired. Resolve
+            // the final Kestrel target afresh instead of keeping that socket.
+            let candidates = try await targets().filter { ($0["type"] as? String) == "page" && ($0["url"] as? String) == address }
+            for page in candidates {
+                do {
+                    let state = try await evaluate(page, "({url:location.href,ready:document.readyState,text:(document.body?.innerText||'').slice(0,500)})") as? [String: Any] ?? [:]
+                    record("options_target_probe", ["id": page["id"] ?? "", "state": state])
+                    if state["url"] as? String == address, state["ready"] as? String == "complete",
+                       (state["text"] as? String)?.contains("Kestrel extension options fixture") == true {
+                        loaded = true; break
+                    }
+                } catch { record("retired_options_target", ["id": page["id"] ?? "", "error": error.localizedDescription]) }
             }
+            if loaded { break }
             await pause(0.2)
         }
         guard loaded else {
