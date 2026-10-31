@@ -53,14 +53,21 @@ func post(_ type: CGEventType, at point: CGPoint) {
 }
 
 func dragAcrossText() {
-    // CGEvent uses Quartz display coordinates, whose Y origin is at the
-    // display's bottom. Vision's screenshot box has an upper-left pixel origin.
-    let startY = displayBounds.maxY - yInImage / pixelsPerPointY
+    // On the macOS runner, CGEvent positions line up with screenshot pixels
+    // from the display's top edge. Vision's normalized box has a lower-left
+    // origin, so yInImage is the corresponding top-edge pixel coordinate.
+    let startY = displayBounds.minY + yInImage / pixelsPerPointY
     let start = CGPoint(x: displayBounds.minX + startXInImage / pixelsPerPointX, y: startY)
     let end = CGPoint(x: displayBounds.minX + endXInImage / pixelsPerPointX, y: startY)
 
     post(.mouseMoved, at: start)
     Thread.sleep(forTimeInterval: 0.15)
+    // The embedded CEF child window may need one click to become key before it
+    // accepts a drag, so focus the page before starting the text selection.
+    post(.leftMouseDown, at: start)
+    post(.leftMouseUp, at: start)
+    Thread.sleep(forTimeInterval: 0.2)
+    post(.mouseMoved, at: start)
     post(.leftMouseDown, at: start)
     for step in 1...16 {
         let fraction = CGFloat(step) / 16
@@ -121,5 +128,5 @@ if highlightedPixels >= 40 {
     exit(0)
 }
 
-fputs("The page text remained unselected after both Quartz coordinate mappings.\n", stderr)
+fputs("The page text remained unselected after focusing the CEF view and dragging across the target line.\n", stderr)
 exit(1)
