@@ -46,7 +46,7 @@ final class CefScriptRunner {
     /// outstanding call, and late or cross-tab replies are discarded.
     func evaluate(_ expression: String, in model: CefWebViewModel, tabID: UUID,
                   timeoutNanoseconds: UInt64 = 8_000_000_000) async -> Any? {
-        guard let browser = model.browser, browser.id != -1, !Task.isCancelled else { return nil }
+        guard let browser = model.kestrelBrowser, browser.id != -1, !Task.isCancelled else { return nil }
         installBridge()
         return await evaluateSource("return await (\(expression));", in: model, tabID: tabID,
                                     timeoutNanoseconds: timeoutNanoseconds)
@@ -56,7 +56,7 @@ final class CefScriptRunner {
     /// `return` statements (for example the approved profile-fill adapter).
     func evaluateBody(_ body: String, in model: CefWebViewModel, tabID: UUID,
                       timeoutNanoseconds: UInt64 = 8_000_000_000) async -> Any? {
-        guard let browser = model.browser, browser.id != -1, !Task.isCancelled else { return nil }
+        guard let browser = model.kestrelBrowser, browser.id != -1, !Task.isCancelled else { return nil }
         installBridge()
         return await evaluateSource(body, in: model, tabID: tabID,
                                     timeoutNanoseconds: timeoutNanoseconds)
@@ -72,7 +72,7 @@ final class CefScriptRunner {
                     return
                 }
                 pending[requestID] = PendingEvaluation(tabID: tabID.uuidString, continuation: continuation)
-                model.executeJavaScript(Self.wrapper(source, requestID: requestID, tabID: tabID.uuidString))
+                model.kestrelExecuteJavaScript(Self.wrapper(source, requestID: requestID, tabID: tabID.uuidString))
                 Task { @MainActor [weak self] in
                     do { try await Task.sleep(nanoseconds: timeoutNanoseconds) }
                     catch { return }

@@ -794,25 +794,25 @@ final class BrowserOperator {
             guard let url = URLNormalisation.explicitHTTPURL(from: value) ?? URLNormalisation.hostLikeURL(from: value) else {
                 return ActionResult(kind: action.kind, status: .failed, summary: action.summary, detail: "The address was not a valid http or https URL.")
             }
-            webView.load(url)
+            webView.kestrelLoad(url)
             return ActionResult(kind: action.kind, status: .succeeded, summary: "Opened \(url.absoluteString)", detail: nil)
         case .goBack:
             guard webView.canGoBack else {
                 return ActionResult(kind: action.kind, status: .skipped, summary: action.summary, detail: "There is no previous page.")
             }
-            webView.goBack()
+            webView.kestrelGoBack()
             return ActionResult(kind: action.kind, status: .succeeded, summary: action.summary, detail: nil)
         case .goForward:
             guard webView.canGoForward else {
                 return ActionResult(kind: action.kind, status: .skipped, summary: action.summary, detail: "There is no next page.")
             }
-            webView.goForward()
+            webView.kestrelGoForward()
             return ActionResult(kind: action.kind, status: .succeeded, summary: action.summary, detail: nil)
         case .reload:
-            webView.reload()
+            webView.kestrelReload()
             return ActionResult(kind: action.kind, status: .succeeded, summary: action.summary, detail: nil)
         case .stop:
-            webView.stopLoading()
+            webView.kestrelStopLoading()
             return ActionResult(kind: action.kind, status: .succeeded, summary: action.summary, detail: nil)
         case .readPageText(let maxCharacters):
             let text = await evaluate(BrowserScripts.visibleText)
@@ -917,7 +917,7 @@ final class BrowserOperator {
               let viewportWidth = (object["viewportWidth"] as? NSNumber)?.doubleValue,
               let viewportHeight = (object["viewportHeight"] as? NSNumber)?.doubleValue,
               viewportWidth > 0, viewportHeight > 0,
-              let view = model.browser?.nativeView,
+              let view = model.kestrelBrowser?.nativeView,
               view.bounds.width > 0, view.bounds.height > 0 else { return nil }
         let scaleX = view.bounds.width / viewportWidth
         let scaleY = view.bounds.height / viewportHeight
@@ -944,7 +944,7 @@ final class BrowserOperator {
     }
 
     private func find(_ query: String, action: BrowserAction) async -> ActionResult {
-        guard let webView, let browser = webView.browser else {
+        guard let webView, let browser = webView.kestrelBrowser else {
             return ActionResult(kind: action.kind, status: .failed, summary: action.summary, detail: "No page is open.")
         }
         let search = JavaScriptStringLiteral.escape(query)

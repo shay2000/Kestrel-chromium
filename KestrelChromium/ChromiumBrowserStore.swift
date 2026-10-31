@@ -78,7 +78,7 @@ final class BrowserStore: ObservableObject {
         self.tabID = tabID
         if let tabID { CefPasskeyHandoff.shared.attach(self, tabID: tabID) }
         if engine.url == nil, let destination = Self.destinationURL(from: addressText, searchEngine: searchEngine) {
-            engine.load(destination)
+            engine.kestrelLoad(destination)
         }
         synchronize(from: engine)
         observeEngine()
@@ -92,12 +92,12 @@ final class BrowserStore: ObservableObject {
 
     func goBack() {
         guard engine?.canGoBack == true else { return }
-        beginNavigation { $0.goBack() }
+        beginNavigation { $0.kestrelGoBack() }
     }
 
     func goForward() {
         guard engine?.canGoForward == true else { return }
-        beginNavigation { $0.goForward() }
+        beginNavigation { $0.kestrelGoForward() }
     }
 
     func reload() {
@@ -105,11 +105,11 @@ final class BrowserStore: ObservableObject {
             loadURL(retryURL)
             return
         }
-        beginNavigation { $0.reload() }
+        beginNavigation { $0.kestrelReload() }
     }
 
     func stopLoading() {
-        engine?.stopLoading()
+        engine?.kestrelStopLoading()
         isLoading = false
         navigationFailure = nil
         restorePageTitle()
@@ -119,18 +119,18 @@ final class BrowserStore: ObservableObject {
     func find(_ text: String, backwards: Bool = false) {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
-        engine?.browser?.find(query, forward: !backwards, matchCase: false)
+        engine?.kestrelBrowser?.find(query, forward: !backwards, matchCase: false)
     }
 
     func changePageZoom(by amount: Double) {
-        guard let browser = engine?.browser else { return }
+        guard let browser = engine?.kestrelBrowser else { return }
         zoomLevel = min(5, max(-4, browser.zoomLevel + amount))
         browser.zoomLevel = zoomLevel
     }
 
     func resetPageZoom() {
         zoomLevel = 0
-        engine?.browser?.zoomLevel = 0
+        engine?.kestrelBrowser?.zoomLevel = 0
     }
 
     func reportPasskeyHandoffNeeded() {
@@ -217,14 +217,14 @@ final class BrowserStore: ObservableObject {
         guard let engine else { return false }
         var remaining = timeoutNanoseconds
         let interval: UInt64 = 50_000_000
-        while engine.browser == nil || engine.browser?.id == -1 {
+        while engine.kestrelBrowser == nil || engine.kestrelBrowser?.id == -1 {
             guard !Task.isCancelled, remaining > 0 else { return false }
             let delay = min(interval, remaining)
             do { try await Task.sleep(nanoseconds: delay) }
             catch { return false }
             remaining -= delay
         }
-        guard let browser = engine.browser else { return false }
+        guard let browser = engine.kestrelBrowser else { return false }
         return browser.id != -1
     }
 
@@ -246,7 +246,7 @@ final class BrowserStore: ObservableObject {
                     catch { return }
                     guard let self, self.navigationWaiter?.id == waiterID else { return }
                     self.navigationFailure = .timedOut
-                    self.engine?.stopLoading()
+                    self.engine?.kestrelStopLoading()
                     self.finishNavigationWait(success: false)
                 }
             }
@@ -272,7 +272,7 @@ final class BrowserStore: ObservableObject {
         navigationFailure = nil
         faviconURL = nil
         dismissBrowserHandoff()
-        beginNavigation { $0.load(url) }
+        beginNavigation { $0.kestrelLoad(url) }
     }
 
     private func observeEngine() {
@@ -371,7 +371,7 @@ final class BrowserStore: ObservableObject {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard let self, let engine, self.passkeyWatcherGeneration == generation,
                   !engine.isLoading, engine.url == loadedURL else { return }
-            engine.executeJavaScript(CefPasskeyHandoff.watcherScript(tabID: tabID))
+            engine.kestrelExecuteJavaScript(CefPasskeyHandoff.watcherScript(tabID: tabID))
         }
     }
 

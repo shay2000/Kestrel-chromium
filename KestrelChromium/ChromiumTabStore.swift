@@ -93,7 +93,7 @@ final class TabStore: ObservableObject {
         searchEngine: SearchEngine = .default,
         pinnedTabsDefaults: UserDefaults? = nil,
         pauseMediaPlayback: @escaping @MainActor (CefWebViewModel) -> Void = { model in
-            model.browser?.isAudioMuted = true
+            model.kestrelBrowser?.isAudioMuted = true
         },
         openExternalURL: @escaping @MainActor (URL) -> Bool = { url in
             let workspace = NSWorkspace.shared
@@ -193,7 +193,7 @@ final class TabStore: ObservableObject {
             if let chrome = chromeBrowsers.removeValue(forKey: id) {
                 chrome.close()
             } else {
-                webView.browser?.close()
+                webView.kestrelBrowser?.close()
             }
         }
         browserStores[id] = nil
@@ -651,8 +651,8 @@ final class TabStore: ObservableObject {
         options.initialBounds = CGRect(x: -4096, y: -4096, width: 800, height: 600)
         let initialURL = model.url ?? URL(string: "about:blank")!
         let chrome = CefChromeBrowser.create(url: initialURL, options: options, delegate: model)
-        model.attach(chrome.browser)
-        let delegate = CefBrowserDelegateProxy(model: model, store: browser(for: id))
+        model.kestrelAttach(chrome.browser)
+        let delegate = CefBrowserDelegateProxy(model: model, store: browser(for: id), tabs: self)
         chrome.browser.delegate = delegate
         browserDelegates[id] = delegate
         chrome.hide()
@@ -765,7 +765,7 @@ final class TabStore: ObservableObject {
         """#
         guard let masks = await CefScriptRunner.shared.evaluateBody(script, in: view, tabID: context.tabID) as? [[String: Double]],
               isCurrent(context), !Task.isCancelled, !view.isLoading,
-              let nativeView = view.browser?.nativeView,
+              let nativeView = view.kestrelBrowser?.nativeView,
               nativeView.bounds.width > 0, nativeView.bounds.height > 0 else { return nil }
         let bounds = nativeView.bounds
         let representation = nativeView.bitmapImageRepForCachingDisplay(in: bounds)
@@ -848,7 +848,7 @@ final class TabStore: ObservableObject {
             guard let preview, id == preview.id, preview.context == context else {
                 return .skipped(action, reason: "The local form preview expired. Ask again to review current details.")
             }
-            let filled = await ProfileFormAdapter.fill(webView: webView(for: context.tabID), preview: preview)
+            let filled = await ProfileFormAdapter.fill(webView: webView(for: context.tabID), tabID: context.tabID, preview: preview)
             return ActionResult(kind: .fillProfile, status: filled ? .succeeded : .failed,
                 summary: filled ? "Filled the approved empty fields" : "Form filling stopped",
                 detail: "Nothing was submitted by Kestrel. Review the form; changed controls may have left some fields unfilled.")

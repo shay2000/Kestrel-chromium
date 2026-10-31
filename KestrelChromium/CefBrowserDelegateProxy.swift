@@ -6,15 +6,17 @@ import CefSwiftUI
 import Foundation
 
 /// Keeps CefWebViewModel's normal state mirroring while forwarding the CEF
-/// events that Kestrel needs for navigation errors.
+/// events that Kestrel needs for navigation errors and external URL handling.
 @MainActor
 final class CefBrowserDelegateProxy: CefBrowserDelegate {
     private weak var model: CefWebViewModel?
     private weak var store: BrowserStore?
+    private weak var tabs: TabStore?
 
-    init(model: CefWebViewModel, store: BrowserStore) {
+    init(model: CefWebViewModel, store: BrowserStore, tabs: TabStore) {
         self.model = model
         self.store = store
+        self.tabs = tabs
     }
 
     func browser(_ browser: CefBrowser, didChangeTitle title: String) {
@@ -56,11 +58,12 @@ final class CefBrowserDelegateProxy: CefBrowserDelegate {
         if URLNormalisation.chromiumInternalURL(from: url.absoluteString) != nil { return .allow }
         let externalSchemes: Set<String> = ["mailto", "tel", "sms", "facetime", "maps", "itms-apps"]
         guard userGesture, externalSchemes.contains(scheme),
-              store?.openExternalNavigation(url) == true else { return .cancel }
+              tabs?.openExternalNavigation(url) == true else { return .cancel }
         return .cancel
     }
 
     func browserDidClose(_ browser: CefBrowser) {
+        model?.kestrelDetach()
         model?.browserDidClose(browser)
     }
 
