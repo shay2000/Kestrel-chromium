@@ -34,7 +34,7 @@ enum ExtensionSupportLevel: String, Codable, Sendable {
         case .limited:
             return "Chromium is available, but extension imports are not enabled in this build."
         case .available:
-            return "Kestrel uses Chromium's Chrome runtime. It reviews Manifest V3 extension permissions before loading unpacked, ZIP or CRX packages. Approved extensions load when Kestrel starts; Chromium manages their runtime and site access."
+            return "Kestrel uses Chromium's Chrome runtime. It reviews Manifest V3 extension permissions before loading unpacked folders, ZIP archives or signature-verified CRX3 packages. Approved extensions load when Kestrel starts; Chromium manages their runtime and site access."
         }
     }
 }
@@ -195,6 +195,7 @@ struct ExtensionInstallPreview: Equatable, Sendable, Identifiable {
     var packageKind: ExtensionPackageKind
     var requested: PendingExtensionPermissions
     var warnings: [String]
+    var signedExtensionID: String? = nil
 }
 
 /// The outcome of staging a local package. `pendingApproval` is the only

@@ -77,7 +77,7 @@ final class BrowserExtensionHost: ObservableObject {
         }
         let kind = ExtensionPackageClassifier.kind(for: url, isDirectory: isDirectory.boolValue)
         guard ExtensionPackageDecision.forKind(kind).isLoadable else {
-            return .rejected(reason: ExtensionSupport.chromiumCRXRejectionReason)
+            return .rejected(reason: ExtensionSupport.unsupportedFormatRejectionReason)
         }
         var snapshotURL: URL?
         do {
@@ -86,10 +86,11 @@ final class BrowserExtensionHost: ObservableObject {
             snapshotURL = snapshot
             try FileManager.default.createDirectory(at: snapshot, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
+            var signedExtensionID: String?
             if kind == .directory {
                 try Self.copyDirectory(url, to: snapshot)
             } else {
-                try Self.extractArchive(url, to: snapshot)
+                signedExtensionID = try Self.extractArchive(url, kind: kind, to: snapshot)
             }
             let data = try Self.readManifest(from: snapshot)
             guard data.count <= 1_000_000 else {
@@ -109,9 +110,12 @@ final class BrowserExtensionHost: ObservableObject {
                     permissions: manifest.permissions.sorted(),
                     hostPatterns: Set(manifest.hostPermissions + manifest.contentScriptMatches).sorted()
                 ),
-                warnings: manifest.optionalPermissions.isEmpty
-                    ? []
-                    : ["Optional permissions are requested later through Chromium's permission prompt."]
+                warnings: (signedExtensionID == nil
+                    ? ["This unpacked or ZIP extension has no verified package signature."]
+                    : ["The CRX3 signature and extension ID were verified. This does not verify Chrome Web Store provenance."])
+                    + (manifest.optionalPermissions.isEmpty ? []
+                       : ["Optional permissions are requested later through Chromium's permission prompt."]),
+                signedExtensionID: signedExtensionID
             )
             staged[preview.id] = Staged(snapshotURL: snapshot, fingerprint: fingerprint, preview: preview)
             return .pendingApproval(preview)
@@ -244,36 +248,6 @@ final class BrowserExtensionHost: ObservableObject {
         return String(path[..<range.lowerBound]) + "/"
     }
 
-    private static func zipPayload(from data: Data) throws -> Data {
-        guard data.count <= maximumArchiveBytes else {
-            throw BrowserExtensionHostError.invalidPackage("The extension package is larger than 50 MB.")
-        }
-        let bytes = [UInt8](data)
-        if bytes.starts(with: [0x50, 0x4b, 0x03, 0x04]) { return data }
-        guard bytes.count >= 12, Array(bytes[0..<4]) == [0x43, 0x72, 0x32, 0x34] else {
-            throw BrowserExtensionHostError.invalidPackage("The extension package is not a ZIP or Chromium CRX file.")
-        }
-        func uint32(_ offset: Int) -> UInt32 {
-            UInt32(bytes[offset]) | UInt32(bytes[offset + 1]) << 8
-                | UInt32(bytes[offset + 2]) << 16 | UInt32(bytes[offset + 3]) << 24
-        }
-        let version = uint32(4)
-        let headerLength: UInt64
-        switch version {
-        case 2:
-            guard bytes.count >= 16 else { throw BrowserExtensionHostError.invalidPackage("The Chromium CRX header is incomplete.") }
-            headerLength = 16 + UInt64(uint32(8)) + UInt64(uint32(12))
-        case 3:
-            headerLength = 12 + UInt64(uint32(8))
-        default:
-            throw BrowserExtensionHostError.invalidPackage("This Chromium CRX version is not supported.")
-        }
-        guard headerLength < UInt64(data.count), headerLength <= 1_000_000 else {
-            throw BrowserExtensionHostError.invalidPackage("The Chromium CRX header is invalid.")
-        }
-        return data.dropFirst(Int(headerLength))
-    }
-
     private static func copyDirectory(_ source: URL, to destination: URL) throws {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory), isDirectory.boolValue,
@@ -308,10 +282,19 @@ final class BrowserExtensionHost: ObservableObject {
         try requireRegularFile(destination.appendingPathComponent("manifest.json"))
     }
 
-    private static func extractArchive(_ source: URL, to destination: URL) throws {
+    private static func extractArchive(_ source: URL, kind: ExtensionPackageKind, to destination: URL) throws -> String? {
         try requireArchiveSize(source)
         let rawData = try Data(contentsOf: source, options: [.mappedIfSafe])
-        let data = try zipPayload(from: rawData)
+        let signedPackage: CRXPackage?
+        if kind == .chromiumCRX {
+            signedPackage = try CRXPackage(data: rawData)
+        } else {
+            signedPackage = nil
+            guard rawData.starts(with: [0x50, 0x4b, 0x03, 0x04]) else {
+                throw BrowserExtensionHostError.invalidPackage("Choose a ZIP archive, or a signed package with the .crx extension.")
+            }
+        }
+        let data = signedPackage?.archive ?? rawData
         guard data.count <= maximumArchiveBytes else {
             throw BrowserExtensionHostError.invalidPackage("The ZIP archive is larger than 50 MB.")
         }
@@ -321,6 +304,9 @@ final class BrowserExtensionHost: ObservableObject {
         guard !entries.isEmpty, manifests.count == 1, let manifest = manifests.first,
               manifest.uncompressedSize <= 1_000_000, let root = archiveRoot(for: manifest.name) else {
             throw BrowserExtensionHostError.invalidPackage("The archive must contain exactly one manifest.json file at its root.")
+        }
+        if signedPackage != nil, !root.isEmpty {
+            throw BrowserExtensionHostError.invalidPackage("A signed CRX3 archive must have manifest.json at its root.")
         }
         var names = Set<String>()
         var total = 0
@@ -354,7 +340,16 @@ final class BrowserExtensionHost: ObservableObject {
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             try archive.contents(of: entry).write(to: target, options: .atomic)
         }
-        try requireRegularFile(destination.appendingPathComponent("manifest.json"))
+        let manifestURL = destination.appendingPathComponent("manifest.json")
+        try requireRegularFile(manifestURL)
+        if let signedPackage {
+            let manifest = try readManifest(from: destination)
+            guard manifest.count <= 1_000_000 else {
+                throw BrowserExtensionHostError.invalidPackage("The extension manifest is too large to review.")
+            }
+            try signedPackage.manifestPreservingIdentity(manifest).write(to: manifestURL, options: .atomic)
+        }
+        return signedPackage?.extensionID
     }
 
     private static func safeComponents(_ path: String) -> [String]? {
@@ -375,6 +370,7 @@ final class BrowserExtensionHost: ObservableObject {
 
     private static func safeMessage(for error: Error) -> String {
         if let error = error as? BrowserExtensionHostError { return error.localizedDescription }
+        if let error = error as? CRXPackage.ValidationError { return error.localizedDescription }
         return "The extension package could not be read or copied."
     }
 }

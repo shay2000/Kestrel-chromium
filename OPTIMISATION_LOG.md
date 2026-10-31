@@ -1,5 +1,9 @@
 # Application cleanup and optimisation
 
+## Chromium CRX import follow-up — 31 October 2026
+
+Synced `full-feature-port` through `20607a9` and addressed the current Chromium handoff's unchecked CRX container/identity fault. CRX3 proofs now authenticate the exact archive and signed ID; extraction preserves the developer key before the reviewed fingerprint is created. CRX2, invalid signatures, conflicting manifest identities and malformed protobuf fields fail before approval. Corrected the permission-sheet copy and legacy extension-capability assertions. Native RSA/ECDSA and malformed-input regressions are wired into the macOS workflow. See [HANDOFF.md](HANDOFF.md) for the verification outcome and remaining external/native acceptance gates.
+
 ## Greptile follow-up — 30 October 2026
 
 Six verified Greptile findings have source/regression fixes in [PR #11](https://github.com/shay2000/kestrel-webkit/pull/11). The native user journey also fixed Command-W closing the window and standalone resource-bundle startup failure. [The finding register](docs/GREPTILE_REVIEW_2026-10-30.md) records source/report links, severity changes and exact evidence.

@@ -1389,6 +1389,11 @@ private struct ExtensionApprovalSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(preview.displayName)
                     .font(.headline)
+                if let extensionID = preview.signedExtensionID {
+                    Text("Signed extension ID: \(extensionID)")
+                        .font(KestrelTypography.chromeDetail)
+                        .textSelection(.enabled)
+                }
                 Text(preview.version.map { "Version \($0)" } ?? "Version not declared")
                     .font(KestrelTypography.chromeDetail)
                     .foregroundStyle(Color.primary.opacity(0.66))
@@ -1407,7 +1412,7 @@ private struct ExtensionApprovalSheet: View {
                         .foregroundStyle(.orange)
                     }
 
-                    Text("Nothing is loaded until you press Approve. Only the items you tick are granted; everything else stays denied.")
+                    Text("Nothing is loaded until you approve all required permissions and site patterns. Approved extensions load when Kestrel next starts.")
                         .settingsSupportingCopy()
 
                     if preview.requested.isEmpty {
@@ -1426,9 +1431,9 @@ private struct ExtensionApprovalSheet: View {
                 Button("Cancel", role: .cancel, action: onDiscard)
                     .help("Discard this staged extension")
                 Spacer()
-                Button("Approve and Load", action: onApprove)
+                Button("Approve Import", action: onApprove)
                     .buttonStyle(.borderedProminent)
-                    .help("Load the extension with only the permissions you selected")
+                    .help("Approve all required permissions and load the extension on the next start")
                     .keyboardShortcut(.defaultAction)
             }
         }
