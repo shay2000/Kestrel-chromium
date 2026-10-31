@@ -441,9 +441,17 @@ struct ChromeWebStoreAcceptance {
             throw StoreProbeError(message: "The actual extension options API failed: \(result)")
         }
         let page = try await target(matching: "chrome-extension://\(host)/options.html")
-        guard try await evaluate(page, "document.body.innerText.includes('Kestrel extension options fixture')") as? Bool == true else {
+        var loaded = false
+        for _ in 0..<30 {
+            if try await evaluate(page, "document.readyState === 'complete' && Boolean(document.body?.innerText.includes('Kestrel extension options fixture'))") as? Bool == true {
+                loaded = true; break
+            }
+            await pause(0.2)
+        }
+        guard loaded else {
             throw StoreProbeError(message: "The extension options document did not load in Kestrel")
         }
+        await pause(0.5) // Allow the host's title/loading observations to settle.
         try await inspectWindowSurfaces(stage: "extension-options")
         record("extension_options_hosted", ["extensionID": host, "apiSucceeded": true])
     }
