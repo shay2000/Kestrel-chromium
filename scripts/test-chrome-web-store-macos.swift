@@ -16,8 +16,8 @@ struct StoreProbeError: LocalizedError {
 struct ChromeWebStoreAcceptance {
     static var app = URL(fileURLWithPath: "/")
     static var output = URL(fileURLWithPath: "/")
-    static var process: Process?
     static var testedPID: pid_t?
+    static var testedPIDs = Set<Int>()
     static var sockets: [String: URLSessionWebSocketTask] = [:]
     static var nextCommandID = 0
     static let port = 9333
@@ -57,6 +57,8 @@ struct ChromeWebStoreAcceptance {
             }
             if installed.contains(items[1].id) { try await verifyDarkReader(stage: "after-restart") }
             if !failures.isEmpty { throw StoreProbeError(message: failures.joined(separator: "; ")) }
+            await pause(15)
+            guard !collectCrashReports() else { throw StoreProbeError(message: "A tested Kestrel process crashed during quit/restart") }
             try save("result.json", ["passed": true, "runtimeUserAgentProbe": uaProbe,
                                      "installedIDs": items.map(\.id), "restartRuntimePassed": true])
             print("Chrome Web Store native install and restart acceptance passed. User-agent probe: \(uaProbe)")
@@ -95,17 +97,24 @@ struct ChromeWebStoreAcceptance {
         record("window_resize", ["width": size.width, "height": size.height]); await pause(2)
     }
 
-    static func collectCrashReports() {
+    @discardableResult static func collectCrashReports() -> Bool {
         let reports = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/DiagnosticReports")
-        guard let files = try? FileManager.default.contentsOfDirectory(at: reports, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        guard let files = try? FileManager.default.contentsOfDirectory(at: reports, includingPropertiesForKeys: [.contentModificationDateKey]) else { return false }
+        var found = false
         let destination = output.appendingPathComponent("crash-reports")
         try? FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         for file in files where file.lastPathComponent.hasPrefix("Kestrel") {
             guard let modified = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
                   Date().timeIntervalSince(modified) < 3600 else { continue }
             try? FileManager.default.copyItem(at: file, to: destination.appendingPathComponent(file.lastPathComponent))
-            if let text = try? String(contentsOf: file, encoding: .utf8) { record("crash_report", ["file": file.lastPathComponent, "text": String(text.prefix(20000))]) }
+            if let text = try? String(contentsOf: file, encoding: .utf8) {
+                let body = text.split(separator: "\n", maxSplits: 1).last.map(String.init) ?? text
+                if let data = body.data(using: .utf8), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let pid = object["pid"] as? Int, testedPIDs.contains(pid) { found = true }
+                record("crash_report", ["file": file.lastPathComponent, "text": String(text.prefix(20000))])
+            }
         }
+        return found
     }
 
     static func record(_ event: String, _ details: [String: Any] = [:]) {
@@ -113,6 +122,7 @@ struct ChromeWebStoreAcceptance {
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
               let text = String(data: data, encoding: .utf8) else { return }
         print(text)
+        fflush(stdout)
         let url = output.appendingPathComponent("events.jsonl")
         if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
         if let file = try? FileHandle(forWritingTo: url) {
@@ -136,7 +146,7 @@ struct ChromeWebStoreAcceptance {
     static func launch(reuse: Bool = false) async throws {
         if reuse, let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.shayprasad.Kestrel").first(where: { $0.bundleURL?.standardizedFileURL.path == app.path }),
            (try? await targets()) != nil {
-            testedPID = running.processIdentifier
+            testedPID = running.processIdentifier; testedPIDs.insert(Int(running.processIdentifier))
             running.activate(options: [.activateIgnoringOtherApps])
             record("reused_running_app", ["pid": running.processIdentifier, "bundle": app.path])
             return
@@ -150,19 +160,25 @@ struct ChromeWebStoreAcceptance {
                 .allSatisfy({ $0.bundleURL?.standardizedFileURL.path != app.path }) { break }
             await pause()
         }
-        let child = Process()
-        child.executableURL = app.appendingPathComponent("Contents/MacOS/Kestrel")
-        child.arguments = ["--remote-debugging-port=\(port)", "--force-renderer-accessibility"]
-        let log = output.appendingPathComponent("app-\(UUID().uuidString).log")
-        FileManager.default.createFile(atPath: log.path, contents: nil)
-        child.standardOutput = try FileHandle(forWritingTo: log)
-        child.standardError = child.standardOutput
-        try child.run(); process = child; testedPID = child.processIdentifier
+        guard NSRunningApplication.runningApplications(withBundleIdentifier: "com.shayprasad.Kestrel")
+            .allSatisfy({ $0.bundleURL?.standardizedFileURL.path != app.path }) else {
+            throw StoreProbeError(message: "Kestrel did not finish quitting before restart")
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        configuration.arguments = ["--remote-debugging-port=\(port)", "--force-renderer-accessibility"]
+        let running: NSRunningApplication = try await withCheckedThrowingContinuation { continuation in
+            NSWorkspace.shared.openApplication(at: app, configuration: configuration) { application, error in
+                if let application { continuation.resume(returning: application) }
+                else { continuation.resume(throwing: error ?? StoreProbeError(message: "LaunchServices could not relaunch Kestrel")) }
+            }
+        }
+        testedPID = running.processIdentifier; testedPIDs.insert(Int(running.processIdentifier))
         for _ in 0..<30 {
-            if child.isRunning, let running = NSRunningApplication(processIdentifier: child.processIdentifier) {
+            if !running.isTerminated {
                 running.activate(options: [.activateIgnoringOtherApps])
                 if (try? await targets()) != nil {
-                    record("launched", ["pid": child.processIdentifier, "bundle": running.bundleURL?.path ?? "unknown"])
+                    record("launched", ["pid": running.processIdentifier, "bundle": running.bundleURL?.path ?? "unknown"])
                     return
                 }
             }

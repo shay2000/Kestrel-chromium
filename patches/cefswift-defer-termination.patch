@@ -1,0 +1,18 @@
+--- a/Sources/CefKit/CefRuntime.swift
++++ b/Sources/CefKit/CefRuntime.swift
+@@ -401,8 +401,13 @@
+     func unregisterBrowser(id: Int32) {
+         browsers[id] = nil
+         if isTerminationRequested && browsers.isEmpty {
+-            // Re-enter terminate:; with no browsers left it now proceeds.
+-            NSApp.terminate(nil)
++            // OnBeforeClose is still on CEF's callback stack. Defer the
++            // second termination request until it returns, so cef_shutdown
++            // cannot destroy browser/profile state during that callback.
++            DispatchQueue.main.async { [weak self] in
++                guard let self, self.isTerminationRequested, self.browsers.isEmpty else { return }
++                NSApp.terminate(nil)
++            }
+         }
+     }
+ 
