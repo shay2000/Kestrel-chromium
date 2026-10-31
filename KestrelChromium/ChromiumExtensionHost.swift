@@ -284,7 +284,9 @@ final class BrowserExtensionHost: ObservableObject {
 
     private static func extractArchive(_ source: URL, kind: ExtensionPackageKind, to destination: URL) throws -> String? {
         try requireArchiveSize(source)
-        let rawData = try Data(contentsOf: source, options: [.mappedIfSafe])
+        // Take a snapshot before verification; later writes to the selected
+        // file must not change the archive that was authenticated.
+        let rawData = try Data(contentsOf: source)
         let signedPackage: CRXPackage?
         if kind == .chromiumCRX {
             signedPackage = try CRXPackage(data: rawData)

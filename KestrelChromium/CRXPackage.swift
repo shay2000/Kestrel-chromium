@@ -61,7 +61,9 @@ struct CRXPackage {
         guard let developerKey else {
             throw ValidationError.invalid("The CRX3 signing key does not match its signed extension identity.")
         }
-        archive = zip
+        // Retain the payload from the owned buffer whose exact bytes were
+        // verified, rather than a potentially file-backed view of the input.
+        archive = Data(message.suffix(zip.count))
         publicKey = developerKey
         extensionID = id.flatMap { byte in [byte >> 4, byte & 15] }
             .map { String(UnicodeScalar(97 + Int($0))!) }.joined()
