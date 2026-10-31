@@ -178,6 +178,10 @@ private final class PersistentChromeHostView: NSView {
     func parkBrowser() {
         for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
         windowObservers = []
+        // The persistent CEF root outlives this SwiftUI host. Remove this
+        // host's overlay so old spinners/banners cannot remain on the page.
+        nativeOverlay?.removeFromSuperview()
+        nativeOverlay = nil
         guard let overlay = browser?.nsWindow else { return }
         overlay.parent?.removeChildWindow(overlay)
         overlay.orderOut(nil)
