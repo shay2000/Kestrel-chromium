@@ -94,8 +94,29 @@ case "$STAGE" in
     printf 'Kestrel stayed alive for 12 seconds after opening https://example.com/.\n' \
       | tee -a "$EVIDENCE_DIR/launch.txt"
     ;;
+  webstore)
+    PID="$(pgrep -x "$EXECUTABLE" | head -n 1 || true)"
+    if [[ -z "$PID" ]]; then
+      collect_failure_evidence "Kestrel was not running before the Chrome Web Store check."
+    fi
+    open -a "$APP" 'https://chromewebstore.google.com/detail/google-translate/aapbdbdomjkkjkaonfhkkikfgjllcleb' \
+      2>&1 | tee -a "$EVIDENCE_DIR/launch.txt"
+    sleep 20
+    PID="$(pgrep -x "$EXECUTABLE" | head -n 1 || true)"
+    if [[ -z "$PID" ]] || ! kill -0 "$PID" 2>/dev/null; then
+      collect_failure_evidence "Kestrel exited while opening the Chrome Web Store listing."
+    fi
+
+    ps -p "$PID" -o pid=,comm= > "$EVIDENCE_DIR/process-after-webstore.txt"
+    screencapture -x "$EVIDENCE_DIR/chrome-web-store.png"
+    log show --last 3m --style compact \
+      --predicate "process == \"$EXECUTABLE\" OR process CONTAINS[c] \"Kestrel Helper\"" \
+      > "$EVIDENCE_DIR/system-log.txt" 2>&1 || true
+    printf 'Kestrel stayed alive for 20 seconds after opening the Google Translate listing on the Chrome Web Store.\n' \
+      | tee -a "$EVIDENCE_DIR/launch.txt"
+    ;;
   *)
-    echo "usage: smoke-macos-app.sh /path/to/Kestrel.app output-directory [launch|navigate]" >&2
+    echo "usage: smoke-macos-app.sh /path/to/Kestrel.app output-directory [launch|navigate|webstore]" >&2
     exit 2
     ;;
 esac

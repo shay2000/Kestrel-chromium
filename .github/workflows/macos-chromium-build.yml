@@ -72,10 +72,26 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-      - name: Open a web page and capture browser screenshot
+      - id: navigate-smoke
+        name: Open a web page and capture browser screenshot
         if: steps.launch-smoke.outcome == 'success'
         run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke" navigate
         shell: bash
+
+      - id: store-smoke
+        name: Open a Chrome Web Store listing and capture screenshot
+        if: steps.navigate-smoke.outcome == 'success'
+        run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke" webstore
+        shell: bash
+
+      - name: Upload Chrome Web Store screenshot
+        if: always() && steps.store-smoke.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-chrome-web-store-screenshot
+          path: ${{ runner.temp }}/kestrel-chromium-runtime-smoke/chrome-web-store.png
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Upload runtime smoke evidence
         if: always()
