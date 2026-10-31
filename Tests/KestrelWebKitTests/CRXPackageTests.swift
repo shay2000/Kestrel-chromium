@@ -72,6 +72,22 @@ final class CRXPackageTests: XCTestCase {
         XCTAssertEqual(verified.publicKey, signer.publicKey)
     }
 
+    func testVerifiedArchiveSurvivesChangesToFileBackedInput() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let bytes = try package(ecSigner())
+        try bytes.write(to: url)
+        let mapped = try Data(contentsOf: url, options: .alwaysMapped)
+        let verified = try CRXPackage(data: mapped)
+        let writer = try FileHandle(forWritingTo: url)
+        defer { try? writer.close() }
+        try writer.seek(toOffset: UInt64(bytes.count - 1))
+        try writer.write(contentsOf: Data([0xff]))
+        try writer.synchronize()
+        XCTAssertEqual(verified.archive, zip)
+        XCTAssertThrowsError(try CRXPackage(data: Data(contentsOf: url)))
+    }
+
     func testTamperedArchiveAndSignatureAreRejected() throws {
         let original = try package(ecSigner())
         var tampered = original
