@@ -33,9 +33,18 @@ swift package \
   --sign -
 
 # CefSwift assembles and signs the CEF framework and helper apps. Add Kestrel's
-# app resources and browser permission descriptions, then re-sign the app
-# container so its resource seal includes them while preserving nested code.
+# app resources, Sparkle's dynamic framework and browser permission
+# descriptions, then re-sign the app container so its resource seal includes
+# them while preserving nested code.
 mkdir -p "$APP/Contents/Resources"
+SPARKLE_FRAMEWORK="$(find "$ROOT/.build/artifacts" -path '*/Sparkle.framework' -print -quit)"
+if [[ -z "$SPARKLE_FRAMEWORK" || ! -d "$SPARKLE_FRAMEWORK" ]]; then
+  echo "error: the resolved Sparkle.framework was not found under .build/artifacts." >&2
+  exit 1
+fi
+mkdir -p "$APP/Contents/Frameworks"
+cp -R "$SPARKLE_FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
+cp "$ROOT/.build/checkouts/Sparkle/LICENSE" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
 RESOURCE_BUNDLE="$(find "$ROOT/.build" -type d -name 'KestrelChromium_KestrelWebKit.bundle' -path "*/$CONFIG/*" -print -quit)"
 if [[ -z "$RESOURCE_BUNDLE" || ! -d "$RESOURCE_BUNDLE" ]]; then
   echo "error: the compiled Kestrel resource bundle was not found under .build for $CONFIG." >&2
