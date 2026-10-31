@@ -38,7 +38,17 @@ struct ChromiumLifecycleAcceptance {
             // Capture the engine's own hybrid UI without a synthetic authenticator.
             try require(try await Probe.clickPageButton(page, label: "Try phone passkey"), "No phone passkey probe button")
             await Probe.pause(4)
-            let lines = try Probe.capture("native-hybrid")
+            var lines = try Probe.capture("native-hybrid-permission")
+            let permissionText = lines.map(\.text).joined(separator: " ")
+            if permissionText.contains("Kestrel") && permissionText.localizedCaseInsensitiveContains("would like to") && permissionText.contains("Bluetooth") {
+                let allow = lines.filter { $0.text == "Allow" }
+                if allow.count == 1, let button = allow.first {
+                    Probe.clickScreen(button.box)
+                    Probe.record("runner_bluetooth_permission", ["choice":"Allow", "disposableRunner":true])
+                    await Probe.pause(3)
+                }
+            }
+            lines = try Probe.capture("native-hybrid")
             try Probe.dumpAX("native-hybrid-ax.json")
             let barcode = VNDetectBarcodesRequest(); barcode.symbologies = [.qr]
             try VNImageRequestHandler(url: Probe.output.appendingPathComponent("native-hybrid.png")).perform([barcode])
@@ -65,11 +75,16 @@ struct ChromiumLifecycleAcceptance {
             // Opening then closing real targets exercises native browser callbacks.
             for index in 0..<5 {
                 let rapid = try await Probe.open(fixture + "?rapid=\(index)")
-                if let id = rapid["id"] as? String { _ = try await Probe.cdp(rapid, "Target.closeTarget", ["targetId":id]) }
+                try await closeTarget(rapid)
                 await Probe.pause(0.3)
             }
             try await verifyDraft(page, expected: "Unsaved draft survives Stay")
             Probe.record("rapid_tab_close_parent_survived", ["cycles":5])
+            try await closeTarget(page)
+            await Probe.pause(2)
+            try require(NSRunningApplication(processIdentifier: Probe.testedPID!)?.isTerminated == false,
+                        "Closing the final page completed a previously cancelled quit")
+            Probe.record("last_page_close_after_cancel_kept_app_running")
             // Deliver a new URL and quit immediately, without waiting for its target.
             try Probe.command("/usr/bin/open", ["-a", Probe.app.path, fixture + "?quit-during-create=1"])
             try await Probe.launch()
@@ -87,6 +102,23 @@ struct ChromiumLifecycleAcceptance {
     }
     static func key(_ code: CGKeyCode, flags: CGEventFlags = []) {
         for down in [true, false] { let event = CGEvent(keyboardEventSource:nil,virtualKey:code,keyDown:down); event?.flags=flags; event?.post(tap:.cghidEventTap) }
+    }
+    static func browserEndpoint() async throws -> [String: Any] {
+        let (data, _) = try await URLSession.shared.data(from: URL(string:"http://127.0.0.1:9333/json/version")!)
+        return try JSONSerialization.jsonObject(with:data) as? [String:Any] ?? [:]
+    }
+    static func closeTarget(_ page: [String: Any]) async throws {
+        guard let id = page["id"] as? String else { throw StoreProbeError(message:"No native target ID") }
+        // Closing a target destroys its own websocket before its reply may arrive.
+        // Use the surviving browser endpoint and require actual disappearance.
+        let browser = try await browserEndpoint()
+        let reply = try await Probe.cdp(browser, "Target.closeTarget", ["targetId":id])
+        try require(reply["success"] as? Bool == true, "Browser refused to close target")
+        for _ in 0..<30 {
+            if try await Probe.targets().allSatisfy({ $0["id"] as? String != id }) { return }
+            await Probe.pause(0.2)
+        }
+        throw StoreProbeError(message:"Target remained after confirmed close request")
     }
     static func chooseStay(stage: String) async throws {
         for attempt in 0..<15 {

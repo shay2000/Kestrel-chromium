@@ -410,7 +410,16 @@ struct ChromeWebStoreAcceptance {
     struct Recognised { let text: String; let box: CGRect }
     @discardableResult static func capture(_ name: String) throws -> [Recognised] {
         let url = output.appendingPathComponent(name + ".png")
-        try command("/usr/sbin/screencapture", ["-x", url.path])
+        // A hosted display can briefly have no capture surface during a native
+        // window transition. Require a real capture, with a bounded retry.
+        for attempt in 0..<3 {
+            do { try command("/usr/sbin/screencapture", ["-x", url.path]); break }
+            catch {
+                if attempt == 2 { throw error }
+                record("capture_retry", ["name": name, "attempt": attempt + 1])
+                Thread.sleep(forTimeInterval: 0.3)
+            }
+        }
         let request = VNRecognizeTextRequest(); request.recognitionLevel = .accurate
         try VNImageRequestHandler(url: url).perform([request])
         let lines = (request.results ?? []).compactMap { observation -> Recognised? in
