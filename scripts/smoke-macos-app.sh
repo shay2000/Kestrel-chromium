@@ -11,6 +11,21 @@ printf 'App: %s\nExecutable: %s\n' "$APP" "$EXECUTABLE" | tee "$EVIDENCE_DIR/lau
 open -a "$APP" 'https://example.com/' 2>&1 | tee -a "$EVIDENCE_DIR/launch.txt"
 
 PID=""
+for _ in $(seq 1 5); do
+  PID="$(pgrep -x "$EXECUTABLE" | head -n 1 || true)"
+  if [[ -n "$PID" ]]; then break; fi
+  sleep 1
+done
+
+if [[ -z "$PID" ]]; then
+  echo "LaunchServices did not leave a Kestrel process running; trying the app executable directly." \
+    | tee -a "$EVIDENCE_DIR/launch.txt"
+  nohup "$APP/Contents/MacOS/$EXECUTABLE" 'https://example.com/' \
+    > "$EVIDENCE_DIR/app-stdout.txt" 2> "$EVIDENCE_DIR/app-stderr.txt" < /dev/null &
+  DIRECT_PID=$!
+  printf 'Direct launch PID: %s\n' "$DIRECT_PID" | tee -a "$EVIDENCE_DIR/launch.txt"
+fi
+
 for _ in $(seq 1 30); do
   PID="$(pgrep -x "$EXECUTABLE" | head -n 1 || true)"
   if [[ -n "$PID" ]]; then break; fi
@@ -25,6 +40,12 @@ if [[ -z "$PID" ]]; then
     --predicate "process == \"$EXECUTABLE\" OR process CONTAINS[c] \"Kestrel Helper\"" \
     > "$EVIDENCE_DIR/system-log.txt" 2>&1 || true
   cat "$EVIDENCE_DIR/system-log.txt" | tee -a "$EVIDENCE_DIR/launch.txt"
+  for output in app-stdout.txt app-stderr.txt; do
+    if [[ -s "$EVIDENCE_DIR/$output" ]]; then
+      printf '\n--- %s ---\n' "$output" | tee -a "$EVIDENCE_DIR/launch.txt"
+      cat "$EVIDENCE_DIR/$output" | tee -a "$EVIDENCE_DIR/launch.txt"
+    fi
+  done
   exit 1
 fi
 
@@ -37,6 +58,12 @@ if ! kill -0 "$PID" 2>/dev/null; then
     --predicate "process == \"$EXECUTABLE\" OR process CONTAINS[c] \"Kestrel Helper\"" \
     > "$EVIDENCE_DIR/system-log.txt" 2>&1 || true
   cat "$EVIDENCE_DIR/system-log.txt" | tee -a "$EVIDENCE_DIR/launch.txt"
+  for output in app-stdout.txt app-stderr.txt; do
+    if [[ -s "$EVIDENCE_DIR/$output" ]]; then
+      printf '\n--- %s ---\n' "$output" | tee -a "$EVIDENCE_DIR/launch.txt"
+      cat "$EVIDENCE_DIR/$output" | tee -a "$EVIDENCE_DIR/launch.txt"
+    fi
+  done
   exit 1
 fi
 
