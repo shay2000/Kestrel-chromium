@@ -3,6 +3,7 @@ set -euo pipefail
 
 APP="${1:?usage: smoke-macos-app.sh /path/to/Kestrel.app output-directory}"
 EVIDENCE_DIR="${2:?usage: smoke-macos-app.sh /path/to/Kestrel.app output-directory}"
+APP="$(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")"
 EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
 mkdir -p "$EVIDENCE_DIR"
 
