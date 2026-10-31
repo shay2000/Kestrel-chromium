@@ -57,6 +57,16 @@ if [[ -z "$RESOURCE_BUNDLE" || ! -d "$RESOURCE_BUNDLE" ]]; then
   echo "error: the compiled Kestrel resource bundle was not found under .build for $CONFIG." >&2
   exit 1
 fi
+# `swift build` copies .xcassets as a directory instead of compiling it to an
+# Assets.car. Compile the catalog into the same resource bundle so SwiftUI's
+# Image(name, bundle:) lookups work in the packaged app.
+xcrun actool \
+  --compile "$RESOURCE_BUNDLE" \
+  --platform macosx \
+  --minimum-deployment-target 14.0 \
+  --output-partial-info-plist "$BUILD_DIR/KestrelAssetsInfo.plist" \
+  "$ROOT/KestrelWebKit/Assets.xcassets"
+test -s "$RESOURCE_BUNDLE/Assets.car"
 cp -R "$RESOURCE_BUNDLE" "$APP/Contents/Resources/KestrelChromium_KestrelWebKit.bundle"
 cp "$ROOT/KestrelWebKit/Kestrel.icns" "$APP/Contents/Resources/Kestrel.icns"
 INFO="$APP/Contents/Info.plist"

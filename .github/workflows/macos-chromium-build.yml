@@ -56,8 +56,25 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Launch the app and capture first-run evidence
-        run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke"
+      - id: launch-smoke
+        name: Launch the app and capture first-run screenshot
+        run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke" launch
+        shell: bash
+
+      - name: Upload first-run screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-first-run-screenshot
+          path: |
+            ${{ runner.temp }}/kestrel-chromium-runtime-smoke/first-launch.png
+            ${{ runner.temp }}/kestrel-chromium-runtime-smoke/launch.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Open a web page and capture browser screenshot
+        if: steps.launch-smoke.outcome == 'success'
+        run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke" navigate
         shell: bash
 
       - name: Upload runtime smoke evidence

@@ -54,9 +54,9 @@ final class KestrelBranding: ObservableObject {
         let name = NSImage.Name(isDark ? "KestrelIconDark" : "KestrelIconBasic")
         #if SWIFT_PACKAGE
         if let image = KestrelAssets.bundle.image(forResource: name) { return image }
-        // Command-line SwiftPM copies asset catalogues without invoking
-        // actool. Load the approved raster directly from that same bundle;
-        // Xcode builds continue to use the compiled catalogue below.
+        // Direct `swift build` invocations may copy asset catalogues without
+        // invoking actool. The packaged app build compiles the catalogue; this
+        // fallback keeps the app icon available to unbundled SwiftPM runs.
         guard let url = KestrelAssets.bundle.url(forResource: "icon@2x", withExtension: "png",
                                           subdirectory: "Assets.xcassets/\(name).imageset") else { return nil }
         return NSImage(contentsOf: url)

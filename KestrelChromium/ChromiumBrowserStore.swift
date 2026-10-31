@@ -80,9 +80,16 @@ final class BrowserStore: ObservableObject {
         if engine.url == nil, let destination = Self.destinationURL(from: addressText, searchEngine: searchEngine) {
             engine.kestrelLoad(destination)
         }
-        synchronize(from: engine)
-        observeEngine()
-        if !engine.isLoading { schedulePasskeyWatcher() }
+        // Browser views are materialised from ContentView's body. Publishing
+        // the initial engine state inline would mutate SwiftUI-observed state
+        // while that view update is still being evaluated.
+        Task { @MainActor [weak self, weak engine] in
+            await Task.yield()
+            guard let self, let engine, self.engine === engine else { return }
+            self.synchronize(from: engine)
+            self.observeEngine()
+            if !engine.isLoading { self.schedulePasskeyWatcher() }
+        }
     }
 
     func submitAddress() {
