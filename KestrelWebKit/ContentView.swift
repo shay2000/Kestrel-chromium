@@ -740,6 +740,10 @@ struct ContentView: View {
                 || browser.passkeyHandoffNeeded
                 || browser.browserHandoffError != nil
         )
+        let isAgentCursorVisible = chat.agentTaskTabID == tabID
+            && chat.isPageControlArmed
+            && (chat.isBusy || chat.pendingProposal != nil)
+        let showsPageOverlay = browser.isLoading || hasInteractivePageBanner || isSearching || isAgentCursorVisible
         // A blank page has no content to show. The persistent CEF browser is
         // parked until the tab gets an address.
         let hasNoPage = browser.addressText
@@ -751,7 +755,7 @@ struct ContentView: View {
         }
         let pageOverlay = AnyView(ZStack {
             AgentCursorOverlay(browser: browser,
-                isActive: chat.agentTaskTabID == tabID && chat.isPageControlArmed && (chat.isBusy || chat.pendingProposal != nil),
+                isActive: isAgentCursorVisible,
                 stop: chat.cancel)
                 .allowsHitTesting(false)
 
@@ -784,6 +788,7 @@ struct ContentView: View {
             BrowserView(browserID: tabID, browserGeneration: tabs.pageGeneration(for: tabID),
                         makeChromeBrowser: { tabs.chromeBrowser(for: tabID) },
                         pageOverlay: pageOverlay,
+                        isOverlayVisible: showsPageOverlay,
                         interactiveOverlayHeight: hasInteractivePageBanner ? 176 : 0,
                         onFocus: focusAction,
                         isHidden: hasNoPage, isVisible: isDisplayed)
@@ -2126,16 +2131,25 @@ private struct BrowserToolbar: View {
     }
 
     private var toolbarColour: Color {
-        if browser.pageTitle != "New Tab", let colour = browser.pageBackgroundColor {
+        if let colour = opaquePageBackground {
             return Color(nsColor: colour)
         }
         return colourScheme == .dark ? kestrelNewTabCanvas : Color(nsColor: .windowBackgroundColor)
     }
 
     private var toolbarScheme: ColorScheme {
-        guard browser.pageTitle != "New Tab",
-              let rgb = browser.pageBackgroundColor?.usingColorSpace(.sRGB) else { return colourScheme }
+        guard let rgb = opaquePageBackground?.usingColorSpace(.sRGB) else { return colourScheme }
         return rgb.redComponent * 0.2126 + rgb.greenComponent * 0.7152 + rgb.blueComponent * 0.0722 < 0.5 ? .dark : .light
+    }
+
+    /// A transparent CSS body background is not a page colour. Treating its
+    /// transparent black components as an opaque black toolbar made the
+    /// toolbar clear with white controls on pages that use the browser canvas.
+    private var opaquePageBackground: NSColor? {
+        guard browser.pageTitle != "New Tab",
+              let colour = browser.pageBackgroundColor?.usingColorSpace(.sRGB),
+              colour.alphaComponent >= 0.98 else { return nil }
+        return colour
     }
 
     /// A question typed into the address bar and sent to the assistant.

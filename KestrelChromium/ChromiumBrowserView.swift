@@ -27,6 +27,7 @@ struct BrowserView: View {
     let browserGeneration: Int
     let makeChromeBrowser: @MainActor () -> CefChromeBrowser
     let pageOverlay: AnyView
+    var isOverlayVisible = true
     var interactiveOverlayHeight: CGFloat = 0
     var onFocus: (() -> Void)? = nil
     var isHidden = false
@@ -40,6 +41,7 @@ struct BrowserView: View {
             if let chromeBrowser, hostedBrowserID == browserID,
                hostedBrowserGeneration == browserGeneration, !isHidden {
                 PersistentChromeHost(browser: chromeBrowser, pageOverlay: pageOverlay,
+                                     isOverlayVisible: isOverlayVisible,
                                      isVisible: isVisible,
                                      interactiveOverlayHeight: interactiveOverlayHeight,
                                      onFocus: onFocus)
@@ -64,6 +66,7 @@ struct BrowserView: View {
 private struct PersistentChromeHost: NSViewRepresentable {
     let browser: CefChromeBrowser
     let pageOverlay: AnyView
+    let isOverlayVisible: Bool
     let isVisible: Bool
     let interactiveOverlayHeight: CGFloat
     let onFocus: (() -> Void)?
@@ -72,6 +75,7 @@ private struct PersistentChromeHost: NSViewRepresentable {
         let view = PersistentChromeHostView()
         view.browser = browser
         view.pageOverlay = pageOverlay
+        view.isOverlayVisible = isOverlayVisible
         view.isVisible = isVisible
         view.interactiveOverlayHeight = interactiveOverlayHeight
         view.onFocus = onFocus
@@ -81,6 +85,7 @@ private struct PersistentChromeHost: NSViewRepresentable {
     func updateNSView(_ nsView: PersistentChromeHostView, context: Context) {
         nsView.browser = browser
         nsView.pageOverlay = pageOverlay
+        nsView.isOverlayVisible = isOverlayVisible
         nsView.isVisible = isVisible
         nsView.interactiveOverlayHeight = interactiveOverlayHeight
         nsView.onFocus = onFocus
@@ -101,6 +106,9 @@ private final class PersistentChromeHostView: NSView {
         didSet { updateOverlay() }
     }
     var pageOverlay: AnyView? {
+        didSet { updateNativeOverlay() }
+    }
+    var isOverlayVisible = true {
         didSet { updateNativeOverlay() }
     }
     var interactiveOverlayHeight: CGFloat = 0 {
@@ -170,7 +178,7 @@ private final class PersistentChromeHostView: NSView {
     }
 
     private func updateNativeOverlay() {
-        guard let pageOverlay, let root = browser?.rootView else {
+        guard isOverlayVisible, let pageOverlay, let root = browser?.rootView else {
             nativeOverlay?.removeFromSuperview()
             nativeOverlay = nil
             return

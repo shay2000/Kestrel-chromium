@@ -81,9 +81,9 @@ jobs:
       - name: Drag-select text in the Chromium page
         if: steps.navigate-smoke.outcome == 'success'
         run: |
-          swift scripts/select-page-text-macos.swift "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/after-url-open.png"
-          sleep 1
-          screencapture -x "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/page-text-selection.png"
+          swift scripts/select-page-text-macos.swift \
+            "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/after-url-open.png" \
+            "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/page-text-selection.png"
           swift scripts/verify-macos-screenshot.swift "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/page-text-selection.png" "documentation examples"
         shell: bash
 
