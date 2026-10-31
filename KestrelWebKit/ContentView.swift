@@ -778,7 +778,8 @@ struct ContentView: View {
         })
 
         ZStack {
-            BrowserView(chromeBrowser: hasNoPage ? nil : tabs.chromeBrowser(for: tabID), pageOverlay: pageOverlay,
+            BrowserView(browserID: tabID, makeChromeBrowser: { tabs.chromeBrowser(for: tabID) },
+                        pageOverlay: pageOverlay,
                         onFocus: focusAction,
                         isHidden: hasNoPage, isVisible: isDisplayed)
                 .clipShape(pageShape)

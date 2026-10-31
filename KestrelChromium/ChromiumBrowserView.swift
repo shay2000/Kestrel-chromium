@@ -21,21 +21,32 @@ enum BrowserScrollbars {
 /// Hosts a persistent Chrome-runtime browser in Kestrel's page region. The CEF
 /// browser itself is owned by TabStore, so removing this SwiftUI host while
 /// changing tabs only hides the page; it does not destroy it.
+@MainActor
 struct BrowserView: View {
-    let chromeBrowser: CefChromeBrowser?
+    let browserID: UUID
+    let makeChromeBrowser: @MainActor () -> CefChromeBrowser
     let pageOverlay: AnyView
     var onFocus: (() -> Void)? = nil
     var isHidden = false
     var isVisible = true
+    @State private var chromeBrowser: CefChromeBrowser?
+    @State private var hostedBrowserID: UUID?
 
     var body: some View {
         Group {
-            if let chromeBrowser, !isHidden {
+            if let chromeBrowser, hostedBrowserID == browserID, !isHidden {
                 PersistentChromeHost(browser: chromeBrowser, pageOverlay: pageOverlay,
                                      isVisible: isVisible, onFocus: onFocus)
             } else {
                 Color.clear
             }
+        }
+        .task(id: "\(browserID.uuidString):\(isHidden)") {
+            guard !isHidden, hostedBrowserID != browserID else { return }
+            chromeBrowser = nil
+            hostedBrowserID = nil
+            chromeBrowser = makeChromeBrowser()
+            hostedBrowserID = browserID
         }
         .contentShape(Rectangle())
     }

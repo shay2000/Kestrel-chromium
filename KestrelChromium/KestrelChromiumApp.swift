@@ -27,6 +27,7 @@ struct KestrelChromiumApp: CefSwiftApp {
         CefScriptRunner.shared.installBridge()
         CefPasskeyHandoff.shared.installBridge()
         let settings = AppSettings()
+        settings.seedDefaultBookmarksIfNeeded()
         let tabs = TabStore(
             searchEngine: settings.searchEngine,
             pinnedTabsDefaults: .standard
