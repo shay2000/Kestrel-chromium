@@ -39,7 +39,6 @@ let package = Package(
             name: "KestrelWebKit",
             dependencies: appDependencies,
             path: ".",
-            sources: ["KestrelWebKit", "KestrelChromium"],
             exclude: [
                 "KestrelWebKit/KestrelWebKitApp.swift",
                 "KestrelWebKit/BrowserOperator.swift",
@@ -52,6 +51,7 @@ let package = Package(
                 "KestrelWebKit/Entitlements",
                 "KestrelWebKit/Kestrel.icns"
             ],
+            sources: ["KestrelWebKit", "KestrelChromium"],
             resources: [.process("KestrelWebKit/Assets.xcassets")],
             swiftSettings: [
                 // The UI and Chromium page lifecycle are main-thread work. Keep
