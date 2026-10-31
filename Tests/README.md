@@ -6,6 +6,8 @@ For native CRX verification on macOS, run `bash scripts/test-crx-package.sh`. It
 
 For actual Chrome Web Store installation, the macOS workflow operates `scripts/test-chrome-web-store-macos.swift` in the disposable runner. It requires the native install prompt, correct package IDs, live Dark Reader styles and a clean restart. [The store test record](../docs/CHROME_WEB_STORE_ACCEPTANCE_2026-10-31.md) distinguishes installation from remaining acceptance.
 
+After `./build.sh` has resolved and patched CefSwift, run `swift test --package-path .build/checkouts/CefSwift --filter KestrelLifecycleTests` on macOS for actual C-callback identity, duplicate-close, pending-creation and handler-ownership regressions. The workflow also runs `scripts/test-chromium-lifecycle-macos.swift` against the packaged app and a disposable localhost form: real Stay choices, background-form quit, rapid tab closure, last-page close after cancelled quit and restart/crash checks. Its native phone UI and synthetic FIDO2 signature test are recorded separately; a virtual authenticator is not physical-device acceptance. See [the lifecycle record](../docs/CHROMIUM_LIFECYCLE_FIXES_2026-10-31.md).
+
 The following coverage descriptions and live-test flags are retained for the original WebKit implementation:
 
 - Chat lifetime and routing: `AssistantRoutingRegressionTests` and `TabModelTests`.

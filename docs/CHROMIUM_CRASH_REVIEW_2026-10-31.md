@@ -1,5 +1,7 @@
 # Chromium crash investigation and ordinary user edge cases
 
+Implementation and updated Mac results are recorded in [the lifecycle fix follow-up](CHROMIUM_LIFECYCLE_FIXES_2026-10-31.md). The review below preserves the original source findings and hypotheses; its initial failing restart result has since been superseded by a passing native store/restart run.
+
 Reviewed 31 October 2026 against Kestrel `9a455954162eeba705a3f72d3fa6b49cf22e5f4a`, pinned CefSwift `b18cceef8afaf6686147e19a9239f31c2dd81541`, and the matching CEF source `4fa4ab516dacf6c49fc7e6e70d2b7ebce29fa35f` (CEF 156.0.14 / Chromium 156.0.8078.48).
 
 The strongest explanation for the observed crash is incomplete native browser tracking followed by premature CEF shutdown. There are concrete defects in browser identity, shutdown admission and cancellation handling. The exact object that faults inside CEF has not been identified. This is an investigation and implementation map; the proposed fixes below are not implemented or accepted.
