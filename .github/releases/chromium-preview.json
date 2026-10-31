@@ -1,0 +1,11 @@
+{
+  "repository": "shay2000/Kestrel-chromium",
+  "tag": "v1.0.0-chromium-preview.1",
+  "title": "Kestrel Chromium 1.0.0 — Preview 1",
+  "source": "a3e63faab8e002bfb2c1f618f4f1c0a9390f7ed0",
+  "run_id": 41208164060,
+  "artifact_id": 13044824637,
+  "artifact_digest": "sha256:8da735660d7c5649c31290356179b727654ae8fc5a61eaff002a756af6f660cb",
+  "dmg": "Kestrel-Chromium-1.0.0-arm64.dmg",
+  "notes": "docs/releases/v1.0.0-chromium-preview.1.md"
+}

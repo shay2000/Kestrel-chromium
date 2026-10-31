@@ -1,0 +1,52 @@
+name: Publish verified Chromium preview
+
+on:
+  push:
+    branches: [release/chromium-preview]
+    paths: [.github/releases/chromium-preview.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-chromium-preview
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'shay2000/Kestrel-chromium' && github.ref == 'refs/heads/release/chromium-preview'
+    runs-on: macos-26
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test publication guards
+        run: python3 -m unittest discover -s scripts/tests -p test_publish_chromium_preview.py -v
+      - name: Inspect Apple's installed helper metadata
+        shell: bash
+        run: |
+          sw_vers
+          HELPER=/System/Cryptexes/App/System/Library/CoreServices/PasswordManagerBrowserExtensionHelper.app/Contents/MacOS/PasswordManagerBrowserExtensionHelper
+          if test -f "$HELPER"; then
+            codesign -d -vvvv "$HELPER" > "$RUNNER_TEMP/apple-passwords-helper-metadata.log" 2>&1
+            echo "Captured signed system-helper metadata; no credential access or helper execution."
+          else
+            echo "Apple helper is absent at the documented path on this runner." > "$RUNNER_TEMP/apple-passwords-helper-metadata.log"
+          fi
+      - name: Verify and publish the existing tested DMG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish-chromium-preview.py .github/releases/chromium-preview.json "$RUNNER_TEMP/chromium-preview-release"
+      - name: Retain publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chromium-preview-publication-evidence
+          path: |
+            ${{ runner.temp }}/apple-passwords-helper-metadata.log
+            ${{ runner.temp }}/chromium-preview-release/release-verification.json
+          if-no-files-found: warn
+          retention-days: 30

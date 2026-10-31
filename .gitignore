@@ -11,6 +11,7 @@ xcuserdata/
 .build/
 .swiftpm/
 Package.resolved
+__pycache__/
 
 # macOS
 *.dSYM
