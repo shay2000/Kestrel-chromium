@@ -51,7 +51,9 @@ struct BrowserView: View {
             }
         }
         .task(id: "\(browserID.uuidString):\(browserGeneration):\(isHidden):\(lifecycleEpoch)") {
-            guard !isHidden, CefRuntime.shared.isAcceptingBrowsers,
+            // Existing tabs may be revealed for an unload choice during quit;
+            // TabStore's factory admits no new native browser in that state.
+            guard !isHidden,
                   chromeBrowser?.isWindowAlive != true || hostedBrowserID != browserID || hostedBrowserGeneration != browserGeneration else { return }
             chromeBrowser = nil
             hostedBrowserID = nil
