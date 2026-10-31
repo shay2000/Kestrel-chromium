@@ -91,7 +91,8 @@ case "$STAGE" in
 
     ps -p "$PID" -o pid=,comm= > "$EVIDENCE_DIR/process-after-url.txt"
     screencapture -x "$EVIDENCE_DIR/after-url-open.png"
-    swift "$SCRIPT_DIR/verify-macos-screenshot.swift" "$EVIDENCE_DIR/after-url-open.png" "documentation examples"
+    swift "$SCRIPT_DIR/verify-macos-screenshot.swift" "$EVIDENCE_DIR/after-url-open.png" \
+      "documentation examples" "Kestrel MV3 extension smoke passed"
     log show --last 3m --style compact \
       --predicate "process == \"$EXECUTABLE\" OR process CONTAINS[c] \"Kestrel Helper\"" \
       > "$EVIDENCE_DIR/system-log.txt" 2>&1 || true

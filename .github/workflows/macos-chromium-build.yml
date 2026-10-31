@@ -45,6 +45,14 @@ jobs:
         run: ./build.sh release 2>&1 | tee "$RUNNER_TEMP/kestrel-chromium-build.log"
         shell: bash
 
+      - name: Add the MV3 smoke fixture to the test app bundle
+        run: |
+          DEST="build/Kestrel.app/Contents/Resources/ChromiumExtensionSmoke"
+          mkdir -p "$DEST"
+          ditto scripts/fixtures/chromium-extension-smoke "$DEST"
+          codesign --force --sign - build/Kestrel.app
+        shell: bash
+
       - name: Archive the app bundle
         run: ditto -c -k --keepParent build/Kestrel.app "$RUNNER_TEMP/Kestrel-Chromium-macOS.zip"
 
@@ -55,6 +63,13 @@ jobs:
           path: ${{ runner.temp }}/Kestrel-Chromium-macOS.zip
           if-no-files-found: error
           retention-days: 30
+
+      - name: Configure the Manifest V3 extension smoke fixture
+        run: >-
+          defaults write com.shayprasad.Kestrel
+          kestrel.chromium.approved-extension-paths.v1
+          -array "$GITHUB_WORKSPACE/build/Kestrel.app/Contents/Resources/ChromiumExtensionSmoke"
+        shell: bash
 
       - id: launch-smoke
         name: Launch the app and capture first-run screenshot
