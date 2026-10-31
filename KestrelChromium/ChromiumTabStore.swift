@@ -712,7 +712,7 @@ final class TabStore: ObservableObject {
             self.chromeBrowsers[id] = nil
             if let completion { completion() }
             else if !CefRuntime.shared.isTerminationRequested { self.finishClosingTab(id: id) }
-            else { self.discardPage(for: id) }
+            else { self.discardPage(for: id); self.advancePageGeneration(for: id) }
         }
         return chrome
     }

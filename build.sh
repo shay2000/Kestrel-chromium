@@ -89,6 +89,7 @@ set_plist_string CFBundleVersion "$VERSION"
 set_plist_string LSApplicationCategoryType public.app-category.utilities
 set_plist_string NSCameraUsageDescription "Websites you visit may ask to use your camera."
 set_plist_string NSMicrophoneUsageDescription "Websites you visit may ask to use your microphone."
+set_plist_string NSBluetoothAlwaysUsageDescription "Bluetooth lets websites verify that a phone used for passkey sign-in is nearby."
 set_plist_string NSLocationUsageDescription "Websites you visit may ask to use your location."
 set_plist_string NSLocationWhenInUseUsageDescription "Websites you visit may ask to use your location."
 set_plist_string NSDownloadsFolderUsageDescription "Files you download are saved to your Downloads folder."

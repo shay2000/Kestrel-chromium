@@ -45,3 +45,12 @@ guard let tiff = canvas.tiffRepresentation,
 }
 
 try png.write(to: URL(fileURLWithPath: CommandLine.arguments[3]))
+// Keep a small inspectable preview in the runner log as well as the full PNG artefact.
+let preview = NSImage(size: NSSize(width: 1600, height: canvas.size.height * 1600 / canvas.size.width))
+preview.lockFocus()
+canvas.draw(in: NSRect(origin: .zero, size: preview.size))
+preview.unlockFocus()
+if let tiff = preview.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
+   let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.6]) {
+    print("KESTREL_VISUAL_IMAGE webkit-vs-chromium \(jpeg.base64EncodedString())")
+}

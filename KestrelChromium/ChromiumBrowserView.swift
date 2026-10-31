@@ -35,6 +35,7 @@ struct BrowserView: View {
     @State private var chromeBrowser: CefChromeBrowser?
     @State private var hostedBrowserID: UUID?
     @State private var hostedBrowserGeneration: Int?
+    @State private var lifecycleEpoch = 0
 
     var body: some View {
         Group {
@@ -49,15 +50,18 @@ struct BrowserView: View {
                 Color.clear
             }
         }
-        .task(id: "\(browserID.uuidString):\(browserGeneration):\(isHidden)") {
-            guard !isHidden,
-                  hostedBrowserID != browserID || hostedBrowserGeneration != browserGeneration else { return }
+        .task(id: "\(browserID.uuidString):\(browserGeneration):\(isHidden):\(lifecycleEpoch)") {
+            guard !isHidden, CefRuntime.shared.isAcceptingBrowsers,
+                  chromeBrowser?.isWindowAlive != true || hostedBrowserID != browserID || hostedBrowserGeneration != browserGeneration else { return }
             chromeBrowser = nil
             hostedBrowserID = nil
             hostedBrowserGeneration = nil
             chromeBrowser = makeChromeBrowser()
             hostedBrowserID = browserID
             hostedBrowserGeneration = browserGeneration
+        }
+        .onReceive(NotificationCenter.default.publisher(for: CefRuntime.terminationCancelled)) { _ in
+            lifecycleEpoch &+= 1
         }
         .contentShape(Rectangle())
     }

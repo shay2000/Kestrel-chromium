@@ -11,7 +11,9 @@ struct StoreProbeError: LocalizedError {
     var errorDescription: String? { message }
 }
 
+#if !KESTREL_LIFECYCLE_HARNESS
 @main
+#endif
 @MainActor
 struct ChromeWebStoreAcceptance {
     static var app = URL(fileURLWithPath: "/")
@@ -65,6 +67,7 @@ struct ChromeWebStoreAcceptance {
         } catch {
             try? capture("failure")
             try? dumpAX("failure-ax.json")
+            collectLifecycleLog()
             collectCrashReports()
             try? save("result.json", ["passed": false, "runtimeUserAgentProbe": uaProbe,
                                      "error": error.localizedDescription])
@@ -142,6 +145,17 @@ struct ChromeWebStoreAcceptance {
     }
 
     static func pause(_ seconds: Double = 1) async { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+
+    static func collectLifecycleLog() {
+        let destination = output.appendingPathComponent("native-lifecycle.log")
+        FileManager.default.createFile(atPath: destination.path, contents: nil)
+        guard let file = try? FileHandle(forWritingTo: destination) else { return }
+        let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/log")
+        process.arguments = ["show", "--last", "15m", "--style", "compact", "--predicate", "eventMessage BEGINSWITH 'KESTREL_LIFECYCLE'"]
+        process.standardOutput = file; process.standardError = file
+        try? process.run(); process.waitUntilExit(); try? file.close()
+        if let value = try? String(contentsOf: destination, encoding: .utf8) { print(String(value.suffix(24000))) }
+    }
 
     static func launch(reuse: Bool = false) async throws {
         if reuse, let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.shayprasad.Kestrel").first(where: { $0.bundleURL?.standardizedFileURL.path == app.path }),
