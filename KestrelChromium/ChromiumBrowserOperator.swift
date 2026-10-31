@@ -1038,8 +1038,8 @@ enum ProfileFormAdapter {
     };
     const semantic = e => { let t=(e.autocomplete||'').trim().split(/\s+/).pop(); if(t==='country')t='country-name'; return allowed.has(t) ? t : null; };
     const optionsFor = e => {
-      if(e.tagName!=='SELECT'||e.multiple||!['country-name','address-level1'].includes(semantic(e))||e.options.length>100)return null;
-      const options=Array.from(e.options).filter(o=>!o.disabled&&!o.closest('optgroup:disabled')&&o.value&&o.value.length<=512&&o.text.length<=512);
+      if(e.tagName!=='SELECT'||e.multiple||!['country-name','address-level1'].includes(semantic(e))||e.options.length>320)return null;
+      const options=Array.from(e.options).filter(o=>!o.disabled&&!o.closest('optgroup:disabled')&&o.value&&o.value.length<=128&&o.text.length<=128);
       return options.length ? options.map(o=>({element:o,value:o.value,label:o.text})) : null;
     };
     const candidates=[]; if(document.forms.length>32)return null;

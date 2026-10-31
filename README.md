@@ -10,7 +10,7 @@ On first launch, Kestrel seeds YouTube, Gmail, Google Drive, X, Reddit, and OneD
 
 ## Port status
 
-The full app builds and launches on a GitHub hosted macOS 26 ARM64 runner with Xcode 26.6. The [latest run](https://github.com/shay2000/Kestrel-chromium/actions/runs/41156384216) passed build and launch checks, rendered `example.com`, and opened the Google Translate listing on the Chrome Web Store. Its artifacts include the app archive and runner screenshots.
+The full app builds and launches on a GitHub hosted macOS 26 ARM64 runner with Xcode 26.6. [Run 41158567097](https://github.com/shay2000/Kestrel-chromium/actions/runs/41158567097) passed the app build/archive, fresh launch, screenshot text checks for all six first-run bookmarks, rendered `example.com`, and opened the Google Translate listing on the Chrome Web Store. Its artifacts include the app archive and runner screenshots.
 
 The Web Store listing displays “Switch to Chrome to install extensions and themes” in Kestrel, so direct Chrome Web Store installation is not supported by this CEF build. The listing itself renders. Kestrel's separate extension importer is implemented for reviewed Manifest V3 CRX, ZIP, and unpacked packages; its runtime install flow still needs a dedicated acceptance check. Website passkeys remain unverified in the ad-hoc build and depend on Apple's managed browser capabilities; see [PASSKEY_SUPPORT.md](PASSKEY_SUPPORT.md). The build is not notarized for distribution.
 
