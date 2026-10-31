@@ -17,6 +17,8 @@ struct KestrelChromiumApp: CefSwiftApp {
         configuration.noSandbox = false
         configuration.windowlessRenderingEnabled = false
         configuration.defaultRuntimeStyle = .chrome
+        // Match WebKit's page-first chrome without changing macOS scrollbar preferences.
+        configuration.extraCommandLineSwitches.updateValue(nil, forKey: "hide-scrollbars")
         // Retain the pinned Chromium engine identity and matching client hints.
         configuration.extraCommandLineSwitches.merge(BrowserExtensionHost.commandLineSwitches()) { _, new in new }
         return configuration
