@@ -141,13 +141,5 @@ final class CRXPackageTests: XCTestCase {
         return Data([tag]) + length + bytes
     }
 
-    static let allTests = [
-        ("testECDSASignatureAndManifestIdentity", testECDSASignatureAndManifestIdentity),
-        ("testRSASignatureAndMultipleProofs", testRSASignatureAndMultipleProofs),
-        ("testTamperedArchiveAndSignatureAreRejected", testTamperedArchiveAndSignatureAreRejected),
-        ("testSignedIdentityMismatchAndConflictingManifestAreRejected", testSignedIdentityMismatchAndConflictingManifestAreRejected),
-        ("testMalformedHeadersAndLegacyFormatsAreRejected", testMalformedHeadersAndLegacyFormatsAreRejected),
-        ("testDuplicateAndMissingSigningFieldsAreRejected", testDuplicateAndMissingSigningFieldsAreRejected)
-    ]
 }
 #endif

@@ -28,6 +28,10 @@ jobs:
           swift --version
           uname -m
 
+      - name: Verify CRX3 signatures and identity preservation
+        run: bash scripts/test-crx-package.sh 2>&1 | tee "$RUNNER_TEMP/kestrel-crx-tests.log"
+        shell: bash
+
       - name: Restore pinned CEF distribution
         uses: actions/cache@v4
         with:
@@ -43,10 +47,6 @@ jobs:
 
       - name: Build and bundle the macOS app
         run: ./build.sh release 2>&1 | tee "$RUNNER_TEMP/kestrel-chromium-build.log"
-        shell: bash
-
-      - name: Verify CRX3 signatures and identity preservation
-        run: bash scripts/test-crx-package.sh 2>&1 | tee "$RUNNER_TEMP/kestrel-crx-tests.log"
         shell: bash
 
       - name: Add the MV3 smoke fixture to the test app bundle
