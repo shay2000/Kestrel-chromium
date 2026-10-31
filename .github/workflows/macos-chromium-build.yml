@@ -101,6 +101,15 @@ jobs:
         run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke" webstore
         shell: bash
 
+      - name: Operate native Chrome Web Store installs and verify restart
+        if: steps.store-smoke.outcome == 'success'
+        run: |
+          swiftc -swift-version 5 -parse-as-library scripts/test-chrome-web-store-macos.swift -o "$RUNNER_TEMP/kestrel-web-store-test"
+          "$RUNNER_TEMP/kestrel-web-store-test" "$GITHUB_WORKSPACE/build/Kestrel.app" \
+            "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/web-store-acceptance" \
+            2>&1 | tee "$RUNNER_TEMP/kestrel-web-store-test.log"
+        shell: bash
+
       - name: Download the original WebKit 1.0.0 release
         id: webkit-release
         if: steps.store-smoke.outcome == 'success'
@@ -184,6 +193,17 @@ jobs:
         with:
           name: Kestrel-Chromium-runtime-smoke
           path: ${{ runner.temp }}/kestrel-chromium-runtime-smoke
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload Chrome Web Store acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-web-store-acceptance
+          path: |
+            ${{ runner.temp }}/kestrel-chromium-runtime-smoke/web-store-acceptance
+            ${{ runner.temp }}/kestrel-web-store-test.log
           if-no-files-found: ignore
           retention-days: 30
 
