@@ -949,19 +949,25 @@ private enum ChromiumPageContextSelector {
         let lines = source.components(separatedBy: .newlines)
         let heading = lines.first ?? ""
         let focus = terms(in: query)
-        let ranked = lines.dropFirst().enumerated().map { index, line in
+        var ranked: [(index: Int, line: String, score: Int)] = []
+        for (index, line) in lines.dropFirst().enumerated() {
             let lower = line.lowercased()
             var score = 0
-            for term in focus where lower.contains(term) { score += 1 }
+            for term in focus {
+                if lower.range(of: term) != nil { score += 1 }
+            }
             if line.hasPrefix("Option:") { score += 100 }
-            return (index: index, line: line, score: score)
-        }.sorted { lhs, rhs in
-            lhs.score == rhs.score ? lhs.index < rhs.index : lhs.score > rhs.score
+            ranked.append((index: index, line: line, score: score))
+        }
+        ranked.sort { lhs, rhs in
+            if lhs.score == rhs.score { return lhs.index < rhs.index }
+            return lhs.score > rhs.score
         }
         var kept = [heading]
         var used = heading.count + 1
         var omitted = false
-        for (_, line, _) in ranked {
+        for item in ranked {
+            let line = item.line
             guard used + line.count + 1 <= limit else { omitted = true; continue }
             kept.append(line)
             used += line.count + 1
