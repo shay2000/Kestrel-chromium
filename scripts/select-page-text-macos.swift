@@ -52,18 +52,12 @@ func post(_ type: CGEventType, at point: CGPoint) {
     event.post(tap: .cghidEventTap)
 }
 
-func dragAcrossText(usingQuartzBottomOrigin: Bool) {
-    let startY: CGFloat
-    let endY: CGFloat
-    if usingQuartzBottomOrigin {
-        startY = displayBounds.maxY - yInImage / pixelsPerPointY
-        endY = startY
-    } else {
-        startY = displayBounds.minY + yInImage / pixelsPerPointY
-        endY = startY
-    }
+func dragAcrossText() {
+    // CGEvent uses Quartz display coordinates, whose Y origin is at the
+    // display's bottom. Vision's screenshot box has an upper-left pixel origin.
+    let startY = displayBounds.maxY - yInImage / pixelsPerPointY
     let start = CGPoint(x: displayBounds.minX + startXInImage / pixelsPerPointX, y: startY)
-    let end = CGPoint(x: displayBounds.minX + endXInImage / pixelsPerPointX, y: endY)
+    let end = CGPoint(x: displayBounds.minX + endXInImage / pixelsPerPointX, y: startY)
 
     post(.mouseMoved, at: start)
     Thread.sleep(forTimeInterval: 0.15)
@@ -103,17 +97,14 @@ func selectedBluePixelCount(in screenshot: URL) -> Int {
     let bottom = min(height, Int((1 - box.minY) * CGFloat(height)))
     var count = 0
 
-    // NSBitmapImageRep can expose either pixel-row orientation depending on
-    // the image source, so scan the Vision box and its vertical mirror.
-    for yRange in [top..<max(top + 1, bottom), max(0, height - bottom)..<min(height, height - top)] {
-        for y in yRange {
-            for x in left..<max(left + 1, right) {
-                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-                if color.blueComponent > 0.42,
-                   color.blueComponent > color.redComponent + 0.14,
-                   color.blueComponent > color.greenComponent + 0.03 {
-                    count += 1
-                }
+    // NSBitmapImageRep pixel coordinates use the screenshot's top-left origin.
+    for y in top..<max(top + 1, bottom) {
+        for x in left..<max(left + 1, right) {
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+            if color.blueComponent > 0.42,
+               color.blueComponent > color.redComponent + 0.14,
+               color.blueComponent > color.greenComponent + 0.03 {
+                count += 1
             }
         }
     }
@@ -121,15 +112,13 @@ func selectedBluePixelCount(in screenshot: URL) -> Int {
 }
 
 print("Display bounds: \(displayBounds); screenshot: \(cgImage.width)x\(cgImage.height); pixels per point: \(pixelsPerPointX)x\(pixelsPerPointY).")
-for (label, usesBottomOrigin) in [("Quartz top origin", false), ("Quartz bottom origin", true)] {
-    dragAcrossText(usingQuartzBottomOrigin: usesBottomOrigin)
-    try captureSelectionScreenshot()
-    let highlightedPixels = selectedBluePixelCount(in: selectionScreenshot)
-    print("\(label) drag produced \(highlightedPixels) blue selection pixels in the target line.")
-    if highlightedPixels >= 40 {
-        print("Visible text selection confirmed in \(selectionScreenshot.path).")
-        exit(0)
-    }
+dragAcrossText()
+try captureSelectionScreenshot()
+let highlightedPixels = selectedBluePixelCount(in: selectionScreenshot)
+print("Quartz drag produced \(highlightedPixels) blue selection pixels in the target line.")
+if highlightedPixels >= 40 {
+    print("Visible text selection confirmed in \(selectionScreenshot.path).")
+    exit(0)
 }
 
 fputs("The page text remained unselected after both Quartz coordinate mappings.\n", stderr)
