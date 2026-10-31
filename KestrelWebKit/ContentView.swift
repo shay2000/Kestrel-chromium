@@ -80,27 +80,10 @@ struct KestrelChromeBackground: View {
 /// enabled, so visual tests check that accessibility setting explicitly.
 private struct KestrelNativeChromeMaterial: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
-        if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView()
-            glass.style = .regular
-            // macOS 27 adds a glass highlight animation for interactive
-            // surfaces. Kestrel's page is a separate CEF child window, so
-            // clicks in it must not animate the browser chrome behind it.
-            if glass.responds(to: NSSelectorFromString("setEffectIsInteractive:")) {
-                glass.setValue(false, forKey: "effectIsInteractive")
-            }
-            // The window owns the outer corners. This single backdrop must
-            // remain square at every internal sidebar/page boundary.
-            glass.cornerRadius = 0
-            let clearContent = NSView()
-            clearContent.autoresizingMask = [.width, .height]
-            clearContent.wantsLayer = true
-            clearContent.layer?.backgroundColor = NSColor.clear.cgColor
-            clearContent.layer?.isOpaque = false
-            glass.contentView = clearContent
-            return glass
-        }
-
+        // CEF page content sits in a child NSWindow. When it becomes key the
+        // SwiftUI host is inactive even though Kestrel is still frontmost.
+        // Keep this shared chrome material active so a page click does not dim
+        // or recolour the rest of the browser.
         let view = NSVisualEffectView()
         view.material = .sidebar
         view.blendingMode = .behindWindow
@@ -110,10 +93,7 @@ private struct KestrelNativeChromeMaterial: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NSView, context: Context) {
-        if #available(macOS 26.0, *), let glass = view as? NSGlassEffectView {
-            glass.style = .regular
-            glass.cornerRadius = 0
-        } else if let effect = view as? NSVisualEffectView {
+        if let effect = view as? NSVisualEffectView {
             effect.material = .sidebar
             effect.blendingMode = .behindWindow
             effect.state = .active
@@ -133,6 +113,7 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var assistantComposerHandoff
     @State private var assistantSidebarNewTabID: UUID?
+    @State private var isApplicationActive = NSApp.isActive
     @State private var activeAddressField: BrowserAddressFocus?
     @FocusState private var findFieldFocused: Bool
     @State private var isFindBarPresented = false
@@ -473,6 +454,17 @@ struct ContentView: View {
         }
         .background(Color.clear)
         .focusedSceneValue(\.isBrowserWindow, true)
+        // CEF's page window can take key focus while the application remains
+        // active. Keep the browser chrome in its active control appearance in
+        // that case, and restore the inactive appearance when the user switches
+        // to another application.
+        .environment(\.controlActiveState, isApplicationActive ? .active : .inactive)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            isApplicationActive = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            isApplicationActive = false
+        }
         .background(BrowserCloseShortcut(tabs: tabs, settings: settings).frame(width: 0, height: 0).allowsHitTesting(false))
         .background(WindowChromeAccessor().frame(width: 0, height: 0).allowsHitTesting(false))
         .onChange(of: tabs.selectedID) { _, id in

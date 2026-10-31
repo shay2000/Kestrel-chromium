@@ -78,6 +78,15 @@ jobs:
         run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke" navigate
         shell: bash
 
+      - name: Drag-select text in the Chromium page
+        if: steps.navigate-smoke.outcome == 'success'
+        run: |
+          swift scripts/select-page-text-macos.swift "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/after-url-open.png"
+          sleep 1
+          screencapture -x "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/page-text-selection.png"
+          swift scripts/verify-macos-screenshot.swift "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/page-text-selection.png" "documentation examples"
+        shell: bash
+
       - id: store-smoke
         name: Open a Chrome Web Store listing and capture screenshot
         if: steps.navigate-smoke.outcome == 'success'
