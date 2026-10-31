@@ -44,7 +44,7 @@ if [[ -z "$SPARKLE_FRAMEWORK" || ! -d "$SPARKLE_FRAMEWORK" ]]; then
 fi
 mkdir -p "$APP/Contents/Frameworks"
 cp -R "$SPARKLE_FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
-cp "$ROOT/.build/checkouts/Sparkle/LICENSE" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
+cp "$ROOT/licenses/Sparkle-LICENSE.txt" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
 RESOURCE_BUNDLE="$(find "$ROOT/.build" -type d -name 'KestrelChromium_KestrelWebKit.bundle' -path "*/$CONFIG/*" -print -quit)"
 if [[ -z "$RESOURCE_BUNDLE" || ! -d "$RESOURCE_BUNDLE" ]]; then
   echo "error: the compiled Kestrel resource bundle was not found under .build for $CONFIG." >&2
