@@ -56,6 +56,19 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Launch the app and capture first-run evidence
+        run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke"
+        shell: bash
+
+      - name: Upload runtime smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-runtime-smoke
+          path: ${{ runner.temp }}/kestrel-chromium-runtime-smoke
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
