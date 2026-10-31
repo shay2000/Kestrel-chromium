@@ -19,18 +19,24 @@ done
 
 if [[ -z "$PID" ]]; then
   echo "Kestrel exited before its first-launch smoke check completed." | tee -a "$EVIDENCE_DIR/launch.txt"
+  ps -axo pid=,comm=,args= | grep -Ei '[K]estrel|[C]hromium' \
+    | tee "$EVIDENCE_DIR/processes.txt" || true
   log show --last 3m --style compact \
     --predicate "process == \"$EXECUTABLE\" OR process CONTAINS[c] \"Kestrel Helper\"" \
     > "$EVIDENCE_DIR/system-log.txt" 2>&1 || true
+  cat "$EVIDENCE_DIR/system-log.txt" | tee -a "$EVIDENCE_DIR/launch.txt"
   exit 1
 fi
 
 sleep 12
 if ! kill -0 "$PID" 2>/dev/null; then
   echo "Kestrel process $PID exited during its first-launch smoke check." | tee -a "$EVIDENCE_DIR/launch.txt"
+  ps -axo pid=,comm=,args= | grep -Ei '[K]estrel|[C]hromium' \
+    | tee "$EVIDENCE_DIR/processes.txt" || true
   log show --last 3m --style compact \
     --predicate "process == \"$EXECUTABLE\" OR process CONTAINS[c] \"Kestrel Helper\"" \
     > "$EVIDENCE_DIR/system-log.txt" 2>&1 || true
+  cat "$EVIDENCE_DIR/system-log.txt" | tee -a "$EVIDENCE_DIR/launch.txt"
   exit 1
 fi
 
