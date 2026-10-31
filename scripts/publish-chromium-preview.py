@@ -112,6 +112,18 @@ def tag_source(tag):
     return ref["sha"]
 
 
+def find_or_create_release(request, notes):
+    releases = json.loads(command("gh", "api", "--paginate", "--slurp", f"repos/{REPOSITORY}/releases", text=True, capture_output=True).stdout)
+    matching = [item for page in releases for item in page if item["tag_name"] == request["tag"]]
+    require(len(matching) <= 1, "Ambiguous existing release")
+    # The tag endpoint does not expose drafts. Always address drafts by ID.
+    release = matching[0] if matching else api("releases", {
+        "tag_name": request["tag"], "target_commitish": request["source"],
+        "name": request["title"], "body": notes, "draft": True,
+        "prerelease": True, "make_latest": "false"}, method="POST")
+    return api(f"releases/{release['id']}")
+
+
 def main(request_path, output_path):
     request = json.loads(Path(request_path).read_text())
     validate_request(request)
@@ -133,33 +145,35 @@ def main(request_path, output_path):
     if not any(item["ref"] == "refs/tags/" + request["tag"] for item in tags):
         api("git/refs", {"ref": "refs/tags/" + request["tag"], "sha": request["source"]}, method="POST")
     require(tag_source(request["tag"]) == request["source"], "Release tag/source mismatch")
-    releases = json.loads(command("gh", "api", "--paginate", "--slurp", f"repos/{REPOSITORY}/releases", text=True, capture_output=True).stdout)
-    matching = [item for page in releases for item in page if item["tag_name"] == request["tag"]]
-    require(len(matching) <= 1, "Ambiguous existing release")
-    if not matching:
-        # The tag was checked against the exact tested source, never branch HEAD.
-        command("gh", "release", "create", request["tag"], "--repo", REPOSITORY,
-                "--verify-tag", "--title", request["title"],
-                "--notes-file", request["notes"], "--draft", "--prerelease", "--latest=false")
-    release = api(f"releases/tags/{request['tag']}")
+    release = find_or_create_release(request, notes)
     require(tag_source(request["tag"]) == request["source"], "Release tag/source mismatch")
     require(release["prerelease"] and release["name"] == request["title"] and release["body"].strip() == notes.strip(), "Conflicting release metadata")
     files = [request["dmg"], request["dmg"] + ".sha256"]
     existing = {item["name"] for item in release["assets"]}
     require(existing <= set(files), "Unexpected existing release assets")
-    missing = [str(output / name) for name in files if name not in existing]
+    missing = [name for name in files if name not in existing]
     if missing:
         require(release["draft"], "Refuse to change assets on a published release")
-        command("gh", "release", "upload", request["tag"], "--repo", REPOSITORY, *missing)
+        for name in missing:
+            command("gh", "api", "--method", "POST",
+                    f"https://uploads.github.com/repos/{REPOSITORY}/releases/{release['id']}/assets?name={name}",
+                    "-H", "Content-Type: application/octet-stream", "--input", str(output / name),
+                    capture_output=True)
+    release = api(f"releases/{release['id']}")
     # Download even on a resumed draft. Never overwrite or trust an existing asset.
     verification = output / "downloaded-assets"
     verification.mkdir()
-    command("gh", "release", "download", request["tag"], "--repo", REPOSITORY, "--dir", str(verification))
+    for asset in release["assets"]:
+        require(asset["name"] in files, "Unexpected release asset")
+        with (verification / asset["name"]).open("wb") as stream:
+            command("gh", "api", f"repos/{REPOSITORY}/releases/assets/{asset['id']}",
+                    "-H", "Accept: application/octet-stream", stdout=stream)
     require({p.name for p in verification.iterdir()} == set(files), "Unexpected published assets")
     for name in files:
         require(digest(verification / name) == digest(output / name), "Uploaded asset hash mismatch: " + name)
     if release["draft"]:
-        release = api(f"releases/{release['id']}", {"draft": False, "prerelease": True, "make_latest": "false"})
+        release = api(f"releases/{release['id']}", {"draft": False, "prerelease": True,
+                      "target_commitish": request["source"], "make_latest": "false"})
     release = api(f"releases/{release['id']}")
     require(not release["draft"] and release["prerelease"] and release["published_at"], "Release was not published")
     require({a["name"] for a in release["assets"]} == set(files), "Published asset set mismatch")

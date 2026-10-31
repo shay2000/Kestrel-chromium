@@ -3,7 +3,11 @@ name: Publish verified Chromium preview
 on:
   push:
     branches: [release/chromium-preview]
-    paths: [.github/releases/chromium-preview.json]
+    paths:
+      - .github/releases/chromium-preview.json
+      - .github/workflows/publish-chromium-preview.yml
+      - scripts/publish-chromium-preview.py
+      - scripts/tests/test_publish_chromium_preview.py
   workflow_dispatch:
 
 permissions:

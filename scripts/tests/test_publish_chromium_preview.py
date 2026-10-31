@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 
@@ -27,6 +28,25 @@ class PublicationGuards(unittest.TestCase):
     def test_accepts_selected_successful_origin(self):
         publisher.validate_request(self.request)
         publisher.validate_origin(self.request, self.run, self.artifact)
+
+    def test_resumes_existing_draft_by_id_without_tag_lookup_or_creation(self):
+        draft = {"id": 42, "tag_name": self.request["tag"], "draft": True}
+        result = mock.Mock(stdout=json.dumps([[draft]]))
+        with mock.patch.object(publisher, "command", return_value=result), mock.patch.object(publisher, "api", return_value=draft) as api:
+            self.assertEqual(publisher.find_or_create_release(self.request, "notes"), draft)
+        api.assert_called_once_with("releases/42")
+
+    def test_creates_preview_at_tested_source_then_uses_returned_id(self):
+        draft = {"id": 43, "tag_name": self.request["tag"], "draft": True}
+        result = mock.Mock(stdout="[[]]")
+        with mock.patch.object(publisher, "command", return_value=result), mock.patch.object(publisher, "api", return_value=draft) as api:
+            self.assertEqual(publisher.find_or_create_release(self.request, "notes"), draft)
+        creation = api.call_args_list[0]
+        self.assertEqual(creation.args[0], "releases")
+        self.assertEqual(creation.args[1]["target_commitish"], self.request["source"])
+        self.assertTrue(creation.args[1]["draft"])
+        self.assertTrue(creation.args[1]["prerelease"])
+        self.assertEqual(api.call_args_list[1], mock.call("releases/43"))
 
     def test_refuses_failed_or_different_source_build(self):
         for field, value in [("conclusion", "failure"), ("status", "in_progress"), ("head_sha", "b" * 40),
