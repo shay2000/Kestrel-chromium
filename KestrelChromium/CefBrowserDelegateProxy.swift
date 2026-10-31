@@ -119,7 +119,8 @@ final class CefBrowserDelegateProxy: CefBrowserDelegate {
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Allow")
         alert.addButton(withTitle: "Don’t Allow")
-        guard let window = browser.nativeView?.window else { completion(.dismiss); return true }
+        // A parked background page must not retain an invisible permission sheet.
+        guard let window = browser.nativeView?.window, window.isVisible else { completion(.dismiss); return true }
         alert.beginSheetModal(for: window) { response in
             completion(response == .alertFirstButtonReturn ? .allow : .deny)
         }
