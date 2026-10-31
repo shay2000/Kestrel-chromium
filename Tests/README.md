@@ -1,6 +1,10 @@
 # Test areas
 
-`KestrelWebKitTests` is the single regression suite. Run `swift test --scratch-path /private/tmp/kestrel-tests` on macOS to exercise SwiftUI/AppKit/WebKit and platform-neutral cases. Linux checks only the platform-neutral subset.
+Run `swift test` on Linux for the platform-neutral suite. The retained WebKit integration tests below target the original engine and have not been ported to the CEF app's APIs; a full macOS `swift test` is not current Chromium acceptance.
+
+For native CRX verification on macOS, run `bash scripts/test-crx-package.sh`. It compiles the production `CRXPackage.swift` with its XCTest cases, using Xcode's CryptoKit/Security implementations and ephemeral signing keys. This suite checks cryptographic package/identity validation, not the Settings file picker, permission review UI or an imported extension running after restart. The Chromium build workflow runs it and uploads its log separately from browser smoke evidence.
+
+The following coverage descriptions and live-test flags are retained for the original WebKit implementation:
 
 - Chat lifetime and routing: `AssistantRoutingRegressionTests` and `TabModelTests`.
 - Real WebKit lifecycle, reparenting, passkey watcher, target revalidation and navigation: `WebKitBugRegressionTests`.

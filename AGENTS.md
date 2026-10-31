@@ -86,7 +86,7 @@ The public Chromium app is built on macOS from the repository root:
 
 `build.sh` downloads the pinned CEF distribution through CefSwift, builds the app and its helper executable, assembles the framework/helper layout, and ad-hoc signs the app. The generated bundle is local-development output, not a notarized release.
 
-The GitHub Actions workflow builds on `macos-26` and uploads the `.app` archive. It is a compile-and-package job; it does not prove visual, navigation, authentication, or assistant acceptance.
+The GitHub Actions workflow builds on `macos-26`, runs the native CRX verification suite and bounded browser/MV3 smoke checks, then uploads the app, review DMG, logs and screenshots. Inspect that evidence before claiming visual or navigation acceptance; these checks do not establish authentication, imported-extension or assistant acceptance.
 
 A final change is not complete until the intended files are committed, the working branch is pushed for review, the remote commit SHA is read back, and `git status --short` is clean. Update `main` only through the agreed merge/review path. macOS-only behaviour must be labelled as unverified when no Mac/Xcode runner was used.
 
@@ -94,21 +94,21 @@ A final change is not complete until the intended files are committed, the worki
 
 The CEF app must be compiled on a real Mac or the configured macOS Actions runner. A Linux checkout cannot build or validate CEF.
 
-1. Clone the public Chromium repository and start from its delivered `main` branch:
+1. Clone the public Chromium repository and continue the active review branch recorded in `HANDOFF.md` (currently `full-feature-port`; `main` still contains the initial shell):
 
    ```bash
    gh repo clone shay2000/kestrel-chromium
    cd kestrel-chromium
-   git switch main
-   git pull --ff-only origin main
-   git switch -c codex/macos-finish
+   git fetch origin
+   git switch full-feature-port
+   git pull --ff-only origin full-feature-port
    ```
 
    An ordinary `git clone` is also fine when GitHub access is already configured. Never put a GitHub token, API key or signing secret in a command, file or prompt.
 2. Read `AGENTS.md`, `HANDOFF.md` and `README.md` before asking Codex to edit anything. Inspect `git status --short --branch` first and preserve unrelated work.
 3. Before changing CEF code, inspect the pinned CefSwift revision and use `./build.sh` on macOS to compile the current app.
 4. If using the standalone Codex CLI, run it from this Git repository with a PTY, for example `codex exec --sandbox workspace-write 'Read AGENTS.md and HANDOFF.md, fix the listed blockers, and run the required checks.'`. Keep the prompt bounded and require a diff review; do not grant broad filesystem access unless the Mac workflow explicitly requires it.
-5. Resolve the current blockers in `HANDOFF.md` and `OPTIMISATION_LOG.md` before treating the operator as release-ready. Add regression tests for each fix and record the real Mac/Xcode results in the handoff.
+5. Resolve the current Chromium blockers in `HANDOFF.md` before treating the operator as release-ready. The older WebKit entries in `OPTIMISATION_LOG.md` are historical context, not current CEF acceptance. Add appropriate regression coverage for each fix and record the real Mac/Xcode results in the handoff.
 6. Do not call Apple-only features verified merely because a source file, entitlement plist or Linux fallback builds. Record the actual macOS version, Xcode version, signed entitlements and observed UI/authentication result.
 7. Commit only the intended source, tests, documentation and app resources. Push the working branch for review, then update `main` only through the agreed merge/review path. Finish with a clean `git status --short` and the exact remote SHA.
 
@@ -133,10 +133,10 @@ When the current host is not macOS, use a GitHub-hosted macOS runner for the rea
 
 1. Run the `macos-chromium-build` workflow from the public repository on its standard `macos-26` runner. Do not use larger runner labels without a concrete need.
 2. The workflow selects Xcode, prints the Swift/Xcode versions, invokes `./build.sh release`, and uploads the ad-hoc-signed app bundle.
-3. The current workflow only compiles and packages. Add a separate visible-browser smoke/acceptance step before claiming that launch, navigation, rendering, permissions, or sandbox behaviour passed.
+3. The current workflow captures first-run, navigation, selection, MV3-fixture and Web Store evidence. Inspect those captures and their assertions before claiming the covered behaviour; permission prompts, actual imported extensions and authentication still need separate acceptance.
 4. Record the actual macOS/Xcode versions and the exact runner artifact before describing a build as verified.
 
-A minimal visual workflow should include `workflow_dispatch` and `pull_request`, build with `xcodebuild`, launch the resulting `.app`, assert that it remains alive, capture screenshots, and always upload logs/artefacts on failure. If the app dies, inspect `log show` for `Fatal error`, `resource_bundle_accessor`, WebKit, signing and sandbox messages before changing the UI.
+A visual workflow should include `workflow_dispatch` and `pull_request`, build the CEF app with `./build.sh`, launch the resulting `.app`, assert that it remains alive, capture screenshots, and always upload logs/artefacts on failure. If the app dies, inspect `log show` for `Fatal error`, `resource_bundle_accessor`, WebKit, signing and sandbox messages before changing the UI.
 
 ## Change checklist
 

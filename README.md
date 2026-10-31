@@ -18,6 +18,8 @@ The Web Store listing displays “Switch to Chrome to install extensions and the
 
 One material difference remains in page automation: CefSwift exposes JavaScript execution in the page's main world. Kestrel's CEF operator keeps its fixed scripts, bounded data, action allow-list, approvals, and revalidation, but does not retain WebKit's isolated JavaScript world. Do not treat that as equivalent isolation or use model-supplied JavaScript/selectors.
 
+See [HANDOFF.md](HANDOFF.md) for the active review branch, latest CRX verification results and remaining release gates.
+
 ## Build on macOS
 
 Requirements: macOS 14 or later, Xcode 16 or later, Swift 6, and an internet connection for the pinned CEF package and binary download.
