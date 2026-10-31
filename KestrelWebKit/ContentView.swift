@@ -731,7 +731,13 @@ struct ContentView: View {
 
     @ViewBuilder
     private func webPage(tabID: UUID, side: BrowserSplitSide?) -> some View {
-        let browser = tabs.browser(for: tabID)
+        ObservedBrowserPage(browser: tabs.browser(for: tabID)) { browser in
+            observedWebPage(tabID: tabID, side: side, browser: browser)
+        }
+    }
+
+    @ViewBuilder
+    private func observedWebPage(tabID: UUID, side: BrowserSplitSide?, browser: BrowserStore) -> some View {
         let isActive = tabs.selectedID == tabID
         let isDisplayed = tabs.split.map { $0.side(containing: tabID) != nil } ?? isActive
         let isSearching = chat.isSearchingWeb && isActive

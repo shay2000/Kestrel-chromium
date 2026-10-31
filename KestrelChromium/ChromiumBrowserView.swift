@@ -18,6 +18,21 @@ enum BrowserScrollbars {
     }
 }
 
+/// Page overlays depend on more than the title/address mirrored by TabStore.
+/// Observe the actual page so loading, failure and handoff changes redraw them.
+@MainActor
+struct ObservedBrowserPage<Content: View>: View {
+    @ObservedObject var browser: BrowserStore
+    let content: (BrowserStore) -> Content
+
+    init(browser: BrowserStore, @ViewBuilder content: @escaping (BrowserStore) -> Content) {
+        self.browser = browser
+        self.content = content
+    }
+
+    var body: some View { content(browser) }
+}
+
 /// Hosts a persistent Chrome-runtime browser in Kestrel's page region. The CEF
 /// browser itself is owned by TabStore, so removing this SwiftUI host while
 /// changing tabs only hides the page; it does not destroy it.
