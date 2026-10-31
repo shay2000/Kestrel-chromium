@@ -24,6 +24,7 @@ enum BrowserScrollbars {
 @MainActor
 struct BrowserView: View {
     let browserID: UUID
+    let browserGeneration: Int
     let makeChromeBrowser: @MainActor () -> CefChromeBrowser
     let pageOverlay: AnyView
     var onFocus: (() -> Void)? = nil
@@ -31,22 +32,27 @@ struct BrowserView: View {
     var isVisible = true
     @State private var chromeBrowser: CefChromeBrowser?
     @State private var hostedBrowserID: UUID?
+    @State private var hostedBrowserGeneration: Int?
 
     var body: some View {
         Group {
-            if let chromeBrowser, hostedBrowserID == browserID, !isHidden {
+            if let chromeBrowser, hostedBrowserID == browserID,
+               hostedBrowserGeneration == browserGeneration, !isHidden {
                 PersistentChromeHost(browser: chromeBrowser, pageOverlay: pageOverlay,
                                      isVisible: isVisible, onFocus: onFocus)
             } else {
                 Color.clear
             }
         }
-        .task(id: "\(browserID.uuidString):\(isHidden)") {
-            guard !isHidden, hostedBrowserID != browserID else { return }
+        .task(id: "\(browserID.uuidString):\(browserGeneration):\(isHidden)") {
+            guard !isHidden,
+                  hostedBrowserID != browserID || hostedBrowserGeneration != browserGeneration else { return }
             chromeBrowser = nil
             hostedBrowserID = nil
+            hostedBrowserGeneration = nil
             chromeBrowser = makeChromeBrowser()
             hostedBrowserID = browserID
+            hostedBrowserGeneration = browserGeneration
         }
         .contentShape(Rectangle())
     }

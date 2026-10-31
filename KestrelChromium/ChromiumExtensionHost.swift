@@ -2,6 +2,7 @@
 
 import AppKit
 import Combine
+import CryptoKit
 import CefKit
 import Foundation
 
@@ -19,13 +20,16 @@ final class BrowserExtensionHost: ObservableObject {
     static let approvedPathsKey = "kestrel.chromium.approved-extension-paths.v1"
 
     private struct Staged {
-        let url: URL
+        let snapshotURL: URL
+        let fingerprint: Data
         let preview: ExtensionInstallPreview
-        let manifest: ChromiumExtensionManifest
     }
     private var staged: [UUID: Staged] = [:]
     @Published private(set) var installed: [InstalledChromiumExtension] = []
-    private init() { refreshInstalled() }
+    private init() {
+        Self.removeAbandonedStaging()
+        refreshInstalled()
+    }
 
     static func approvedExtensionPaths(defaults: UserDefaults = .standard) -> [String] {
         let paths = defaults.stringArray(forKey: approvedPathsKey) ?? []
@@ -75,17 +79,29 @@ final class BrowserExtensionHost: ObservableObject {
         guard ExtensionPackageDecision.forKind(kind).isLoadable else {
             return .rejected(reason: ExtensionSupport.chromiumCRXRejectionReason)
         }
+        var snapshotURL: URL?
         do {
-            let data = kind == .directory
-                ? try Self.readManifest(from: url)
-                : try Self.readZippedManifest(from: url)
-            guard data.count <= 1_000_000 else { return .rejected(reason: "The extension manifest is too large to review.") }
+            let snapshotID = UUID()
+            let snapshot = try Self.stagingRoot().appendingPathComponent(snapshotID.uuidString, isDirectory: true)
+            snapshotURL = snapshot
+            try FileManager.default.createDirectory(at: snapshot, withIntermediateDirectories: true,
+                                                    attributes: [.posixPermissions: 0o700])
+            if kind == .directory {
+                try Self.copyDirectory(url, to: snapshot)
+            } else {
+                try Self.extractArchive(url, to: snapshot)
+            }
+            let data = try Self.readManifest(from: snapshot)
+            guard data.count <= 1_000_000 else {
+                throw BrowserExtensionHostError.invalidPackage("The extension manifest is too large to review.")
+            }
             let manifest = try JSONDecoder().decode(ChromiumExtensionManifest.self, from: data)
             guard manifest.manifestVersion == 3 else {
-                return .rejected(reason: "This Chromium build accepts Manifest V3 extensions. Manifest V2 is no longer supported by current Chromium releases.")
+                throw BrowserExtensionHostError.invalidPackage("This Chromium build accepts Manifest V3 extensions. Manifest V2 is no longer supported by current Chromium releases.")
             }
+            let fingerprint = try Self.directoryFingerprint(at: snapshot)
             let preview = ExtensionInstallPreview(
-                id: UUID(),
+                id: snapshotID,
                 displayName: String(manifest.name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120)),
                 version: manifest.version,
                 packageKind: kind,
@@ -97,9 +113,10 @@ final class BrowserExtensionHost: ObservableObject {
                     ? []
                     : ["Optional permissions are requested later through Chromium's permission prompt."]
             )
-            staged[preview.id] = Staged(url: url, preview: preview, manifest: manifest)
+            staged[preview.id] = Staged(snapshotURL: snapshot, fingerprint: fingerprint, preview: preview)
             return .pendingApproval(preview)
         } catch {
+            if let snapshotURL { try? FileManager.default.removeItem(at: snapshotURL) }
             return .rejected(reason: Self.safeMessage(for: error))
         }
     }
@@ -119,14 +136,16 @@ final class BrowserExtensionHost: ObservableObject {
         do {
             try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
-            if item.preview.packageKind == .directory {
-                try Self.copyDirectory(item.url, to: destination)
-            } else {
-                try Self.extractArchive(item.url, to: destination)
+            try Self.copyDirectory(item.snapshotURL, to: destination)
+            guard try Self.directoryFingerprint(at: destination) == item.fingerprint else {
+                staged[id] = nil
+                try? FileManager.default.removeItem(at: item.snapshotURL)
+                throw BrowserExtensionHostError.installFailed("The extension changed after review. Stage it again before approving it.")
             }
             let paths = Self.approvedExtensionPaths() + [destination.path]
             UserDefaults.standard.set(Array(Set(paths)).sorted(), forKey: Self.approvedPathsKey)
             staged[id] = nil
+            try? FileManager.default.removeItem(at: item.snapshotURL)
             refreshInstalled()
             return item.preview
         } catch {
@@ -135,7 +154,10 @@ final class BrowserExtensionHost: ObservableObject {
         }
     }
 
-    func discard(id: UUID) { staged[id] = nil }
+    func discard(id: UUID) {
+        guard let item = staged.removeValue(forKey: id) else { return }
+        try? FileManager.default.removeItem(at: item.snapshotURL)
+    }
 
     private static let maximumArchiveBytes = 50 * 1_048_576
     private static let maximumInstalledBytes = 100 * 1_048_576
@@ -149,6 +171,55 @@ final class BrowserExtensionHost: ObservableObject {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         return root
+    }
+
+    private static func stagingRoot() throws -> URL {
+        let root = try extensionRoot().appendingPathComponent(".staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        return root
+    }
+
+    private static func removeAbandonedStaging() {
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+        let root = support.appendingPathComponent("Kestrel/ChromiumExtensions/.staging", isDirectory: true)
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    private static func directoryFingerprint(at root: URL) throws -> Data {
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey]
+        ) else {
+            throw BrowserExtensionHostError.installFailed("The staged extension could not be checked.")
+        }
+        var files: [String: String] = [:]
+        var count = 0
+        var total = 0
+        let rootPath = root.standardizedFileURL.path
+        while let file = enumerator.nextObject() as? URL {
+            let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey])
+            guard values.isSymbolicLink != true else {
+                throw BrowserExtensionHostError.invalidPackage("Extensions containing symbolic links cannot be imported.")
+            }
+            if values.isDirectory == true { continue }
+            guard values.isRegularFile == true else { continue }
+            count += 1
+            total += values.fileSize ?? 0
+            guard count <= maximumFiles, total <= maximumInstalledBytes else {
+                throw BrowserExtensionHostError.invalidPackage("The extension contains too many or too-large files.")
+            }
+            let relative = String(file.standardizedFileURL.path.dropFirst(rootPath.count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard let parts = safeComponents(relative), !parts.isEmpty else {
+                throw BrowserExtensionHostError.invalidPackage("The extension contains an unsafe file path.")
+            }
+            let data = try Data(contentsOf: file, options: [.mappedIfSafe])
+            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            files[parts.joined(separator: "/")] = digest
+        }
+        let encoded = try JSONSerialization.data(withJSONObject: files, options: [.sortedKeys])
+        return Data(SHA256.hash(data: encoded))
     }
 
     private static func readManifest(from directory: URL) throws -> Data {

@@ -78,6 +78,7 @@ final class TabStore: ObservableObject {
 
     private let pinnedTabsDefaults: UserDefaults?
     @Published private(set) var recentlyClosedTabs: [BrowserTab] = []
+    @Published private var pageGenerations: [UUID: Int] = [:]
 
     private var browserStores: [UUID: BrowserStore] = [:]
     private var webViews: [UUID: CefWebViewModel] = [:]
@@ -122,6 +123,8 @@ final class TabStore: ObservableObject {
 
     var tabs: [BrowserTab] { collection.tabs }
     var selectedTab: BrowserTab? { collection.selectedTab }
+
+    func pageGeneration(for id: UUID) -> Int { pageGenerations[id, default: 0] }
 
     var selectedID: UUID {
         collection.selectedID ?? ensureFallbackTab()
@@ -201,6 +204,10 @@ final class TabStore: ObservableObject {
         browserDelegates[id] = nil
         cancellables[id] = nil
         CefPasskeyHandoff.shared.detach(tabID: id)
+    }
+
+    private func advancePageGeneration(for id: UUID) {
+        pageGenerations[id, default: 0] &+= 1
     }
 
     /// Renames a tab without touching its address. Used to keep the rail label
@@ -365,6 +372,7 @@ final class TabStore: ObservableObject {
             }
             separateSplit(containing: id)
             discardPage(for: id)
+            advancePageGeneration(for: id)
             collection.resetPinnedPage(id: id)
             if wasSelected {
                 if let nextID = otherPane ?? collection.unpinnedTabs.first?.id {
@@ -386,6 +394,7 @@ final class TabStore: ObservableObject {
         discardPage(for: id)
         separateSplit(containing: id)
         collection.close(id: id)
+        pageGenerations[id] = nil
         if let survivingSplitTabID {
             if collection.tabs.contains(where: { $0.id == survivingSplitTabID }) {
                 collection.select(id: survivingSplitTabID)
@@ -567,6 +576,7 @@ final class TabStore: ObservableObject {
     func resetPinnedTab(id: UUID) {
         guard tabs.contains(where: { $0.id == id && $0.isPinned }) else { return }
         discardPage(for: id)
+        advancePageGeneration(for: id)
         collection.resetPinnedPage(id: id)
         select(id: id)
     }

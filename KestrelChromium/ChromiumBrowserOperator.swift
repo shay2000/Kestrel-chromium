@@ -55,14 +55,8 @@ enum BrowserScripts {
             }
             var selector = 'a[href], button, input[type="search"], input[type="text"], input:not([type]), textarea, [role="button"], [role="link"]';
             var targets = [], seen = new Set();
-            var focus = typeof query === 'string' ? query.toLowerCase() : '';
-            var ignored = new Set('find new latest colour color please add basket cart buy purchase this page with from that into phone cheapest storage insurance extras standard unlocked'.split(' '));
-            var wanted = Array.from(new Set((focus.match(/[a-z0-9]+/g) || []).filter(t => t.length >= 2 && !ignored.has(t)))).slice(0, 24);
             function priority(el, label) {
-                var card = el.closest('article, li, [data-product-id], [class*="product-tile"], [class*="product-card"]');
-                var hint = card && card !== el ? (card.innerText || '').slice(0, 500).toLowerCase() : '';
-                var words = (label + ' ' + (el.getAttribute('href') || '') + ' ' + hint).toLowerCase();
-                var score = wanted.filter(t => words.includes(t)).length * 10;
+                var score = 0;
                 if (/^add\b.*\b(?:bag|basket|cart)$/i.test(label)) { score += 100; }
                 if (/^view product$/i.test(label.trim())) { score += 80; }
                 if (/\/products?\//i.test(el.getAttribute('href') || '')) { score += 60; }
@@ -167,87 +161,19 @@ enum BrowserScripts {
 
     /// One document read returns text, controls and metadata together. Clip
     /// before crossing the CEF bridge, including a truncation flag.
-    static func pageSnapshot(limit: Int, includeControls: Bool, query: String? = nil) -> String {
-        let budget = PageContextBuilder.clampLimit(limit)
+    static func pageSnapshot(includeControls: Bool) -> String {
         return """
         (function () {
-            var text = \(visibleText);
-            var query = \(JavaScriptStringLiteral.escape(String((query ?? "").prefix(2_000))));
+            var originalText = \(visibleText);
+            var textLimit = 120000;
+            var controlLimit = 12000;
+            var truncated = originalText.length > textLimit;
+            var text = originalText.slice(0, textLimit);
             var controls = \(includeControls ? visibleControls : "''");
-            var originalLength = text.length;
-            if (query) {
-                var main = document.querySelector('main, [role="main"], article');
-                if (main && getComputedStyle(main).visibility === 'visible' && getComputedStyle(main).display !== 'none') {
-                    text = main.innerText || text;
-                }
-            }
-            var controlBudget = \(min(6_000, budget / 2));
-            var controlLines = controls.split('\\n'), kept = [], used = 0;
-            if (query && controlLines.length > 1) {
-                // Keep relevant destinations ahead of global navigation within
-                // the existing quota and transfer budget. URL path words also
-                // disambiguate repeated labels such as "Learn more" and "Buy".
-                var ignored = new Set('find new latest colour color please add basket cart buy purchase this page with from that into'.split(' '));
-                var wanted = Array.from(new Set((query.toLowerCase().match(/[a-z0-9]+/g) || [])
-                    .filter(t => t.length >= 2 && !ignored.has(t)).map(t => t.slice(0, 5))));
-                var heading = controlLines.shift();
-                controlLines = controlLines.map((line, index) => {
-                    var words = (line.toLowerCase().match(/[a-z0-9]+/g) || []).map(t => t.slice(0, 5));
-                    return {line: line, index: index, score: (line.startsWith("Option:") ? 100 : 0) + wanted.filter(t => words.includes(t)).length};
-                }).sort((a,b) => b.score - a.score || a.index - b.index).map(c => c.line);
-                controlLines.unshift(heading);
-            }
-            var omittedControls = 0;
-            for (var line of controlLines) {
-                if (used + line.length + 1 > controlBudget - 70) { omittedControls++; continue; }
-                kept.push(line); used += line.length + 1;
-            }
-            if (omittedControls) { kept.push('Controls truncated: ' + omittedControls + ' lines omitted.'); }
-            controls = kept.join('\\n');
-            var textBudget = Math.max(0, \(budget) - controls.length - 14);
-            if (query && text && text.length > textBudget) {
-                // Query-guided excerpts from rendered text, not page markup.
-                // Fixed code and an escaped query; no model-selected selectors.
-                var stop = new Set('using this page when what where which how does did was were with from that about please tell have into around according could would should difference between'.split(' '));
-                var terms = Array.from(new Set((query.toLowerCase().match(/[a-z0-9]{4,}/g) || [])
-                    .filter(t => !stop.has(t)).map(t => t.slice(0, 5)))).slice(0, 16);
-                var identifiers = Array.from(new Set(query.toLowerCase().match(/[a-z0-9_]+\\.[a-z0-9_]+/g) || []));
-                var chunks = [], scan = text.slice(0, 120000);
-                for (var start = 0; start < scan.length; start += 300) {
-                    var chunk = scan.slice(start, start + 900);
-                    var lower = chunk.toLowerCase();
-                    var words = (lower.match(/[a-z0-9]+/g) || []).map(t => t.slice(0, 5));
-                    var matches = terms.filter(t => words.includes(t));
-                    var positions = matches.map(t => lower.indexOf(t)).filter(i => i >= 0);
-                    var span = positions.length > 1 ? Math.max(...positions) - Math.min(...positions) : 900;
-                    var identifierMatches = identifiers.filter(t => lower.includes(t)).length;
-                    chunks.push({start: start, text: chunk, matches: matches, span: span,
-                        focus: positions.length ? Math.min(...positions) : 0,
-                        identifierMatches: identifierMatches});
-                }
-                var counts = terms.map(t => chunks.filter(c => c.matches.includes(t)).length);
-                chunks.forEach(c => c.score = c.identifierMatches * 250 + c.matches.length * 100
-                    + 1000 / (c.span + 20)
-                    + c.matches.reduce((sum,t) => sum + 1 / Math.sqrt(counts[terms.indexOf(t)] || 1), 0));
-                chunks.sort((a,b) => b.score - a.score || a.start - b.start);
-                var selected = [], remaining = textBudget;
-                for (var chunk of chunks) {
-                    if (chunk.score <= 0 || remaining < 350 || selected.length >= 3) { break; }
-                    if (selected.some(c => Math.abs(c.start - chunk.start) < 850)) { continue; }
-                    var pieceLength = Math.min(900, remaining - 7);
-                    var pieceStart = Math.max(0, Math.min(chunk.text.length - pieceLength, chunk.focus - 120));
-                    var piece = chunk.text.slice(pieceStart, pieceStart + pieceLength);
-                    selected.push({start: chunk.start + pieceStart, text: piece}); remaining -= piece.length + 7;
-                }
-                if (selected.length) {
-                    selected.sort((a,b) => a.start - b.start);
-                    text = selected.map(c => c.text).join('\\n[…]\\n');
-                }
-            }
-            var combined = (controls ? controls + '\\n\\nPage text:\\n' : '') + text;
-            combined = combined.replace(/[ \\t]+/g, ' ').replace(/\\n{3,}/g, '\\n\\n').trim();
+            if (controls.length > controlLimit) { truncated = true; }
+            controls = controls.slice(0, controlLimit);
             return JSON.stringify({ url: location.href, title: document.title,
-                text: combined.slice(0, \(budget)), truncated: combined.length > \(budget) || originalLength > text.length });
+                text: text, controls: controls, truncated: truncated });
         })()
         """
     }
@@ -930,16 +856,28 @@ final class BrowserOperator {
             _ = await evaluate(BrowserScripts.settlePage)
             guard !Task.isCancelled, !webView.isLoading else { return nil }
         }
-        guard let values = await evaluateObject(BrowserScripts.pageSnapshot(limit: limit, includeControls: includeControls, query: query)),
+        guard let values = await evaluateObject(BrowserScripts.pageSnapshot(includeControls: includeControls)),
               let text = values["text"] as? String,
               let address = values["url"] as? String,
               address == webView.url?.absoluteString else { return nil }
+        let budget = PageContextBuilder.clampLimit(limit)
+        let controlSelection = ChromiumPageContextSelector.controls(
+            values["controls"] as? String ?? "", query: query, limit: min(6_000, budget / 2)
+        )
+        let textBudget = max(0, budget - controlSelection.text.count - (controlSelection.text.isEmpty ? 0 : 14))
+        let pageSelection = ChromiumPageContextSelector.text(text, query: query, limit: textBudget)
+        let combinedText = controlSelection.text.isEmpty
+            ? pageSelection.text
+            : controlSelection.text + "\n\nPage text:\n" + pageSelection.text
         var context = PageContextBuilder.make(
             url: PageContextBuilder.safeURLString(URL(string: address)),
             title: Redaction.redacted(values["title"] as? String ?? ""),
-            text: Redaction.redacted(text), limit: limit
+            text: Redaction.redacted(combinedText), limit: budget
         )
-        context.wasTruncated = context.wasTruncated || values["truncated"] as? Bool == true
+        context.wasTruncated = context.wasTruncated
+            || values["truncated"] as? Bool == true
+            || controlSelection.truncated
+            || pageSelection.truncated
         return context
     }
 
@@ -972,7 +910,105 @@ final class BrowserOperator {
 
     private func evaluateObject(_ expression: String) async -> [String: Any]? {
         guard let webView else { return nil }
-        return await CefScriptRunner.shared.evaluate(expression, in: webView, tabID: tabID) as? [String: Any]
+        guard let value = await CefScriptRunner.shared.evaluate(expression, in: webView, tabID: tabID) else { return nil }
+        if let object = value as? [String: Any] { return object }
+        guard let encoded = value as? String,
+              let data = encoded.data(using: .utf8),
+              let decoded = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return nil }
+        return decoded as? [String: Any]
+    }
+}
+
+/// Selects bounded page excerpts in native code. The user's question never
+/// enters the page's JavaScript world while choosing relevant content.
+private enum ChromiumPageContextSelector {
+    private static let stopWords = Set("using this page when what where which how does did was were with from that about please tell have into around according could would should difference between find new latest colour color add basket cart buy purchase this".split(separator: " ").map(String.init))
+
+    private static func terms(in query: String?) -> [String] {
+        guard let query, !query.isEmpty else { return [] }
+        let words = String(query.prefix(2_000)).lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+        var seen = Set<String>()
+        var selected: [String] = []
+        for word in words where word.count >= 4 && !stopWords.contains(word) {
+            let term = String(word.prefix(5))
+            if seen.insert(term).inserted { selected.append(term) }
+            if selected.count == 24 { break }
+        }
+        return selected
+    }
+
+    private static func clip(_ source: String, to limit: Int) -> (text: String, truncated: Bool) {
+        guard limit > 0 else { return ("", !source.isEmpty) }
+        guard source.count > limit else { return (source, false) }
+        return (String(source.prefix(limit)), true)
+    }
+
+    static func controls(_ source: String, query: String?, limit: Int) -> (text: String, truncated: Bool) {
+        guard !source.isEmpty, limit > 0 else { return ("", !source.isEmpty) }
+        let lines = source.components(separatedBy: .newlines)
+        let heading = lines.first ?? ""
+        let focus = terms(in: query)
+        let ranked = lines.dropFirst().enumerated().map { index, line in
+            let lower = line.lowercased()
+            let score = focus.reduce(0) { $0 + (lower.contains($1) ? 1 : 0) }
+                + (line.hasPrefix("Option:") ? 100 : 0)
+            return (index: index, line: line, score: score)
+        }.sorted { lhs, rhs in
+            lhs.score == rhs.score ? lhs.index < rhs.index : lhs.score > rhs.score
+        }
+        var kept = [heading]
+        var used = heading.count + 1
+        var omitted = false
+        for (_, line, _) in ranked {
+            guard used + line.count + 1 <= limit else { omitted = true; continue }
+            kept.append(line)
+            used += line.count + 1
+        }
+        if omitted, used + 36 <= limit { kept.append("Controls truncated: some lines omitted.") }
+        let joined = kept.joined(separator: "\n")
+        let clipped = clip(joined, to: limit)
+        return (clipped.text, omitted || clipped.truncated)
+    }
+
+    static func text(_ source: String, query: String?, limit: Int) -> (text: String, truncated: Bool) {
+        guard limit > 0 else { return ("", !source.isEmpty) }
+        let normalized = PageContextBuilder.normalise(source)
+        guard normalized.count > limit else { return (normalized, false) }
+        let focus = terms(in: query)
+        guard !focus.isEmpty else { return clip(normalized, to: limit) }
+
+        let nsText = normalized as NSString
+        let length = nsText.length
+        var candidates: [(range: NSRange, score: Int)] = []
+        for start in stride(from: 0, to: length, by: 300) {
+            let chunkRange = NSRange(location: start, length: min(900, length - start))
+            let lower = nsText.substring(with: chunkRange).lowercased()
+            let score = focus.reduce(0) { $0 + (lower.contains($1) ? 1 : 0) }
+            guard score > 0 else { continue }
+            let snippetStart = max(0, start - 100)
+            let snippetEnd = min(length, start + chunkRange.length + 100)
+            candidates.append((NSRange(location: snippetStart, length: snippetEnd - snippetStart), score))
+        }
+        candidates.sort { lhs, rhs in
+            lhs.score == rhs.score ? lhs.range.location < rhs.range.location : lhs.score > rhs.score
+        }
+        var selected: [(range: NSRange, text: String)] = []
+        var used = 0
+        for candidate in candidates {
+            guard selected.count < 3, used < limit else { break }
+            let overlaps = selected.contains { NSIntersectionRange($0.range, candidate.range).length > 0 }
+            guard !overlaps else { continue }
+            let separatorCost = selected.isEmpty ? 0 : 5
+            let available = limit - used - separatorCost
+            guard available > 0 else { break }
+            let range = NSRange(location: candidate.range.location, length: min(candidate.range.length, available))
+            selected.append((range, nsText.substring(with: range)))
+            used += range.length + separatorCost
+        }
+        guard !selected.isEmpty else { return clip(normalized, to: limit) }
+        selected.sort { $0.range.location < $1.range.location }
+        return (selected.map { $0.text }.joined(separator: "\n[…]\n"), true)
     }
 }
 
@@ -985,45 +1021,51 @@ enum ProfileFormAdapter {
     static let prepareScript = #"""
     delete globalThis.kestrelProfileFill;
     if (location.protocol !== 'https:') return null;
-    const allowed = new Set(keys);
+    const allowed = new Set(['given-name','family-name','street-address','name','email','tel',
+      'address-line1','address-line2','address-level2','address-level1','postal-code','country-name']);
     const visible = e => {
       if (!e.isConnected || e.disabled || e.readOnly || e.closest('[inert],fieldset:disabled')) return false;
       for (let p=e; p; p=p.parentElement) { const s=getComputedStyle(p); if (s.display==='none'||s.visibility!=='visible'||Number(s.opacity)===0) return false; }
       const r=e.getBoundingClientRect(); return r.width>1 && r.height>1;
     };
     const semantic = e => { let t=(e.autocomplete||'').trim().split(/\s+/).pop(); if(t==='country')t='country-name'; return allowed.has(t) ? t : null; };
-    const optionFor = e => {
-      if(e.tagName!=='SELECT'||e.multiple||!['country-name','address-level1'].includes(semantic(e)))return null;
-      const expected=String(selectValues[semantic(e)]||'').trim().toLowerCase(); if(!expected)return null;
-      const matches=Array.from(e.options).filter(o=>!o.disabled&&!o.closest('optgroup:disabled')&&o.value&&o.value.length<=512&&o.text.length<=512&&[o.value,o.text].some(v=>v.trim().toLowerCase()===expected));
-      return matches.length===1?matches[0]:null;
+    const optionsFor = e => {
+      if(e.tagName!=='SELECT'||e.multiple||!['country-name','address-level1'].includes(semantic(e))||e.options.length>100)return null;
+      const options=Array.from(e.options).filter(o=>!o.disabled&&!o.closest('optgroup:disabled')&&o.value&&o.value.length<=512&&o.text.length<=512);
+      return options.length ? options.map(o=>({element:o,value:o.value,label:o.text})) : null;
     };
     const candidates=[]; if(document.forms.length>32)return null;
     for(const form of Array.from(document.forms)){
       if(form.elements.length>500)return null;
       const destination=new URL(form.action||location.href,location.href); if(destination.origin!==location.origin||destination.protocol!=='https:')continue;
-      const fields=Array.from(form.elements).filter(e=>(e.tagName==='INPUT'&&['text','email','tel'].includes(e.type)||e.tagName==='TEXTAREA'||optionFor(e))&&visible(e)&&!e.value&&semantic(e)&&!/(?:card|cc-|cvc|cvv|password|passcode|iban)/i.test([e.name,e.id,e.autocomplete].join(' ')));
+      const fields=Array.from(form.elements).filter(e=>(e.tagName==='INPUT'&&['text','email','tel'].includes(e.type)||e.tagName==='TEXTAREA'||optionsFor(e))&&visible(e)&&!e.value&&semantic(e)&&!/(?:card|cc-|cvc|cvv|password|passcode|iban)/i.test([e.name,e.id,e.autocomplete].join(' ')));
       if(!fields.length)continue; if(fields.length>16)return null;
       const names=fields.map(semantic); if(new Set(names).size!==names.length)return null;
       candidates.push({form,fields,destination:destination.href});
     }
     if(candidates.length!==1)return null;
     const c=candidates[0];
-    globalThis.kestrelProfileFill={id,document,href:location.href,...c,metadata:c.fields.map(e=>({key:semantic(e),type:e.type,autocomplete:e.autocomplete,name:e.name,option:optionFor(e),optionValue:optionFor(e)?.value,optionLabel:optionFor(e)?.text}))};
-    return {destination:c.destination,fields:c.fields.map(e=>({key:semantic(e),label:semantic(e),...(optionFor(e)?{choiceValue:optionFor(e).value,choiceLabel:optionFor(e).text}:{})}))};
+    globalThis.kestrelProfileFill={id,document,href:location.href,...c,metadata:c.fields.map(e=>({key:semantic(e),type:e.type,autocomplete:e.autocomplete,name:e.name,options:optionsFor(e)}))};
+    return {destination:c.destination,fields:c.fields.map(e=>({key:semantic(e),label:semantic(e),...(optionsFor(e)?{options:optionsFor(e).map(o=>({value:o.value,label:o.label}))}:{})}))};
     """#
 
     static let fillScript = #"""
     const p=globalThis.kestrelProfileFill; delete globalThis.kestrelProfileFill;
     const destinationValid=()=>p&&p.id===id&&p.document===document&&p.href===location.href&&p.form.isConnected&&new URL(p.form.action||location.href,location.href).href===p.destination;
     if(!destinationValid())return false;
-    const valid=(e,i)=>{const m=p.metadata[i];if(!destinationValid()||!e.isConnected||e.form!==p.form||e.disabled||e.readOnly||e.value||e.closest('[inert],fieldset:disabled')||e.type!==m.type||e.autocomplete!==m.autocomplete||e.name!==m.name||typeof values[m.key]!=='string')return false;
-      if(e.tagName==='SELECT'&&(e.multiple||!m.option||m.option.closest('select')!==e||m.option.disabled||m.option.closest('optgroup:disabled')||m.option.value!==m.optionValue||m.option.text!==m.optionLabel||values[m.key]!==m.optionValue))return false;
+    const selected=p.fields.map((element,index)=>({element,metadata:p.metadata[index]})).filter(item=>Object.prototype.hasOwnProperty.call(values,item.metadata.key));
+    if(!selected.length||selected.length!==Object.keys(values).length)return false;
+    const valid=item=>{const e=item.element,m=item.metadata;if(!destinationValid()||!e.isConnected||e.form!==p.form||e.disabled||e.readOnly||e.value||e.closest('[inert],fieldset:disabled')||e.type!==m.type||e.autocomplete!==m.autocomplete||e.name!==m.name||typeof values[m.key]!=='string')return false;
+      if(e.tagName==='SELECT'){
+        if(e.multiple||!m.options)return false;
+        const matches=m.options.filter(o=>o.element.isConnected&&o.element.closest('select')===e&&!o.element.disabled&&!o.element.closest('optgroup:disabled')&&o.value===values[m.key]&&o.element.value===o.value&&o.element.text===o.label);
+        if(matches.length!==1)return false;
+      }
       for(let a=e;a;a=a.parentElement){const s=getComputedStyle(a);if(s.display==='none'||s.visibility!=='visible'||Number(s.opacity)===0)return false;}
       e.scrollIntoView({block:'center',behavior:'instant'});const r=e.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return r.width>1&&r.height>1&&(hit===e||e.contains(hit));};
-    if(!p.fields.every(valid))return false;
-    for(let i=0;i<p.fields.length;i++){const e=p.fields[i];if(!valid(e,i))return false;const proto=e.tagName==='SELECT'?HTMLSelectElement.prototype:(e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype);Object.getOwnPropertyDescriptor(proto,'value').set.call(e,values[p.metadata[i].key]);e.dispatchEvent(new Event('input',{bubbles:true}));if(!destinationValid()||!e.isConnected||e.form!==p.form)return false;e.dispatchEvent(new Event('change',{bubbles:true}));if(!destinationValid()||e.value!==values[p.metadata[i].key])return false;}
-    return destinationValid()&&p.fields.every((e,i)=>e.isConnected&&e.form===p.form&&e.value===values[p.metadata[i].key]);
+    if(!selected.every(valid))return false;
+    for(const item of selected){const e=item.element,m=item.metadata;if(!valid(item))return false;const proto=e.tagName==='SELECT'?HTMLSelectElement.prototype:(e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype);Object.getOwnPropertyDescriptor(proto,'value').set.call(e,values[m.key]);e.dispatchEvent(new Event('input',{bubbles:true}));if(!destinationValid()||!e.isConnected||e.form!==p.form)return false;e.dispatchEvent(new Event('change',{bubbles:true}));if(!destinationValid()||e.value!==values[m.key])return false;}
+    return destinationValid()&&selected.every(item=>item.element.isConnected&&item.element.form===p.form&&item.element.value===values[item.metadata.key]);
     """#
 
     static func prepare(webView: CefWebViewModel, tabID: UUID, context: BrowserActionContext,
@@ -1031,23 +1073,31 @@ enum ProfileFormAdapter {
         let values = profile.formValues
         guard !values.isEmpty else { return nil }
         let id = UUID()
-        let arguments: [String: Any] = [
-            "keys": Array(values.keys),
-            "id": id.uuidString,
-            "selectValues": values.filter { ["country-name", "address-level1"].contains($0.key) }
-        ]
-        let prefix = "const keys=\(json(arguments["keys"]!)), id=\(json(arguments["id"]!)), selectValues=\(json(arguments["selectValues"]!));\n"
+        let prefix = "const id=\(json(id.uuidString));\n"
         guard let object = await CefScriptRunner.shared.evaluateBody(prefix + prepareScript, in: webView, tabID: tabID) as? [String: Any],
               let destination = object["destination"] as? String,
-              let fields = object["fields"] as? [[String: String]], !fields.isEmpty else { return nil }
+              let fields = object["fields"] as? [[String: Any]], !fields.isEmpty else { return nil }
         let approved = fields.compactMap { field -> ProfileFillPreview.Field? in
-            guard let key = field["key"], let value = values[key] else { return nil }
+            guard let key = field["key"] as? String, let value = values[key] else { return nil }
             let labels = ["given-name": "Given name (check the split)", "family-name": "Family name (check the split)", "street-address": "Street address", "name": "Name", "email": "Email", "tel": "Phone number", "address-line1": "Address line 1", "address-line2": "Address line 2", "address-level2": "Town or city", "address-level1": "County or region", "postal-code": "Postcode", "country-name": "Country"]
-            let choice = field["choiceValue"]
-            let label = (labels[key] ?? key) + (field["choiceLabel"].map { " (" + $0 + ")" } ?? "")
-            return .init(key: key, label: label, value: choice ?? value)
+            var choiceValue: String?
+            var choiceLabel: String?
+            if let options = field["options"] as? [[String: String]] {
+                let expected = PageContextBuilder.normalise(value).lowercased()
+                let matches = options.filter { option in
+                    [option["value"], option["label"]].compactMap { $0 }
+                        .contains { PageContextBuilder.normalise($0).lowercased() == expected }
+                }
+                guard matches.count == 1,
+                      let selectedValue = matches[0]["value"],
+                      let selectedLabel = matches[0]["label"] else { return nil }
+                choiceValue = selectedValue
+                choiceLabel = selectedLabel
+            }
+            let label = (labels[key] ?? key) + (choiceLabel.map { " (" + $0 + ")" } ?? "")
+            return .init(key: key, label: label, value: choiceValue ?? value)
         }
-        guard approved.count == fields.count else { return nil }
+        guard !approved.isEmpty else { return nil }
         return .init(id: id, context: context, destination: destination, fields: approved)
     }
 

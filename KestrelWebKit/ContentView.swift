@@ -778,7 +778,8 @@ struct ContentView: View {
         })
 
         ZStack {
-            BrowserView(browserID: tabID, makeChromeBrowser: { tabs.chromeBrowser(for: tabID) },
+            BrowserView(browserID: tabID, browserGeneration: tabs.pageGeneration(for: tabID),
+                        makeChromeBrowser: { tabs.chromeBrowser(for: tabID) },
                         pageOverlay: pageOverlay,
                         onFocus: focusAction,
                         isHidden: hasNoPage, isVisible: isDisplayed)

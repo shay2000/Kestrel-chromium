@@ -64,6 +64,7 @@ final class BrowserStore: ObservableObject {
     private var navigationTimeoutTask: Task<Void, Never>?
     private var retryURL: URL?
     private var navigationDidStart = false
+    private var navigationStartWaiterID: UUID?
     private var passkeyWatcherGeneration = 0
     private var zoomLevel = 0.0
 
@@ -243,7 +244,9 @@ final class BrowserStore: ObservableObject {
                 guard !Task.isCancelled else { continuation.resume(returning: false); return }
                 navigationDidStart = false
                 navigationWaiter = (waiterID, continuation)
+                navigationStartWaiterID = waiterID
                 start?()
+                navigationStartWaiterID = nil
                 if engine?.isLoading == true {
                     navigationDidStart = true
                     isLoading = true
@@ -267,7 +270,9 @@ final class BrowserStore: ObservableObject {
 
     private func beginNavigation(_ command: (CefWebViewModel) -> Void) {
         guard let engine else { return }
-        finishNavigationWait(success: false)
+        if navigationWaiter?.id != navigationStartWaiterID {
+            finishNavigationWait(success: false)
+        }
         navigationFailure = nil
         command(engine)
     }

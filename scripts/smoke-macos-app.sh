@@ -4,6 +4,7 @@ set -euo pipefail
 APP="${1:?usage: smoke-macos-app.sh /path/to/Kestrel.app output-directory}"
 EVIDENCE_DIR="${2:?usage: smoke-macos-app.sh /path/to/Kestrel.app output-directory}"
 STAGE="${3:-launch}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")"
 EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
 mkdir -p "$EVIDENCE_DIR"
@@ -71,6 +72,8 @@ case "$STAGE" in
 
     ps -p "$PID" -o pid=,comm= > "$EVIDENCE_DIR/process.txt"
     screencapture -x "$EVIDENCE_DIR/first-launch.png"
+    swift "$SCRIPT_DIR/verify-macos-screenshot.swift" "$EVIDENCE_DIR/first-launch.png" \
+      "YouTube" "Gmail" "Google Drive" "X" "Reddit" "OneDrive"
     printf 'Kestrel stayed alive for 12 seconds after a blank launch.\n' \
       | tee -a "$EVIDENCE_DIR/launch.txt"
     ;;
@@ -88,6 +91,7 @@ case "$STAGE" in
 
     ps -p "$PID" -o pid=,comm= > "$EVIDENCE_DIR/process-after-url.txt"
     screencapture -x "$EVIDENCE_DIR/after-url-open.png"
+    swift "$SCRIPT_DIR/verify-macos-screenshot.swift" "$EVIDENCE_DIR/after-url-open.png" "documentation examples"
     log show --last 3m --style compact \
       --predicate "process == \"$EXECUTABLE\" OR process CONTAINS[c] \"Kestrel Helper\"" \
       > "$EVIDENCE_DIR/system-log.txt" 2>&1 || true
@@ -109,6 +113,7 @@ case "$STAGE" in
 
     ps -p "$PID" -o pid=,comm= > "$EVIDENCE_DIR/process-after-webstore.txt"
     screencapture -x "$EVIDENCE_DIR/chrome-web-store.png"
+    swift "$SCRIPT_DIR/verify-macos-screenshot.swift" "$EVIDENCE_DIR/chrome-web-store.png" "Google Translate" "Switch to Chrome"
     log show --last 3m --style compact \
       --predicate "process == \"$EXECUTABLE\" OR process CONTAINS[c] \"Kestrel Helper\"" \
       > "$EVIDENCE_DIR/system-log.txt" 2>&1 || true
