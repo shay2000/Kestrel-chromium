@@ -778,7 +778,7 @@ index cce60bd..47702ee 100644
  
      // MARK: Helpers
 diff --git a/Sources/CefKit/CefJSDialog.swift b/Sources/CefKit/CefJSDialog.swift
-index 18341fb..f868638 100644
+index 18341fb..8a3c68a 100644
 --- a/Sources/CefKit/CefJSDialog.swift
 +++ b/Sources/CefKit/CefJSDialog.swift
 @@ -46,15 +46,20 @@ public struct CefJSDialog: Sendable, Equatable {
@@ -815,23 +815,32 @@ index 18341fb..f868638 100644
      }
  
      /// Cancels the dialog (equivalent to `continue(success: false)`).
-@@ -79,7 +86,7 @@ public final class CefJSDialogCallback: @unchecked Sendable {
+@@ -79,7 +86,16 @@ public final class CefJSDialogCallback: @unchecked Sendable {
  /// the delegate does not override ``CefBrowserDelegate/browser(_:runJSDialog:callback:)``.
  @MainActor
  enum CefJSDialogPresenter {
 -    static func present(_ dialog: CefJSDialog, callback: CefJSDialogCallback) {
++    private static func presentationWindow(_ requested: NSWindow?) -> NSWindow? {
++        if let requested, requested.isVisible { return requested }
++        // Background tabs park their native windows. Present on a visible app
++        // window while the host selects the originating tab, never on a hidden sheet.
++        if let parent = NSApp.keyWindow?.parent, parent.isVisible { return parent }
++        if let key = NSApp.keyWindow, key.isVisible { return key }
++        return NSApp.windows.first { $0.isVisible && $0.parent == nil && $0.canBecomeKey }
++    }
++
 +    static func present(_ dialog: CefJSDialog, callback: CefJSDialogCallback, window: NSWindow? = nil) {
          let alert = NSAlert()
          alert.messageText = dialog.origin.isEmpty ? "" : dialog.origin
          alert.informativeText = dialog.message
-@@ -100,20 +107,24 @@ enum CefJSDialogPresenter {
+@@ -100,20 +116,24 @@ enum CefJSDialogPresenter {
              promptField = field
          }
  
 -        let response = alert.runModal()
 -        let ok = response == .alertFirstButtonReturn
 -        callback.continue(success: ok, userInput: ok ? promptField?.stringValue : nil)
-+        guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { callback.cancel(); return }
++        guard let window = presentationWindow(window) else { callback.cancel(); return }
 +        alert.beginSheetModal(for: window) { response in
 +            let ok = response == .alertFirstButtonReturn
 +            callback.continue(success: ok, userInput: ok ? promptField?.stringValue : nil)
@@ -849,7 +858,7 @@ index 18341fb..f868638 100644
          alert.addButton(withTitle: "Stay")
 -        let leave = alert.runModal() == .alertFirstButtonReturn
 -        callback.continue(success: leave)
-+        guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { callback.cancel(); return }
++        guard let window = presentationWindow(window) else { callback.cancel(); return }
 +        alert.beginSheetModal(for: window) { response in
 +            callback.continue(success: response == .alertFirstButtonReturn)
 +        }

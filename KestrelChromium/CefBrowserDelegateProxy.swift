@@ -67,6 +67,12 @@ final class CefBrowserDelegateProxy: CefBrowserDelegate {
         model?.browserDidClose(browser)
     }
 
+    func browser(_ browser: CefBrowser, runBeforeUnloadDialog message: String, isReload: Bool,
+                 callback: CefJSDialogCallback) -> Bool {
+        tabs?.revealBrowser(browser)
+        return false // CefSwift presents the asynchronous native sheet.
+    }
+
     func browser(_ browser: CefBrowser, didReceiveConsoleMessage message: String, level: CefLogSeverity, source: String, line: Int) {
         model?.browser(browser, didReceiveConsoleMessage: message, level: level, source: source, line: line)
     }

@@ -726,6 +726,12 @@ final class TabStore: ObservableObject {
         webViews[id] != nil
     }
 
+    /// An unsaved background form must be visible when it asks to stay open.
+    func revealBrowser(_ browser: CefBrowser) {
+        guard let entry = webViews.first(where: { $0.value.kestrelBrowser === browser }) else { return }
+        select(id: entry.key)
+    }
+
     /// Opens Chromium's built-in manager for the installed extensions.
     @discardableResult
     func openChromiumExtensions() {

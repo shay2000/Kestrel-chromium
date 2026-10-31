@@ -28,7 +28,10 @@ struct ChromiumLifecycleAcceptance {
             try await chooseStay(stage: "close-tab")
             try await verifyDraft(page)
             Probe.record("cancelled_tab_close_preserved_draft")
-            // Exercise the ordinary app quit path while a form can cancel it.
+            // Quit with the dirty form in a background tab as well.
+            try await newTabDashboard(-1)
+            let background = try await Probe.open(fixture + "?background-helper=1")
+            try require(background["id"] as? String != page["id"] as? String, "Background helper reused the unsaved form")
             NSRunningApplication(processIdentifier: Probe.testedPID!)?.terminate()
             try await chooseStay(stage: "quit")
             try await verifyDraft(page)
