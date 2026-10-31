@@ -102,7 +102,8 @@ struct ChromiumLifecycleAcceptance {
         try require(draft == expected, "The original form or its draft disappeared")
     }
     static func emitPreview(_ name: String) {
-        guard let rep = NSBitmapImageRep(contentsOf: Probe.output.appendingPathComponent(name + ".png")),
+        guard let tiff = NSImage(contentsOf: Probe.output.appendingPathComponent(name + ".png"))?.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
               let jpeg = rep.representation(using:.jpeg,properties:[.compressionFactor:0.45]) else { return }
         print("KESTREL_PROBE_IMAGE \(name) \(jpeg.base64EncodedString())"); fflush(stdout)
     }
