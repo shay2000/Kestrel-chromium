@@ -12,7 +12,7 @@ enum KestrelAssets {
     static func resolve(in application: Bundle) -> Bundle {
         #if SWIFT_PACKAGE
         if application.bundleURL.pathExtension == "app" {
-            if let url = application.resourceURL?.appendingPathComponent("KestrelWebKit_KestrelWebKit.bundle"),
+            if let url = application.resourceURL?.appendingPathComponent("KestrelChromium_KestrelWebKit.bundle"),
                let packaged = Bundle(url: url) { return packaged }
             return application
         }

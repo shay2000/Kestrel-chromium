@@ -1,4 +1,4 @@
-#if canImport(SwiftUI) && canImport(WebKit)
+#if canImport(SwiftUI) && canImport(CefSwiftUI)
 
 import SwiftUI
 
@@ -115,10 +115,9 @@ struct KestrelCommands: Commands {
         }
 
         CommandGroup(after: .newItem) {
-            // Kestrel's embedded WebKit view has no platform passkeys without
-            // Apple's managed browser capabilities, so a passkey sign-in page
-            // can be handed to the user's default browser in one explicit
-            // action. The page opens there; Kestrel keeps its own tab.
+            // Explicitly opens the current page outside Kestrel. Chromium
+            // handles WebAuthn in-app; the command remains available as a
+            // user-controlled fallback for sites or authenticators that fail.
             Button("Open Page in Default Browser") {
                 _ = tabs.openSelectedPageInDefaultBrowser()
             }
@@ -159,16 +158,23 @@ struct KestrelCommands: Commands {
             }
         }
 
+        CommandMenu("Chromium") {
+            Button("Site Permissions & Browser Settings…") {
+                _ = tabs.openChromiumPage("chrome://settings/content")
+            }
+            Button("Browsing History…") {
+                _ = tabs.openChromiumPage("chrome://history")
+            }
+            Button("Downloads…") {
+                _ = tabs.openChromiumPage("chrome://downloads")
+            }
+        }
+
         if settings.extensions.menuBarVisible {
             CommandMenu("Extensions") {
-                Text("Manage extensions in Settings")
-                Divider()
-                Button("Load Unpacked Extension…") { }
-                    .disabled(true)
-                    .help("Importing an extension lives in Kestrel Settings, so this menu item stays disabled rather than duplicating it. Nothing is loaded until you approve each permission there.")
-                Button("Install Chromium CRX…") { }
-                    .disabled(true)
-                    .help("Chromium CRX packages are not supported by the public WKWebExtension API.")
+                Button("Manage Extensions…") { tabs.openChromiumExtensions() }
+                    .help("Open Chromium's extension manager")
+                Text("Import packages in Kestrel Settings → Extensions")
             }
         }
     }

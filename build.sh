@@ -29,19 +29,66 @@ swift package \
   --product Kestrel \
   --configuration "$CONFIG" \
   --output "$BUILD_DIR" \
-  --bundle-id com.shayprasad.KestrelChromium \
+  --bundle-id com.shayprasad.Kestrel \
   --sign -
 
 # CefSwift assembles and signs the CEF framework and helper apps. Add Kestrel's
-# icon to the completed bundle, then re-sign the app container so its resource
-# seal includes the icon while leaving the nested CEF signatures intact.
+# app resources and browser permission descriptions, then re-sign the app
+# container so its resource seal includes them while preserving nested code.
 mkdir -p "$APP/Contents/Resources"
+RESOURCE_BUNDLE="$(find "$ROOT/.build" -type d -name 'KestrelChromium_KestrelWebKit.bundle' -path "*/$CONFIG/*" -print -quit)"
+if [[ -z "$RESOURCE_BUNDLE" || ! -d "$RESOURCE_BUNDLE" ]]; then
+  echo "error: the compiled Kestrel resource bundle was not found under .build for $CONFIG." >&2
+  exit 1
+fi
+cp -R "$RESOURCE_BUNDLE" "$APP/Contents/Resources/KestrelChromium_KestrelWebKit.bundle"
 cp "$ROOT/KestrelWebKit/Kestrel.icns" "$APP/Contents/Resources/Kestrel.icns"
-/usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string Kestrel.icns' "$APP/Contents/Info.plist" 2>/dev/null \
-  || /usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile Kestrel.icns' "$APP/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
+INFO="$APP/Contents/Info.plist"
+set_plist_string() {
+  local key="$1" value="$2"
+  /usr/libexec/PlistBuddy -c "Set :$key $value" "$INFO" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :$key string $value" "$INFO"
+}
+set_plist_bool() {
+  local key="$1" value="$2"
+  /usr/libexec/PlistBuddy -c "Set :$key $value" "$INFO" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :$key bool $value" "$INFO"
+}
+set_plist_string CFBundleDisplayName "Kestrel Chromium"
+set_plist_string CFBundleIconFile Kestrel.icns
+set_plist_string CFBundleShortVersionString "$VERSION"
+set_plist_string CFBundleVersion "$VERSION"
+set_plist_string LSApplicationCategoryType public.app-category.utilities
+set_plist_string NSCameraUsageDescription "Websites you visit may ask to use your camera."
+set_plist_string NSMicrophoneUsageDescription "Websites you visit may ask to use your microphone."
+set_plist_string NSLocationUsageDescription "Websites you visit may ask to use your location."
+set_plist_string NSLocationWhenInUseUsageDescription "Websites you visit may ask to use your location."
+set_plist_string NSDownloadsFolderUsageDescription "Files you download are saved to your Downloads folder."
+set_plist_string SUFeedURL "https://github.com/shay2000/Kestrel-chromium/releases/latest/download/appcast.xml"
+set_plist_string SUPublicEDKey "1Fe/NeDkmo8kFRAvGxgma0GKqbad8w3is5pGuHSwkdc="
+set_plist_bool SUEnableAutomaticChecks true
+set_plist_bool SUEnableInstallerLauncherService true
+
+if ! /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' "$INFO" >/dev/null 2>&1; then
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes array' "$INFO"
+fi
+if ! /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0' "$INFO" >/dev/null 2>&1; then
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0 dict' "$INFO"
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleTypeRole string Viewer' "$INFO"
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLName string HTTP and HTTPS web pages' "$INFO"
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes array' "$INFO"
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string http' "$INFO"
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes:1 string https' "$INFO"
+fi
+
+if ! /usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity' "$INFO" >/dev/null 2>&1; then
+  /usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity dict' "$INFO"
+fi
+/usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true' "$INFO" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c 'Set :NSAppTransportSecurity:NSAllowsArbitraryLoads true' "$INFO"
 cp "$ROOT/licenses/CEF-LICENSE.txt" "$APP/Contents/Resources/CEF-LICENSE.txt"
 cp "$ROOT/licenses/CefSwift-LICENSE.txt" "$APP/Contents/Resources/CefSwift-LICENSE.txt"
+bash "$ROOT/scripts/package-codex-runtime.sh" "$APP"
 codesign --force --sign - "$APP" >/dev/null
 codesign --verify --deep --strict "$APP"
 

@@ -1,5 +1,13 @@
 # Current implementation handoff
 
+## Chromium application port — 31 October 2026
+
+The `full-feature-port` branch replaces the earlier CEF navigation shell with the complete Kestrel SwiftUI application and CEF browser backends for tabs, split panes, navigation, page capture, bounded operator actions, profile fill, passkey handoff, and Chromium extension import/management. Provider, assistant, MCP, settings, bookmarks and Codex integration sources remain connected through the same application setup. The CEF configuration uses Chrome runtime mode and enables Chromium's renderer sandbox.
+
+The port is awaiting its first full macOS runner build. Linux cannot compile CefSwift or validate the AppKit child-window host. No runtime claim is made yet for page rendering, Chrome extensions, site permission prompts, WebAuthn, downloads, app launch or bundled Codex. The default hosted build has no Codex executable; developers may opt in to bundling the pinned official runtime with `KESTREL_CODEX_EXECUTABLE`.
+
+Known compatibility boundaries: CefSwift executes app-owned page scripts in the page's main JavaScript world, so the operator does not retain the WebKit implementation's isolated-world boundary. The CEF profile is separate from WebKit website data. CEF's Chrome-style window hosting and SwiftUI overlays are experimental and need visible macOS acceptance. See `README.md` for the current user-facing port status.
+
 The active cleanup plan, bug register and validation results are in [OPTIMISATION_LOG.md](OPTIMISATION_LOG.md).
 
 Historical reports are retained under [archive/development](archive/development/README.md). They describe earlier builds and must not be treated as current verification.

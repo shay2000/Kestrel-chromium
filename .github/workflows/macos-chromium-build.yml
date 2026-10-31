@@ -3,6 +3,7 @@ name: macOS Chromium build
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -36,7 +37,8 @@ jobs:
           key: kestrel-cef-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift') }}
 
       - name: Build and bundle the macOS app
-        run: ./build.sh release
+        run: ./build.sh release 2>&1 | tee "$RUNNER_TEMP/kestrel-chromium-build.log"
+        shell: bash
 
       - name: Archive the app bundle
         run: ditto -c -k --keepParent build/Kestrel.app "$RUNNER_TEMP/Kestrel-Chromium-macOS.zip"
@@ -47,4 +49,13 @@ jobs:
           name: Kestrel-Chromium-macOS
           path: ${{ runner.temp }}/Kestrel-Chromium-macOS.zip
           if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-build-log
+          path: ${{ runner.temp }}/kestrel-chromium-build.log
+          if-no-files-found: ignore
           retention-days: 30

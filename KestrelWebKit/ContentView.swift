@@ -1,6 +1,7 @@
-#if canImport(SwiftUI) && canImport(WebKit)
+#if canImport(SwiftUI) && canImport(CefSwiftUI)
 
 import AppKit
+import CefSwiftUI
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -733,12 +734,11 @@ struct ContentView: View {
     @ViewBuilder
     private func webPage(tabID: UUID, side: BrowserSplitSide?) -> some View {
         let browser = tabs.browser(for: tabID)
-        let webView = tabs.webView(for: tabID)
         let isActive = tabs.selectedID == tabID
+        let isDisplayed = tabs.split.map { $0.side(containing: tabID) != nil } ?? isActive
         let isSearching = chat.isSearchingWeb && isActive
-        // A tab with no page has nothing for WebKit to draw, and an empty web
-        // view is not empty — it paints a background of its own. See
-        // `BrowserView.isHidden`.
+        // A blank page has no content to show. The persistent CEF browser is
+        // parked until the tab gets an address.
         let hasNoPage = browser.addressText
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty
@@ -746,29 +746,18 @@ struct ContentView: View {
         let focusAction: (() -> Void)? = side.map { targetSide in
             { [weak tabs] in tabs?.focusSplitPane(targetSide) }
         }
-
-        ZStack {
-            BrowserView(webView: webView, onFocus: focusAction, isHidden: hasNoPage)
-                .clipShape(pageShape)
-                .overlay {
-                    AgentCursorOverlay(browser: browser,
-                        isActive: chat.agentTaskTabID == tabID && chat.isPageControlArmed && (chat.isBusy || chat.pendingProposal != nil),
-                        stop: chat.cancel)
-                }
-                .overlay {
-                    pageShape.strokeBorder(
-                        isSearching
-                            ? Color.purple.opacity(0.32)
-                            : Color.clear,
-                        lineWidth: isSearching ? 1.35 : 0
-                    )
-                }
+        let pageOverlay = AnyView(ZStack {
+            AgentCursorOverlay(browser: browser,
+                isActive: chat.agentTaskTabID == tabID && chat.isPageControlArmed && (chat.isBusy || chat.pendingProposal != nil),
+                stop: chat.cancel)
+                .allowsHitTesting(false)
 
             if browser.isLoading {
                 ProgressView()
                     .controlSize(.small)
                     .padding(.top, 5)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(false)
             }
 
             if isActive {
@@ -781,6 +770,18 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(.top, 12)
             }
+
+            Rectangle()
+                .strokeBorder(isSearching ? Color.purple.opacity(0.32) : Color.clear,
+                              lineWidth: isSearching ? 1.35 : 0)
+                .allowsHitTesting(false)
+        })
+
+        ZStack {
+            BrowserView(chromeBrowser: hasNoPage ? nil : tabs.chromeBrowser(for: tabID), pageOverlay: pageOverlay,
+                        onFocus: focusAction,
+                        isHidden: hasNoPage, isVisible: isDisplayed)
+                .clipShape(pageShape)
         }
         // The enclosing page card owns rounding and spacing in both layouts.
         // A second inset here creates a framed page inside the split card.
@@ -921,7 +922,7 @@ struct ChromeEdgeReflection: View {
 
 /// Shows where an approved assistant action is aimed inside the page. The
 /// indicator is app-rendered feedback; page actions remain the fixed,
-/// allow-listed WebKit operations in `BrowserOperator`.
+/// allow-listed browser operations in `BrowserOperator`.
 private struct AgentCursorOverlay: View {
     @ObservedObject var browser: BrowserStore
     let isActive: Bool

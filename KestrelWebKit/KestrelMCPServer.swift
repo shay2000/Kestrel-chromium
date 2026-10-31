@@ -1,4 +1,4 @@
-#if canImport(SwiftUI) && canImport(WebKit) && canImport(Network) && canImport(Security)
+#if canImport(SwiftUI) && canImport(CefSwiftUI) && canImport(Network) && canImport(Security)
 
 import Foundation
 import Network

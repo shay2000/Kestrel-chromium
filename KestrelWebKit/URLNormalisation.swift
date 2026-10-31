@@ -268,6 +268,8 @@ enum URLNormalisation {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return nil }
 
+        if let internalPage = chromiumInternalURL(from: value) { return internalPage }
+
         if let url = explicitHTTPURL(from: value) { return url }
         if let url = SearchShortcut.bangDestination(from: value, using: engineForBangs) { return url }
 
@@ -280,6 +282,18 @@ enum URLNormalisation {
         }
 
         return search(value)
+    }
+
+    /// Safe Chromium WebUI pages exposed as first-party browser destinations.
+    /// Other chrome:// and all chrome-untrusted:// URLs stay blocked.
+    static func chromiumInternalURL(from value: String) -> URL? {
+        guard let components = URLComponents(string: value),
+              components.scheme?.lowercased() == "chrome",
+              let host = components.host?.lowercased(),
+              ["extensions", "settings", "history", "downloads", "version", "help"].contains(host),
+              components.user == nil, components.password == nil,
+              let url = components.url else { return nil }
+        return url
     }
 
     /// Returns a URL only when the text already names an http/https address.

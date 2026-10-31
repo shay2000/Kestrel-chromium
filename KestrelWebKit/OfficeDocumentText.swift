@@ -40,6 +40,7 @@ struct ZipArchive {
         let compressedSize: Int
         let uncompressedSize: Int
         let localHeaderOffset: Int
+        let externalAttributes: UInt32
     }
 
     static let endOfCentralDirectorySignature: UInt32 = 0x0605_4B50
@@ -80,6 +81,7 @@ struct ZipArchive {
             let nameLength = Int(readUInt16(cursor + 28) ?? 0)
             let extraLength = Int(readUInt16(cursor + 30) ?? 0)
             let commentLength = Int(readUInt16(cursor + 32) ?? 0)
+            let externalAttributes = readUInt32(cursor + 38) ?? 0
             let localOffset = Int(readUInt32(cursor + 42) ?? 0)
 
             guard let name = string(at: cursor + 46, length: nameLength) else { break }
@@ -89,7 +91,8 @@ struct ZipArchive {
                     compressionMethod: method,
                     compressedSize: compressedSize,
                     uncompressedSize: uncompressedSize,
-                    localHeaderOffset: localOffset
+                    localHeaderOffset: localOffset,
+                    externalAttributes: externalAttributes
                 )
             )
             cursor += 46 + nameLength + extraLength + commentLength
