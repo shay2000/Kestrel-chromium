@@ -40,7 +40,8 @@ jobs:
           save-always: true
 
       - name: Restore Swift build cache
-        uses: actions/cache@v4
+        id: swift-build-cache
+        uses: actions/cache/restore@v4
         with:
           path: .build
           key: kestrel-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift', 'KestrelChromium/**/*.swift', 'KestrelWebKit/**/*.swift', 'build.sh') }}
@@ -48,6 +49,13 @@ jobs:
       - name: Build and bundle the macOS app
         run: ./build.sh release 2>&1 | tee "$RUNNER_TEMP/kestrel-chromium-build.log"
         shell: bash
+
+      - name: Cache the successfully compiled app dependencies
+        if: steps.swift-build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .build
+          key: ${{ steps.swift-build-cache.outputs.cache-primary-key }}
 
       - name: Add the MV3 smoke fixture to the test app bundle
         run: |
@@ -99,12 +107,12 @@ jobs:
 
       - id: store-smoke
         name: Open a Chrome Web Store listing and capture screenshot
-        if: steps.navigate-smoke.outcome == 'success'
+        if: always() && steps.launch-smoke.outcome == 'success'
         run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke" webstore
         shell: bash
 
       - name: Operate native Chrome Web Store installs and verify restart
-        if: steps.store-smoke.outcome == 'success'
+        if: always() && steps.launch-smoke.outcome == 'success'
         run: |
           swiftc -swift-version 5 -parse-as-library scripts/test-chrome-web-store-macos.swift -o "$RUNNER_TEMP/kestrel-web-store-test"
           "$RUNNER_TEMP/kestrel-web-store-test" "$GITHUB_WORKSPACE/build/Kestrel.app" \

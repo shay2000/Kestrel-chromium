@@ -9,11 +9,11 @@ chrome.runtime.sendMessage({ kind: "kestrel-extension-smoke" }, response => {
     "right:16px",
     "bottom:16px",
     "z-index:2147483647",
-    "padding:8px 12px",
+    "padding:10px 16px",
     "border-radius:8px",
     "background:#14532d",
     "color:white",
-    "font:14px -apple-system,BlinkMacSystemFont,sans-serif",
+    "font:bold 18px -apple-system,BlinkMacSystemFont,sans-serif",
     "box-shadow:0 2px 8px #0005"
   ].join(";");
   document.documentElement.appendChild(marker);
