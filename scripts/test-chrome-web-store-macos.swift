@@ -36,16 +36,27 @@ struct ChromeWebStoreAcceptance {
             output = URL(fileURLWithPath: CommandLine.arguments[2]).standardizedFileURL
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
             try await launch(reuse: true)
-            for item in items { try await install(id: item.id, slug: item.slug, name: item.name) }
-            try await verifyDarkReader(stage: "before-restart")
-            try await launch()
+            await widenRunnerWindow()
+            var installed = Set<String>()
+            var failures: [String] = []
             for item in items {
+                do { try await install(id: item.id, slug: item.slug, name: item.name); installed.insert(item.id) }
+                catch {
+                    failures.append("\(item.name): \(error.localizedDescription)")
+                    record("item_failed", ["name": item.name, "error": error.localizedDescription])
+                    try? capture("\(item.slug)-failure")
+                }
+            }
+            if installed.contains(items[1].id) { try await verifyDarkReader(stage: "before-restart") }
+            if !installed.isEmpty { try await launch(); await widenRunnerWindow() }
+            for item in items where installed.contains(item.id) {
                 guard let manifest = try installedManifest(id: item.id) else {
                     throw StoreProbeError(message: "Installed extension disappeared after restart: \(item.name)")
                 }
                 record("persisted", ["name": item.name, "manifest": manifest.path])
             }
-            try await verifyDarkReader(stage: "after-restart")
+            if installed.contains(items[1].id) { try await verifyDarkReader(stage: "after-restart") }
+            if !failures.isEmpty { throw StoreProbeError(message: failures.joined(separator: "; ")) }
             try save("result.json", ["passed": true, "runtimeUserAgentProbe": uaProbe,
                                      "installedIDs": items.map(\.id), "restartRuntimePassed": true])
             print("Chrome Web Store native install and restart acceptance passed. User-agent probe: \(uaProbe)")
@@ -58,6 +69,30 @@ struct ChromeWebStoreAcceptance {
             fputs("Chrome Web Store acceptance failed: \(error.localizedDescription)\n", stderr)
             exit(1)
         }
+    }
+
+    static func widenRunnerWindow() async {
+        let display = CGMainDisplayID()
+        if CGDisplayBounds(display).width < 1600,
+           let modes = CGDisplayCopyAllDisplayModes(display, nil) as? [CGDisplayMode],
+           let mode = modes.filter({ $0.width >= 1600 && $0.width <= 2560 && $0.height >= 900 && $0.height <= 1600 })
+                .sorted(by: { $0.width * $0.height < $1.width * $1.height }).first {
+            let status = CGDisplaySetDisplayMode(display, mode, nil)
+            record("display_mode", ["width": mode.width, "height": mode.height, "status": status.rawValue])
+            await pause(2)
+        }
+        guard let pid = testedPID else { return }
+        let root = AXUIElementCreateApplication(pid)
+        let windows = ax(root, "AXWindows") as? [AXUIElement] ?? []
+        guard let window = windows.first(where: { String(describing: ax($0, "AXTitle") ?? "" as CFString) == "Kestrel" }) else {
+            record("window_resize", ["availableTitles": windows.map { String(describing: ax($0, "AXTitle") ?? "" as CFString) }]); return
+        }
+        let bounds = CGDisplayBounds(display)
+        var size = CGSize(width: min(1680, bounds.width - 40), height: min(980, bounds.height - 80))
+        var point = CGPoint(x: bounds.minX + 20, y: bounds.minY + 40)
+        if let value = AXValueCreate(.cgSize, &size) { _ = AXUIElementSetAttributeValue(window, "AXSize" as CFString, value) }
+        if let value = AXValueCreate(.cgPoint, &point) { _ = AXUIElementSetAttributeValue(window, "AXPosition" as CFString, value) }
+        record("window_resize", ["width": size.width, "height": size.height]); await pause(2)
     }
 
     static func collectCrashReports() {
@@ -193,7 +228,8 @@ struct ChromeWebStoreAcceptance {
       beginInstall:typeof window.chrome?.webstorePrivate?.beginInstallWithManifest3,
       completeInstall:typeof window.chrome?.webstorePrivate?.completeInstall,
       text:(document.body?.innerText||'').slice(0,14000),
-      buttons:Array.from(document.querySelectorAll('button')).map(e=>({text:(e.innerText||e.getAttribute('aria-label')||'').trim(),disabled:e.disabled})).slice(0,100)}))()
+      viewport:{width:innerWidth,height:innerHeight,devicePixelRatio,scrollX,scrollY},
+      buttons:Array.from(document.querySelectorAll('button')).map(e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return {text:(e.innerText||e.getAttribute('aria-label')||'').trim(),disabled:e.disabled,display:s.display,visibility:s.visibility,rect:{x:r.x,y:r.y,width:r.width,height:r.height}}}).slice(0,100)}))()
     """
 
     static func install(id: String, slug: String, name: String) async throws {
@@ -206,7 +242,8 @@ struct ChromeWebStoreAcceptance {
         await clearRunnerDialogues()
         if try await clickPageButton(page, label: "No thanks") { await pause(2) }
         if try await buttonLocation(page, label: "Add to Chrome") == nil,
-           (state["text"] as? String)?.localizedCaseInsensitiveContains("Switch to Chrome") == true {
+           (state["text"] as? String)?.localizedCaseInsensitiveContains("Switch to Chrome") == true,
+           (state["userAgent"] as? String)?.contains("KestrelChromium/1.0") == true {
             let version = try await cdp(page, "Browser.getVersion")
             let product = version["product"] as? String ?? ""
             let original = state["userAgent"] as? String ?? ""
@@ -244,6 +281,10 @@ struct ChromeWebStoreAcceptance {
 
     static func buttonLocation(_ page: [String: Any], label: String) async throws -> [String: Any]? {
         let text = String(decoding: try JSONEncoder().encode(label), as: UTF8.self)
+        _ = try await evaluate(page, """
+        (()=>{const a=Array.from(document.querySelectorAll('button')).filter(e=>e.innerText.trim()===\(text)&&!e.disabled);if(a.length===1)a[0].scrollIntoView({block:'center',inline:'center',behavior:'instant'});return true;})()
+        """)
+        await pause(0.2)
         return try await evaluate(page, """
         (()=>{const a=Array.from(document.querySelectorAll('button')).filter(e=>e.innerText.trim()===\(text)&&!e.disabled).map(e=>({e,r:e.getBoundingClientRect()})).filter(({e,r})=>r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight&&e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)));return a.length===1?{x:a[0].r.x+a[0].r.width/2,y:a[0].r.y+a[0].r.height/2}:null;})()
         """) as? [String: Any]
@@ -355,6 +396,7 @@ struct ChromeWebStoreAcceptance {
                 context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
                 if let preview = context.makeImage(), let jpeg = NSBitmapImageRep(cgImage: preview).representation(using: .jpeg, properties: [.compressionFactor: 0.6]) {
                     print("KESTREL_CWS_IMAGE \(name) \(jpeg.base64EncodedString())")
+                    fflush(stdout)
                 }
             }
         }

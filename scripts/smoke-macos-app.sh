@@ -118,7 +118,7 @@ case "$STAGE" in
 
     ps -p "$PID" -o pid=,comm= > "$EVIDENCE_DIR/process-after-webstore.txt"
     screencapture -x "$EVIDENCE_DIR/chrome-web-store.png"
-    swift "$SCRIPT_DIR/verify-macos-screenshot.swift" "$EVIDENCE_DIR/chrome-web-store.png" "Google Translate" "Switch to Chrome"
+    swift "$SCRIPT_DIR/verify-macos-screenshot.swift" "$EVIDENCE_DIR/chrome-web-store.png" "Google Translate"
     log show --last 3m --style compact \
       --predicate "process == \"$EXECUTABLE\" OR process CONTAINS[c] \"Kestrel Helper\"" \
       > "$EVIDENCE_DIR/system-log.txt" 2>&1 || true

@@ -17,7 +17,7 @@ struct KestrelChromiumApp: CefSwiftApp {
         configuration.noSandbox = false
         configuration.windowlessRenderingEnabled = false
         configuration.defaultRuntimeStyle = .chrome
-        configuration.userAgentProduct = "KestrelChromium/1.0"
+        // Retain the pinned Chromium engine identity and matching client hints.
         configuration.extraCommandLineSwitches.merge(BrowserExtensionHost.commandLineSwitches()) { _, new in new }
         return configuration
     }
