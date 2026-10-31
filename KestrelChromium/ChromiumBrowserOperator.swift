@@ -951,8 +951,9 @@ private enum ChromiumPageContextSelector {
         let focus = terms(in: query)
         let ranked = lines.dropFirst().enumerated().map { index, line in
             let lower = line.lowercased()
-            let score = focus.reduce(0) { $0 + (lower.contains($1) ? 1 : 0) }
-                + (line.hasPrefix("Option:") ? 100 : 0)
+            var score = 0
+            for term in focus where lower.contains(term) { score += 1 }
+            if line.hasPrefix("Option:") { score += 100 }
             return (index: index, line: line, score: score)
         }.sorted { lhs, rhs in
             lhs.score == rhs.score ? lhs.index < rhs.index : lhs.score > rhs.score
@@ -984,7 +985,8 @@ private enum ChromiumPageContextSelector {
         for start in stride(from: 0, to: length, by: 300) {
             let chunkRange = NSRange(location: start, length: min(900, length - start))
             let lower = nsText.substring(with: chunkRange).lowercased()
-            let score = focus.reduce(0) { $0 + (lower.contains($1) ? 1 : 0) }
+            var score = 0
+            for term in focus where lower.contains(term) { score += 1 }
             guard score > 0 else { continue }
             let snippetStart = max(0, start - 100)
             let snippetEnd = min(length, start + chunkRange.length + 100)

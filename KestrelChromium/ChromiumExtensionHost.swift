@@ -228,23 +228,6 @@ final class BrowserExtensionHost: ObservableObject {
         return try Data(contentsOf: manifest, options: [.mappedIfSafe])
     }
 
-    private static func readZippedManifest(from url: URL) throws -> Data {
-        try requireArchiveSize(url)
-        let rawData = try Data(contentsOf: url, options: [.mappedIfSafe])
-        let data = try zipPayload(from: rawData)
-        guard data.count <= maximumArchiveBytes else {
-            throw BrowserExtensionHostError.invalidPackage("The ZIP archive is larger than 50 MB.")
-        }
-        let archive = ZipArchive(data: data)
-        let entries = archive.entries()
-        let manifests = entries.filter { URL(fileURLWithPath: $0.name).lastPathComponent == "manifest.json" }
-        guard !entries.isEmpty, manifests.count == 1, let entry = manifests.first,
-              entry.uncompressedSize <= 1_000_000, archiveRoot(for: entry.name) != nil else {
-            throw BrowserExtensionHostError.invalidPackage("The archive must contain exactly one manifest.json file at its root.")
-        }
-        return try archive.contents(of: entry)
-    }
-
     private static func requireRegularFile(_ url: URL) throws {
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         guard values.isRegularFile == true, values.isSymbolicLink != true else {
@@ -334,9 +317,10 @@ final class BrowserExtensionHost: ObservableObject {
         }
         let archive = ZipArchive(data: data)
         let entries = archive.entries()
-        guard let manifest = entries.first(where: { URL(fileURLWithPath: $0.name).lastPathComponent == "manifest.json" }),
-              let root = archiveRoot(for: manifest.name) else {
-            throw BrowserExtensionHostError.invalidPackage("The archive must contain a manifest.json file at its root.")
+        let manifests = entries.filter { URL(fileURLWithPath: $0.name).lastPathComponent == "manifest.json" }
+        guard !entries.isEmpty, manifests.count == 1, let manifest = manifests.first,
+              manifest.uncompressedSize <= 1_000_000, let root = archiveRoot(for: manifest.name) else {
+            throw BrowserExtensionHostError.invalidPackage("The archive must contain exactly one manifest.json file at its root.")
         }
         var names = Set<String>()
         var total = 0
