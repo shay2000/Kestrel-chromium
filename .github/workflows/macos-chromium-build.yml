@@ -28,13 +28,18 @@ jobs:
           swift --version
           uname -m
 
-      - name: Restore Swift and CEF cache
+      - name: Restore pinned CEF distribution
         uses: actions/cache@v4
         with:
-          path: |
-            .build
-            .cef
+          path: .cef
           key: kestrel-cef-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift') }}
+          save-always: true
+
+      - name: Restore Swift build cache
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: kestrel-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift', 'KestrelChromium/**/*.swift', 'KestrelWebKit/**/*.swift', 'build.sh') }}
 
       - name: Build and bundle the macOS app
         run: ./build.sh release 2>&1 | tee "$RUNNER_TEMP/kestrel-chromium-build.log"
