@@ -2,7 +2,10 @@ name: Reproduce native window focus and extension interaction
 on:
   push:
     branches: [fix/native-window-integration]
-    paths: [.github/workflows/native-window-repro.yml]
+    paths:
+      - .github/workflows/native-window-repro.yml
+      - scripts/test-window-integration-macos.swift
+      - scripts/test-chrome-web-store-macos.swift
   workflow_dispatch:
 permissions:
   contents: read

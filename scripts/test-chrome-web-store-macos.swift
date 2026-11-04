@@ -345,8 +345,8 @@ struct ChromeWebStoreAcceptance {
         guard let width = viewport["width"] as? Double, let height = viewport["height"] as? Double, let pid = testedPID else { throw StoreProbeError(message: "No native page dimensions") }
         let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         for row in windows where (row[kCGWindowOwnerPID as String] as? Int) == Int(pid) {
-            if let values = row[kCGWindowBounds as String] as? CFDictionary,
-               let bounds = CGRect(dictionaryRepresentation: values),
+            if let values = row[kCGWindowBounds as String] as? [String: Any],
+               let bounds = CGRect(dictionaryRepresentation: values as CFDictionary),
                abs(bounds.width - width) < 2, abs(bounds.height - height) < 2 { return bounds }
         }
         throw StoreProbeError(message: "No visible native page window matching \(width) × \(height)")
