@@ -1,0 +1,38 @@
+name: Cancel superseded failed native check
+
+on:
+  push:
+    branches: [maintenance/unstick-native-run]
+    paths: [.github/workflows/unstick-native-check.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  cancel-superseded-check:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const run_id = 41875433520;
+            const repo = {owner: context.repo.owner, repo: context.repo.repo};
+            const {data: run} = await github.rest.actions.getWorkflowRun({...repo, run_id});
+            if (run.head_sha !== 'af0d943f642ea4f816552a72f28a68b30e41e98f' ||
+                run.path !== '.github/workflows/macos-chromium-build.yml') {
+              throw new Error('Refuse to cancel an unexpected run');
+            }
+            if (run.status === 'completed') {
+              core.info(`Superseded run already completed: ${run.conclusion}`);
+              return;
+            }
+            const {data: jobs} = await github.rest.actions.listJobsForWorkflowRun({...repo, run_id});
+            const steps = jobs.jobs.flatMap(job => job.steps || []);
+            if (!steps.some(step => step.name === 'Verify native page focus, first-click controls and toolbar attachment' && step.conclusion === 'failure') ||
+                !steps.some(step => step.name === 'Upload lifecycle regression results' && step.conclusion === 'success')) {
+              throw new Error('Refuse cancellation until known failure and retained evidence are confirmed');
+            }
+            await github.rest.actions.cancelWorkflowRun({...repo, run_id});
+            core.info(`Cancelled only superseded failed run ${run_id}; corrected native run is retained.`);
