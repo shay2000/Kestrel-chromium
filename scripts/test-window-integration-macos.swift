@@ -87,7 +87,9 @@ struct WindowIntegrationAcceptance {
             }
             guard ready else { throw StoreProbeError(message: "Local focus fixture did not load") }
             let owner = try rootWindow()
-            var origin = CGPoint(x: 30, y: 55), size = CGSize(width: 1180, height: 780)
+            let display = CGDisplayBounds(CGMainDisplayID())
+            var origin = CGPoint(x: display.minX + 30, y: display.minY + 55)
+            var size = CGSize(width: min(1180, display.width - 60), height: min(780, display.height - 130))
             if let value = AXValueCreate(.cgPoint, &origin) { _ = AXUIElementSetAttributeValue(owner, "AXPosition" as CFString, value) }
             if let value = AXValueCreate(.cgSize, &size) { _ = AXUIElementSetAttributeValue(owner, "AXSize" as CFString, value) }
             await FocusProbe.pause(1)

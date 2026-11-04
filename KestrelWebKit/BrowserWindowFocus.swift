@@ -10,14 +10,14 @@ enum BrowserWindowFocus {
     static func register(_ window: NSWindow) { browserWindows.add(window) }
 
     static var keyboardOwner: NSWindow? {
-        guard NSApp.isActive, NSApp.modalWindow == nil else { return nil }
-        var candidate = NSApp.keyWindow
-        while let window = candidate {
-            guard window.attachedSheet == nil, window.sheetParent == nil else { return nil }
-            if browserWindows.contains(window), window.isVisible, !window.isMiniaturized { return window }
-            candidate = window.parent
-        }
-        return nil
+        guard NSApp.isActive, NSApp.modalWindow == nil, let key = NSApp.keyWindow,
+              key.attachedSheet == nil, key.sheetParent == nil, !(key is NSPanel),
+              let owner = browserWindows.contains(key) ? key : key.parent,
+              browserWindows.contains(owner), owner.isVisible, !owner.isMiniaturized,
+              owner.attachedSheet == nil else { return nil }
+        // Only the document or its direct page owns browser commands. A
+        // nested DevTools/menu/utility window keeps its own Close command.
+        return owner
     }
 
     static func isActive(_ owner: NSWindow) -> Bool {

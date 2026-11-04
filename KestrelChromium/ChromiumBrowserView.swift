@@ -196,7 +196,10 @@ private final class PersistentChromeHostView: NSView {
                 root.wantsLayer = true
                 if let layer = root.layer {
                     layer.cornerRadius = 10
-                    layer.maskedCorners = layer.isGeometryFlipped
+                    // AppKit maps the backing layer to the view's coordinate
+                    // system; CALayer.isGeometryFlipped alone does not report
+                    // the effective orientation of a flipped CEF content view.
+                    layer.maskedCorners = root.isFlipped
                         ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
                         : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
                     layer.masksToBounds = true
