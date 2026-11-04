@@ -53,6 +53,8 @@ struct AddressTextField: NSViewRepresentable {
         DispatchQueue.main.async { [weak field, weak coordinator] in
             guard let field, let coordinator, let window = field.window else { return }
             if coordinator.parent.isFocused, field.currentEditor() == nil {
+                guard NSApp.isActive, BrowserWindowFocus.keyboardOwner === window else { return }
+                if !window.isKeyWindow { window.makeKey() }
                 window.makeFirstResponder(field)
                 if coordinator.parent.selectAllOnFocus, let editor = field.currentEditor() as? NSTextView {
                     editor.setSelectedRange(NSRange(location: 0, length: editor.string.utf16.count))

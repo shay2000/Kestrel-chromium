@@ -131,10 +131,10 @@ private struct BrowserShortcutModifier: ViewModifier {
     func body(content: Content) -> some View {
         let value = settings.shortcut(for: command)
         content
-            .keyboardShortcut(settings.isCapturingShortcut || isBrowserWindow != true ? nil : value.map {
+            .keyboardShortcut(settings.isCapturingShortcut || !(isBrowserWindow == true || BrowserWindowFocus.keyboardOwner != nil) ? nil : value.map {
                 KeyboardShortcut($0.keyEquivalent, modifiers: $0.eventModifiers)
             })
-            .disabled(isBrowserWindow != true)
+            .disabled(!(isBrowserWindow == true || BrowserWindowFocus.keyboardOwner != nil))
     }
 }
 
@@ -182,7 +182,7 @@ struct BrowserCloseShortcut: NSViewRepresentable {
             guard window != nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, let window = self.window,
-                      NSApp.keyWindow === window, window.attachedSheet == nil,
+                      BrowserWindowFocus.keyboardOwner === window, window.attachedSheet == nil,
                       !self.settings.isCapturingShortcut,
                       let shortcut = self.settings.shortcut(for: .closeTab),
                       event.charactersIgnoringModifiers?.lowercased() == shortcut.key.lowercased() else { return event }

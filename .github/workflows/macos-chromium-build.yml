@@ -130,10 +130,21 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/kestrel-lifecycle-ui.log"
         shell: bash
 
+      - name: Verify native page focus, first-click controls and toolbar attachment
+        if: always() && steps.launch-smoke.outcome == 'success'
+        shell: bash
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory scripts/fixtures > "$RUNNER_TEMP/kestrel-focus-server.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          swiftc -swift-version 5 -D KESTREL_LIFECYCLE_HARNESS -parse-as-library scripts/test-chrome-web-store-macos.swift scripts/test-window-integration-macos.swift -o "$RUNNER_TEMP/kestrel-window-test"
+          "$RUNNER_TEMP/kestrel-window-test" "$GITHUB_WORKSPACE/build/Kestrel.app" "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/window-integration" http://localhost:8765/window-focus.html 2>&1 | tee "$RUNNER_TEMP/kestrel-window-test.log"
+
       - name: Operate native Chrome Web Store installs and verify restart
         if: always() && steps.launch-smoke.outcome == 'success'
         env:
           KESTREL_REQUIRE_EXTENSION_WINDOW_FIXTURE: "1"
+          KESTREL_NATIVE_MOUSE_INPUT: "1"
         run: |
           swiftc -swift-version 5 -parse-as-library scripts/test-chrome-web-store-macos.swift -o "$RUNNER_TEMP/kestrel-web-store-test"
           "$RUNNER_TEMP/kestrel-web-store-test" "$GITHUB_WORKSPACE/build/Kestrel.app" \

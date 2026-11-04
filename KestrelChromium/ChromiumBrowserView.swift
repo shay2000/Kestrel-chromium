@@ -121,7 +121,10 @@ private struct PersistentChromeHost: NSViewRepresentable {
 @MainActor
 private final class PersistentChromeHostView: NSView {
     var browser: CefChromeBrowser? {
-        didSet { updateOverlay() }
+        didSet {
+            if browser !== oldValue { rebindWindowObservers() }
+            updateOverlay()
+        }
     }
     var isVisible = true {
         didSet { updateOverlay() }
@@ -139,6 +142,7 @@ private final class PersistentChromeHostView: NSView {
 
     private var windowObservers: [NSObjectProtocol] = []
     private var nativeOverlay: ClickThroughHostingView?
+    private let attachment = ChromiumWindowAttachment()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -180,10 +184,29 @@ private final class PersistentChromeHostView: NSView {
                 overlay.parent?.removeChildWindow(overlay)
                 window.addChildWindow(overlay, ordered: .above)
             }
-            let target = window.convertToScreen(convert(bounds, to: nil))
+            attachment.onFocus = onFocus
+            attachment.attach(owner: window, page: overlay)
+            // The enclosing SwiftUI card owns its top corners and toolbar.
+            // A separately rounded/shadowed CEF window creates a visible notch
+            // below that toolbar because SwiftUI cannot clip another NSWindow.
+            overlay.hasShadow = false
+            overlay.isOpaque = false
+            overlay.backgroundColor = .clear
+            if let root = overlay.contentView {
+                root.wantsLayer = true
+                if let layer = root.layer {
+                    layer.cornerRadius = 10
+                    layer.maskedCorners = layer.isGeometryFlipped
+                        ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+                        : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+                    layer.masksToBounds = true
+                }
+            }
+            let target = BrowserPageGeometry.coveringFrame(window.convertToScreen(convert(bounds, to: nil)), scale: window.backingScaleFactor)
             if overlay.frame != target { overlay.setFrame(target, display: true) }
             overlay.orderFront(nil)
         } else {
+            attachment.detach()
             overlay.parent?.removeChildWindow(overlay)
             overlay.orderOut(nil)
         }
@@ -191,6 +214,7 @@ private final class PersistentChromeHostView: NSView {
 
     /// Detaches the child window but leaves its CEF browser and page running.
     func parkBrowser() {
+        attachment.detach()
         for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
         windowObservers = []
         // The persistent CEF root outlives this SwiftUI host. Remove this
@@ -257,11 +281,6 @@ private final class PersistentChromeHostView: NSView {
         for name in names {
             windowObservers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateOverlay() }
-            })
-        }
-        if let child = browser?.nsWindow {
-            windowObservers.append(NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: child, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.onFocus?() }
             })
         }
     }

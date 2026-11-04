@@ -34,9 +34,9 @@ struct WindowIntegrationAcceptance {
         guard let root = (FocusProbe.ax(app, "AXWindows") as? [AXUIElement])?.first(where: { text($0, "AXTitle") == "Kestrel focus fixture" }) else { throw StoreProbeError(message: "No Kestrel fixture window") }
         return root
     }
-    static func clickAXControl(_ label: String) throws {
+    static func clickAXControl(_ label: String, role: String = "AXButton") throws {
         // Avoid AXPress, which bypasses first-click behaviour.
-        guard let node = FocusProbe.axNodes().first(where: { text($0, "AXRole") == "AXButton" && (text($0, "AXTitle") == label || text($0, "AXDescription") == label) }),
+        guard let node = FocusProbe.axNodes().first(where: { text($0, "AXRole") == role && (text($0, "AXTitle") == label || text($0, "AXDescription") == label) }),
               let position = FocusProbe.ax(node, "AXPosition"), let size = FocusProbe.ax(node, "AXSize") else { throw StoreProbeError(message: "No native control: \(label)") }
         var origin = CGPoint.zero, dimensions = CGSize.zero
         guard AXValueGetValue(unsafeBitCast(position, to: AXValue.self), .cgPoint, &origin), AXValueGetValue(unsafeBitCast(size, to: AXValue.self), .cgSize, &dimensions) else { throw StoreProbeError(message: "No control bounds") }
@@ -55,6 +55,21 @@ struct WindowIntegrationAcceptance {
         if let bitmap = NSBitmapImageRep(data: try Data(contentsOf: FocusProbe.output.appendingPathComponent(label + ".png"))), let data = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.65]) {
             print("KESTREL_FOCUS_IMAGE \(label) \(data.base64EncodedString())")
         }
+    }
+    static func verifyToolbarJoin(_ page: [String: Any]) async throws {
+        let frame = try await FocusProbe.nativePageBounds(page)
+        let bitmap = NSBitmapImageRep(data: try Data(contentsOf: FocusProbe.output.appendingPathComponent("page-focused.png")))!
+        let display = CGDisplayBounds(CGMainDisplayID())
+        var colours: [[String: Any]] = []
+        for offset in [CGFloat(2), frame.width / 2, frame.width - 3] {
+            let x = Int((frame.minX + offset - display.minX) * CGFloat(bitmap.pixelsWide) / display.width)
+            let y = Int((frame.minY + 2 - display.minY) * CGFloat(bitmap.pixelsHigh) / display.height)
+            guard let colour = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { throw StoreProbeError(message: "No toolbar-join pixel") }
+            let flat = colour.greenComponent > 0.6 && colour.redComponent < 0.3 && colour.blueComponent > 0.3 && colour.blueComponent < 0.7
+            colours.append(["x": x, "y": y, "r": colour.redComponent, "g": colour.greenComponent, "b": colour.blueComponent, "flat": flat])
+            check(flat, "web content meets the toolbar without a separate top corner at x=\(Int(offset))")
+        }
+        FocusProbe.record("toolbar_page_join", ["samples": colours, "pageFrame": NSStringFromRect(frame)])
     }
     static func main() async {
         do {
@@ -77,6 +92,7 @@ struct WindowIntegrationAcceptance {
             let app = AXUIElementCreateApplication(FocusProbe.testedPID!)
             FocusProbe.record("native_window_focus", ["ownerMain": main, "mainTitle": text(FocusProbe.ax(app, "AXMainWindow") as! AXUIElement?, "AXTitle"), "pageBounds": NSStringFromRect(try await FocusProbe.nativePageBounds(page))])
             try preview("page-focused")
+            try await verifyToolbarJoin(page)
             try clickAXControl("Add bookmark"); await FocusProbe.pause(0.5)
             check(FocusProbe.axNodes().contains { text($0, "AXDescription") == "Remove bookmark" || text($0, "AXTitle") == "Remove bookmark" }, "toolbar acts on the first click after using the page")
             try await clickElement(page, "count")
@@ -84,6 +100,10 @@ struct WindowIntegrationAcceptance {
             key(37, [.maskCommand, .maskControl]); await FocusProbe.pause(0.5)
             let focused = FocusProbe.ax(app, "AXFocusedUIElement") as! AXUIElement?
             check(text(focused, "AXValue").contains("window-focus.html"), "configured address shortcut reaches the actual search field from the page")
+            try clickAXControl("Address bar", role: "AXTextField"); await FocusProbe.pause(0.2)
+            key(0, .maskCommand); type(CommandLine.arguments[3] + "#from-search"); key(36)
+            await FocusProbe.pause(0.6)
+            check(try await FocusProbe.evaluate(page, "location.hash") as? String == "#from-search", "one address click and Return navigate the attached viewer")
             try preview("toolbar-focused")
             try FocusProbe.save("result.json", ["passed": failures.isEmpty, "failures": failures, "nativeMouseInput": true])
             if !failures.isEmpty { throw StoreProbeError(message: failures.joined(separator: "; ")) }

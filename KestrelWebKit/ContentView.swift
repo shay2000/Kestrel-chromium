@@ -79,15 +79,14 @@ struct KestrelChromeBackground: View {
 /// chrome. macOS may replace them with opaque fills when Reduce Transparency is
 /// enabled, so visual tests check that accessibility setting explicitly.
 private struct KestrelNativeChromeMaterial: NSViewRepresentable {
+    @Environment(\.controlActiveState) private var activeState
     func makeNSView(context: Context) -> NSView {
-        // CEF page content sits in a child NSWindow. When it becomes key the
-        // SwiftUI host is inactive even though Kestrel is still frontmost.
-        // Keep this shared chrome material active so a page click does not dim
-        // or recolour the rest of the browser.
+        // The document and its CEF page share one active appearance; a real
+        // background document or another application still becomes inactive.
         let view = NSVisualEffectView()
         view.material = .sidebar
         view.blendingMode = .behindWindow
-        view.state = .active
+        view.state = activeState == .inactive ? .inactive : .active
         view.autoresizingMask = [.width, .height]
         return view
     }
@@ -96,7 +95,7 @@ private struct KestrelNativeChromeMaterial: NSViewRepresentable {
         if let effect = view as? NSVisualEffectView {
             effect.material = .sidebar
             effect.blendingMode = .behindWindow
-            effect.state = .active
+            effect.state = activeState == .inactive ? .inactive : .active
         }
     }
 }
@@ -113,7 +112,7 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var assistantComposerHandoff
     @State private var assistantSidebarNewTabID: UUID?
-    @State private var isApplicationActive = NSApp.isActive
+    @State private var isBrowserWindowActive = false
     @State private var activeAddressField: BrowserAddressFocus?
     @FocusState private var findFieldFocused: Bool
     @State private var isFindBarPresented = false
@@ -454,19 +453,11 @@ struct ContentView: View {
         }
         .background(Color.clear)
         .focusedSceneValue(\.isBrowserWindow, true)
-        // CEF's page window can take key focus while the application remains
-        // active. Keep the browser chrome in its active control appearance in
-        // that case, and restore the inactive appearance when the user switches
-        // to another application.
-        .environment(\.controlActiveState, isApplicationActive ? .active : .inactive)
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            isApplicationActive = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-            isApplicationActive = false
-        }
+        // Activity belongs to this document and its hosted page, rather than
+        // making every Kestrel window look active whenever the app is frontmost.
+        .environment(\.controlActiveState, isBrowserWindowActive ? .active : .inactive)
         .background(BrowserCloseShortcut(tabs: tabs, settings: settings).frame(width: 0, height: 0).allowsHitTesting(false))
-        .background(WindowChromeAccessor().frame(width: 0, height: 0).allowsHitTesting(false))
+        .background(WindowChromeAccessor(onActivityChanged: { isBrowserWindowActive = $0 }).frame(width: 0, height: 0).allowsHitTesting(false))
         .onChange(of: tabs.selectedID) { _, id in
             chat.browserTabChanged(to: id)
         }
@@ -756,8 +747,9 @@ struct ContentView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty
         let pageShape = Rectangle()
-        let focusAction: (() -> Void)? = side.map { targetSide in
-            { [weak tabs] in tabs?.focusSplitPane(targetSide) }
+        let focusAction: () -> Void = { [weak tabs] in
+            activeAddressField = nil
+            if let side { tabs?.focusSplitPane(side) }
         }
         let pageOverlay = AnyView(ZStack {
             AgentCursorOverlay(browser: browser,
@@ -1023,11 +1015,15 @@ private struct AgentPageGlow: View {
 /// Lets the native traffic lights stay in place while the browser toolbar draws
 /// in the title-bar region, like other modern macOS browsers.
 private struct WindowChromeAccessor: NSViewRepresentable {
+    let onActivityChanged: (Bool) -> Void
     func makeNSView(context: Context) -> WindowChromeProbe {
-        WindowChromeProbe()
+        let view = WindowChromeProbe()
+        view.onActivityChanged = onActivityChanged
+        return view
     }
 
     func updateNSView(_ view: WindowChromeProbe, context: Context) {
+        view.onActivityChanged = onActivityChanged
         view.configureWindowChrome()
     }
 }
@@ -1035,6 +1031,7 @@ private struct WindowChromeAccessor: NSViewRepresentable {
 @MainActor
 private final class WindowChromeProbe: NSView {
     private var windowObservers: [NSObjectProtocol] = []
+    var onActivityChanged: ((Bool) -> Void)?
 
     deinit { windowObservers.forEach(NotificationCenter.default.removeObserver) }
 
@@ -1043,6 +1040,14 @@ private final class WindowChromeProbe: NSView {
         windowObservers.forEach(NotificationCenter.default.removeObserver)
         windowObservers.removeAll()
         if let window {
+            BrowserWindowFocus.register(window)
+            for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                         NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
+                         NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
+                windowObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    DispatchQueue.main.async { self?.reportActivity() }
+                })
+            }
             for name in [NSWindow.didResizeNotification, NSWindow.didExitFullScreenNotification,
                          NSWindow.didBecomeKeyNotification, NSWindow.didEndSheetNotification] {
                 windowObservers.append(NotificationCenter.default.addObserver(
@@ -1067,10 +1072,16 @@ private final class WindowChromeProbe: NSView {
             }
         }
         configureWindowChrome()
+        DispatchQueue.main.async { [weak self] in self?.reportActivity() }
         DispatchQueue.main.async { [weak self] in self?.configureWindowChrome() }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    private func reportActivity() {
+        guard let window else { onActivityChanged?(false); return }
+        onActivityChanged?(BrowserWindowFocus.isActive(window))
+    }
 
     func configureWindowChrome() {
         guard let window, let contentView = window.contentView else { return }
