@@ -221,8 +221,10 @@ private final class PersistentChromeHostView: NSView {
             }
             overlay.titlebarAppearsTransparent = true
             overlay.titleVisibility = .hidden
-            overlay.styleMask.insert(.fullSizeContentView)
-            overlay.appearance = window.effectiveAppearance
+            if !overlay.styleMask.contains(.fullSizeContentView) { overlay.styleMask.insert(.fullSizeContentView) }
+            if overlay.appearance !== window.effectiveAppearance { overlay.appearance = window.effectiveAppearance }
+            overlay.isExcludedFromWindowsMenu = true
+            if !overlay.collectionBehavior.contains(.fullScreenAuxiliary) { overlay.collectionBehavior.insert(.fullScreenAuxiliary) }
             overlay.isMovable = false
             overlay.hasShadow = false
             overlay.isOpaque = false
