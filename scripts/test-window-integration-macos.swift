@@ -78,7 +78,14 @@ struct WindowIntegrationAcceptance {
             try FileManager.default.createDirectory(at: FocusProbe.output, withIntermediateDirectories: true)
             try await FocusProbe.launch(reuse: true)
             let page = try await FocusProbe.open(CommandLine.arguments[3])
-            await FocusProbe.pause(2)
+            await FocusProbe.pause(0.5)
+            await FocusProbe.clearRunnerDialogues()
+            var ready = false
+            for _ in 0..<40 {
+                if (try? await FocusProbe.evaluate(page, "document.readyState === 'complete' && Boolean(document.getElementById('entry'))")) as? Bool == true { ready = true; break }
+                await FocusProbe.pause(0.25)
+            }
+            guard ready else { throw StoreProbeError(message: "Local focus fixture did not load") }
             let owner = try rootWindow()
             var origin = CGPoint(x: 30, y: 55), size = CGSize(width: 1180, height: 780)
             if let value = AXValueCreate(.cgPoint, &origin) { _ = AXUIElementSetAttributeValue(owner, "AXPosition" as CFString, value) }
@@ -105,6 +112,16 @@ struct WindowIntegrationAcceptance {
             await FocusProbe.pause(0.6)
             check(try await FocusProbe.evaluate(page, "location.hash") as? String == "#from-search", "one address click and Return navigate the attached viewer")
             try preview("toolbar-focused")
+            _ = try await FocusProbe.open("http://127.0.0.1:18799/unreachable")
+            await FocusProbe.pause(1)
+            check(NSRunningApplication(processIdentifier: FocusProbe.testedPID!)?.isTerminated == false, "a refused connection does not crash Kestrel")
+            let recovered = try await FocusProbe.open(CommandLine.arguments[3] + "?recovered=1")
+            var recoveredPage = false
+            for _ in 0..<30 {
+                if (try? await FocusProbe.evaluate(recovered, "document.title")) as? String == "Kestrel focus fixture" { recoveredPage = true; break }
+                await FocusProbe.pause(0.2)
+            }
+            check(recoveredPage, "normal navigation recovers after a refused connection")
             try FocusProbe.save("result.json", ["passed": failures.isEmpty, "failures": failures, "nativeMouseInput": true])
             if !failures.isEmpty { throw StoreProbeError(message: failures.joined(separator: "; ")) }
             print("Native Kestrel window focus and first-click acceptance passed")

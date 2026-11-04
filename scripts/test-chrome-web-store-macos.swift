@@ -366,12 +366,15 @@ struct ChromeWebStoreAcceptance {
         let text = lines.map(\.text).joined(separator: " ").lowercased()
         let label: String?
         if text.contains("find") && text.contains("devices on local networks") && text.contains("hosted-compute") { label = "Allow" }
+        else if text.contains("python") && text.contains("find devices") && text.contains("local networks") { label = "Allow" }
         else if text.contains("kestrel chromium quit unexpectedly") { label = "Ignore" }
         else { label = nil }
         if let label, let target = lines.first(where: { $0.text == label }) {
             clickScreen(target.box)
             record("runner_dialogue", ["choice": label, "mainProcessAlive": testedPID.flatMap(NSRunningApplication.init(processIdentifier:))?.isTerminated == false])
             await pause(2)
+            if let pid = testedPID { NSRunningApplication(processIdentifier: pid)?.activate(options: []) }
+            await pause(0.2)
         }
     }
     static func clickScreen(_ box: CGRect) {

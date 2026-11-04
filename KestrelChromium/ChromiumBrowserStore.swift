@@ -22,20 +22,6 @@ struct AgentCursorPresentation: Equatable {
     }
 }
 
-enum BrowserNavigationFailure: Equatable {
-    case unavailable, timedOut, offline, secureConnection, contentProcessStopped
-
-    var message: String {
-        switch self {
-        case .unavailable: return "This page could not be loaded. Check the address or try again."
-        case .timedOut: return "This page took too long to respond. Try again."
-        case .offline: return "The connection was interrupted. Check your internet connection and try again."
-        case .secureConnection: return "A secure connection could not be established."
-        case .contentProcessStopped: return "The page stopped responding. Reload it to continue."
-        }
-    }
-}
-
 /// Per-tab browser state backed by Chromium. It preserves Kestrel's existing
 /// UI contract while navigation and page evaluation go through CefSwift.
 @MainActor
@@ -150,13 +136,7 @@ final class BrowserStore: ObservableObject {
         guard code != -3,
               let failed = URL(string: failedURL),
               failed.absoluteString == engine?.url?.absoluteString else { return }
-        let failure: BrowserNavigationFailure
-        switch code {
-        case -7: failure = .timedOut
-        case -106, -109, -118: failure = .offline
-        case -107, -200 ... -299: failure = .secureConnection
-        default: failure = .unavailable
-        }
+        guard let failure = BrowserNavigationFailure.chromium(code: code) else { return }
         navigationFailure = failure
         isLoading = false
         pageTitle = "Kestrel"
