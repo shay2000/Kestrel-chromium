@@ -165,6 +165,8 @@ private final class PersistentChromeHostView: NSView {
     private var windowObservers: [NSObjectProtocol] = []
     private var nativeOverlay: ClickThroughHostingView?
     private var nativeHeader: HeaderHostingView?
+    private weak var headerAccessibilityWindow: NSWindow?
+    private var originalAccessibilityChildren: [Any]?
     private var insetHeight: CGFloat?
     private let attachment = ChromiumWindowAttachment()
     private var loggedWindowGeometry = false
@@ -261,8 +263,7 @@ private final class PersistentChromeHostView: NSView {
         // host's overlay so old spinners/banners cannot remain on the page.
         nativeOverlay?.removeFromSuperview()
         nativeOverlay = nil
-        nativeHeader?.removeFromSuperview()
-        nativeHeader = nil
+        detachNativeHeader()
         guard let overlay = browser?.nsWindow else { return }
         overlay.parent?.removeChildWindow(overlay)
         overlay.orderOut(nil)
@@ -301,7 +302,7 @@ private final class PersistentChromeHostView: NSView {
 
     private func updateNativeHeader(root: NSView, owner: NSWindow) {
         guard let header, headerHeight > 0 else {
-            nativeHeader?.removeFromSuperview(); nativeHeader = nil
+            detachNativeHeader()
             return
         }
         let host = nativeHeader ?? HeaderHostingView(rootView: AnyView(EmptyView()))
@@ -335,6 +336,27 @@ private final class PersistentChromeHostView: NSView {
             root.addSubview(host, positioned: .above, relativeTo: nil)
         }
         nativeHeader = host
+        // BridgedContentView exposes Chromium's AX tree instead of ordinary
+        // AppKit subviews. Preserve that tree and add our native toolbar at
+        // the window level so VoiceOver and normal AX clients can reach it.
+        if let page = root.window, headerAccessibilityWindow !== page {
+            headerAccessibilityWindow = page
+            originalAccessibilityChildren = page.accessibilityChildren()
+            host.setAccessibilityElement(true)
+            host.setAccessibilityRole(.toolbar)
+            host.setAccessibilityLabel("Browser toolbar")
+            host.setAccessibilityParent(page)
+            page.setAccessibilityChildren((originalAccessibilityChildren ?? []) + [host])
+        }
+    }
+
+    private func detachNativeHeader() {
+        headerAccessibilityWindow?.setAccessibilityChildren(originalAccessibilityChildren)
+        headerAccessibilityWindow = nil
+        originalAccessibilityChildren = nil
+        nativeHeader?.setAccessibilityParent(nil)
+        nativeHeader?.removeFromSuperview()
+        nativeHeader = nil
     }
 
     private func configureWindowButtons(page: NSWindow, owner: NSWindow) {
@@ -365,6 +387,13 @@ private final class PersistentChromeHostView: NSView {
     private final class HeaderHostingView: NSHostingView<AnyView> {
         var headerHeight: CGFloat = 0
         var dropdownRegions: [CGRect] = []
+        override func accessibilityFrame() -> NSRect {
+            guard let window else { return .zero }
+            let height = min(bounds.height, max(headerHeight, dropdownRegions.map(\.maxY).max() ?? 0))
+            let rect = NSRect(x: bounds.minX, y: isFlipped ? bounds.minY : bounds.maxY - height,
+                              width: bounds.width, height: height)
+            return window.convertToScreen(convert(rect, to: nil))
+        }
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard let superview else { return nil }
             let local = convert(point, from: superview)
