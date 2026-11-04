@@ -3,6 +3,7 @@
 import CefKit
 import CefSwiftUI
 import Foundation
+import AppKit
 
 /// CefChromeBrowser creates browsers outside CefWebView's hosting view, so
 /// CefWebViewModel's package-internal attach hook is unavailable to Kestrel.
@@ -12,6 +13,8 @@ enum CefBrowserRegistry {
     private struct Entry {
         weak var model: CefWebViewModel?
         let browser: CefBrowser
+        weak var rootView: NSView?
+        var headerHeight: CGFloat = 0
     }
     private static var browsers: [ObjectIdentifier: Entry] = [:]
 
@@ -28,6 +31,23 @@ enum CefBrowserRegistry {
         browsers[ObjectIdentifier(model)] = Entry(model: model, browser: browser)
     }
 
+    static func setPageLayout(for browser: CefBrowser, root: NSView, headerHeight: CGFloat) {
+        guard let key = browsers.first(where: { $0.value.browser === browser })?.key else { return }
+        browsers[key]?.rootView = root
+        browsers[key]?.headerHeight = headerHeight
+    }
+
+    static func pageBounds(for model: CefWebViewModel) -> CGRect {
+        guard let entry = browsers[ObjectIdentifier(model)], entry.model === model,
+              let view = entry.browser.nativeView else { return .zero }
+        guard let root = entry.rootView, let window = root.window, window === view.window else {
+            return entry.headerHeight > 0 ? .zero : view.bounds
+        }
+        let page = BrowserPageGeometry.contentRect(in: root.bounds,
+            headerHeight: entry.headerHeight, isFlipped: root.isFlipped)
+        return view.convert(page, from: root).intersection(view.bounds)
+    }
+
     static func detach(from model: CefWebViewModel, matching browser: CefBrowser? = nil) {
         let key = ObjectIdentifier(model)
         guard browser == nil || browsers[key]?.browser === browser else { return }
@@ -38,6 +58,7 @@ enum CefBrowserRegistry {
 @MainActor
 extension CefWebViewModel {
     var kestrelBrowser: CefBrowser? { CefBrowserRegistry.browser(for: self) }
+    var kestrelPageBounds: CGRect { CefBrowserRegistry.pageBounds(for: self) }
 
     func kestrelAttach(_ browser: CefBrowser) {
         CefBrowserRegistry.attach(browser, to: self)

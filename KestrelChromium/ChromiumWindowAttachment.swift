@@ -10,6 +10,7 @@ final class ChromiumWindowAttachment {
     private var observers: [NSObjectProtocol] = []
     private var mouseMonitor: Any?
     var onFocus: (() -> Void)?
+    var headerHeight: CGFloat = 0
 
     func attach(owner: NSWindow, page: NSWindow) {
         guard self.owner !== owner || self.page !== page else { return }
@@ -34,7 +35,9 @@ final class ChromiumWindowAttachment {
             if event.window === page {
                 if !page.isKeyWindow { page.makeKey() }
                 owner.makeMain()
-                self.onFocus?()
+                if event.locationInWindow.y < page.frame.height - self.headerHeight {
+                    self.onFocus?()
+                }
             } else if event.window === owner {
                 // Activate the target before AppKit makes its first-mouse
                 // decision. Deliver the same event once, without replaying it.

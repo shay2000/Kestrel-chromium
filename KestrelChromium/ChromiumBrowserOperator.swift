@@ -845,8 +845,10 @@ final class BrowserOperator {
               viewportWidth > 0, viewportHeight > 0,
               let view = model.kestrelBrowser?.nativeView,
               view.bounds.width > 0, view.bounds.height > 0 else { return nil }
-        let scaleX = view.bounds.width / viewportWidth
-        let scaleY = view.bounds.height / viewportHeight
+        let bounds = model.kestrelPageBounds
+        guard !bounds.isNull, bounds.width > 0, bounds.height > 0 else { return nil }
+        let scaleX = bounds.width / viewportWidth
+        let scaleY = bounds.height / viewportHeight
         return CGRect(x: x * scaleX, y: y * scaleY, width: width * scaleX, height: height * scaleY)
     }
 

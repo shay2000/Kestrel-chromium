@@ -755,10 +755,26 @@ index 9792836..2e076c4 100644
      public func browser(_ b: CefBrowser, decidePolicyForNavigation url: URL?, isRedirect: Bool, userGesture: Bool) -> CefNavigationDecision { .allow }
      public func browser(_ b: CefBrowser, didRequestNewTab url: URL?) -> Bool { false }
 diff --git a/Sources/CefKit/CefChromeBrowser.swift b/Sources/CefKit/CefChromeBrowser.swift
-index cce60bd..47702ee 100644
+index cce60bd..08afc0b 100644
 --- a/Sources/CefKit/CefChromeBrowser.swift
 +++ b/Sources/CefKit/CefChromeBrowser.swift
-@@ -100,6 +100,8 @@ public final class CefChromeBrowser {
+@@ -16,6 +16,15 @@ public struct CefChromeBrowserOptions {
+     /// blend the window into a host app; for standalone windows keep `false`.
+     public var isFrameless: Bool = false
+ 
++    /// Override the native window buttons for a frameless, app-owned header.
++    public var standardWindowButtons: Bool?
++
++    /// Native titlebar height, including traffic-light positioning on macOS.
++    public var titlebarHeight: Double?
++
++    /// Embedded page windows resize with their enclosing document.
++    public var isResizable: Bool = true
++
+     /// Initial window frame in AppKit screen coordinates (points,
+     /// bottom-left origin). `nil` centers a default-sized window.
+     public var initialBounds: CGRect?
+@@ -100,6 +109,8 @@ public final class CefChromeBrowser {
          self.options = options
      }
  
@@ -767,7 +783,7 @@ index cce60bd..47702ee 100644
      // MARK: Creation
  
      /// Creates a chrome-style browser window loading `url`.
-@@ -127,6 +129,7 @@ public final class CefChromeBrowser {
+@@ -127,6 +138,7 @@ public final class CefChromeBrowser {
          // The raw cef_browser_t is adopted in on_browser_created.
          let cefBrowser = CefBrowser(raw: nil, client: client, delegate: delegate)
          client.attach(cefBrowser)
@@ -775,7 +791,7 @@ index cce60bd..47702ee 100644
  
          let chrome = CefChromeBrowser(browser: cefBrowser, options: options)
          liveInstances[ObjectIdentifier(chrome)] = chrome
-@@ -151,7 +154,10 @@ public final class CefChromeBrowser {
+@@ -151,7 +163,10 @@ public final class CefChromeBrowser {
          // on_window_created (where the browser view is attached and the
          // window shown). Consumes the +1 delegate ref, returns a +1 window.
          chrome.rawWindow = cef_window_create_top_level(windowDelegate.makeStruct())
@@ -787,7 +803,7 @@ index cce60bd..47702ee 100644
          return chrome
      }
  
-@@ -251,6 +257,7 @@ public final class CefChromeBrowser {
+@@ -251,6 +266,7 @@ public final class CefChromeBrowser {
      }
  
      fileprivate func handleWindowDestroyed() {
@@ -795,7 +811,7 @@ index cce60bd..47702ee 100644
          if let rawWindow {
              cefRelease(UnsafeMutableRawPointer(rawWindow))
          }
-@@ -263,6 +270,8 @@ public final class CefChromeBrowser {
+@@ -263,6 +279,8 @@ public final class CefChromeBrowser {
          windowDelegate = nil
          onWindowDestroyed?()
          Self.liveInstances[ObjectIdentifier(self)] = nil
@@ -804,6 +820,31 @@ index cce60bd..47702ee 100644
      }
  
      // MARK: Helpers
+@@ -454,7 +472,23 @@ final class ChromeWindowDelegate {
+             guard let me = ChromeWindowDelegate.owner(delegateSelf.map(UnsafeMutableRawPointer.init)) else {
+                 return 1
+             }
+-            return MainActor.assumeIsolated { me.options.isFrameless ? 0 : 1 }
++            return MainActor.assumeIsolated { (me.options.standardWindowButtons ?? !me.options.isFrameless) ? 1 : 0 }
++        }
++
++        d.pointee.get_titlebar_height = { delegateSelf, window, height in
++            cefRelease(window.map(UnsafeMutableRawPointer.init))
++            guard let me = ChromeWindowDelegate.owner(delegateSelf.map(UnsafeMutableRawPointer.init)) else { return 0 }
++            return MainActor.assumeIsolated {
++                guard let value = me.options.titlebarHeight, value.isFinite, value >= 0 else { return 0 }
++                height?.pointee = Float(value)
++                return 1
++            }
++        }
++
++        d.pointee.can_resize = { delegateSelf, window in
++            cefRelease(window.map(UnsafeMutableRawPointer.init))
++            guard let me = ChromeWindowDelegate.owner(delegateSelf.map(UnsafeMutableRawPointer.init)) else { return 0 }
++            return MainActor.assumeIsolated { me.options.isResizable ? 1 : 0 }
+         }
+ 
+         d.pointee.get_initial_bounds = { delegateSelf, window in
 diff --git a/Sources/CefKit/CefJSDialog.swift b/Sources/CefKit/CefJSDialog.swift
 index 18341fb..8a3c68a 100644
 --- a/Sources/CefKit/CefJSDialog.swift
@@ -1048,10 +1089,10 @@ index b793569..aea14fc 100644
  }
 diff --git a/Tests/CefKitTests/KestrelLifecycleTests.swift b/Tests/CefKitTests/KestrelLifecycleTests.swift
 new file mode 100644
-index 0000000..d241356
+index 0000000..f259978
 --- /dev/null
 +++ b/Tests/CefKitTests/KestrelLifecycleTests.swift
-@@ -0,0 +1,183 @@
+@@ -0,0 +1,198 @@
 +import Foundation
 +import Testing
 +@testable import CCef
@@ -1060,6 +1101,21 @@ index 0000000..d241356
 +@MainActor
 +@Suite(.serialized)
 +struct KestrelLifecycleTests {
++    @Test func embeddedHeaderKeepsNativeControlsAndDocumentOwnedResizing() {
++        var options = CefChromeBrowserOptions()
++        options.isFrameless = true
++        options.standardWindowButtons = true
++        options.titlebarHeight = 40
++        options.isResizable = false
++        let owner = ChromeWindowDelegate(chrome: nil, options: options)
++        let delegate = owner.makeStruct()
++        defer { cefRelease(UnsafeMutableRawPointer(delegate)) }
++        #expect(delegate.pointee.with_standard_window_buttons?(delegate, nil) == 1)
++        #expect(delegate.pointee.can_resize?(delegate, nil) == 0)
++        var height: Float = 0
++        #expect(delegate.pointee.get_titlebar_height?(delegate, nil, &height) == 1)
++        #expect(height == 40)
++    }
 +    final class Identity { let id: Int32; init(_ id: Int32) { self.id = id } }
 +    final class Observer: CefBrowserDelegate {
 +        var closed = 0

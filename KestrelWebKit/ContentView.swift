@@ -31,11 +31,17 @@ private struct BrowserViewportHeightKey: EnvironmentKey {
     static let defaultValue: CGFloat = 900
 }
 
-private extension EnvironmentValues {
+extension EnvironmentValues {
     var browserViewportHeight: CGFloat {
         get { self[BrowserViewportHeightKey.self] }
         set { self[BrowserViewportHeightKey.self] = newValue }
     }
+}
+
+/// Rectangles in a native header host's SwiftUI coordinate space.
+struct BrowserHeaderHitRegions: PreferenceKey {
+    static var defaultValue: [CGRect] = []
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) { value += nextValue() }
 }
 
 enum BrowserChromeLayout {
@@ -210,27 +216,13 @@ struct ContentView: View {
                         )
                         .zIndex(3)
                     } else if tabs.split == nil {
-                        BrowserToolbar(
-                            tabs: tabs,
-                            browser: tabs.selectedBrowser,
-                            chat: chat,
-                            settings: settings,
-                            searchEngine: settings.searchEngine,
-                            activeAddressField: $activeAddressField,
-                            assistantShortcut: settings.assistantSidebarShortcut,
-                            tabStripIsVisible: tabs.isSidebarVisible,
-                            isCompact: isCompact,
-                            trafficLightsInset: max(8, 90 - tabRailWidth)
-                        ) {
-                            withAnimation(.snappy(duration: 0.22)) {
-                                tabs.isSidebarVisible.toggle()
-                            }
-                        } presentNewTabSearch: {
-                            spawnNewTabSearchBar()
-                            DispatchQueue.main.async { activeAddressField = .newTab }
+                        if needsNativeHeader(tabs.selectedID) {
+                            Color.clear.frame(height: BrowserChromeLayout.toolbarHeight)
+                        } else {
+                            pageToolbar(tabID: tabs.selectedID, side: nil, compact: isCompact,
+                                        trafficLightsInset: max(8, 90 - tabRailWidth))
+                                .zIndex(3)
                         }
-                        // The enclosing panel owns the shared clip and inset.
-                        .zIndex(3)
                     }
 
                     ZStack(alignment: .top) {
@@ -251,7 +243,8 @@ struct ContentView: View {
                             }
                             .transition(.opacity)
                         } else {
-                            browserPage(tabID: tabs.selectedID, side: nil)
+                            browserPage(tabID: tabs.selectedID, side: nil, compact: isCompact,
+                                        trafficLightsInset: max(8, 90 - tabRailWidth))
                                 .transition(.opacity)
                         }
 
@@ -642,11 +635,39 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func browserPage(tabID: UUID, side: BrowserSplitSide?) -> some View {
+    private func browserPage(tabID: UUID, side: BrowserSplitSide?, paneWidth: CGFloat = 1000,
+                             compact: Bool = true, trafficLightsInset: CGFloat = 8) -> some View {
         if tabs.isAssistantTab(tabID) {
             assistantPage(composerNamespace: side == nil ? assistantComposerHandoff : nil)
         } else {
-            webPage(tabID: tabID, side: side)
+            webPage(tabID: tabID, side: side, paneWidth: paneWidth, compact: compact, trafficLightsInset: trafficLightsInset)
+        }
+    }
+
+    private func needsNativeHeader(_ id: UUID) -> Bool {
+        !tabs.isAssistantTab(id) && !tabs.browser(for: id).addressText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    @ViewBuilder
+    private func pageToolbar(tabID: UUID, side: BrowserSplitSide?, paneWidth: CGFloat = 1000,
+                             compact: Bool = true, trafficLightsInset: CGFloat = 8) -> some View {
+        if let side {
+            BrowserToolbar(tabs: tabs, browser: tabs.browser(for: tabID), chat: chat,
+                settings: settings, searchEngine: settings.searchEngine,
+                activeAddressField: $activeAddressField, assistantShortcut: settings.assistantSidebarShortcut,
+                tabStripIsVisible: tabs.isSidebarVisible, isCompact: true,
+                trafficLightsInset: side == .left && !tabs.isSidebarVisible ? 84 : 6,
+                paneID: tabID, showsTabStripToggle: side == .left, isNarrowPane: paneWidth < 380,
+                toggleTabStrip: { withAnimation(.snappy(duration: 0.22)) { tabs.isSidebarVisible.toggle() } },
+                presentNewTabSearch: { tabs.focusSplitPane(side); spawnNewTabSearchBar() })
+        } else {
+            BrowserToolbar(tabs: tabs, browser: tabs.browser(for: tabID), chat: chat,
+                settings: settings, searchEngine: settings.searchEngine,
+                activeAddressField: $activeAddressField, assistantShortcut: settings.assistantSidebarShortcut,
+                tabStripIsVisible: tabs.isSidebarVisible, isCompact: compact,
+                trafficLightsInset: trafficLightsInset,
+                toggleTabStrip: { withAnimation(.snappy(duration: 0.22)) { tabs.isSidebarVisible.toggle() } },
+                presentNewTabSearch: { spawnNewTabSearchBar(); DispatchQueue.main.async { activeAddressField = .newTab } })
         }
     }
 
@@ -662,32 +683,12 @@ struct ContentView: View {
                     onNewChat: { chat.clearConversation() },
                     onClose: { tabs.closeTab(id: tabID) }
                 )
+            } else if needsNativeHeader(tabID) {
+                Color.clear.frame(height: BrowserChromeLayout.toolbarHeight)
             } else {
-                BrowserToolbar(
-                    tabs: tabs,
-                    browser: tabs.browser(for: tabID),
-                    chat: chat,
-                    settings: settings,
-                    searchEngine: settings.searchEngine,
-                    activeAddressField: $activeAddressField,
-                    assistantShortcut: settings.assistantSidebarShortcut,
-                    tabStripIsVisible: tabs.isSidebarVisible,
-                    isCompact: true,
-                    trafficLightsInset: side == .left && !tabs.isSidebarVisible ? 84 : 6,
-                    paneID: tabID,
-                    showsTabStripToggle: side == .left,
-                    isNarrowPane: width < 380,
-                    toggleTabStrip: {
-                        withAnimation(.snappy(duration: 0.22)) { tabs.isSidebarVisible.toggle() }
-                    },
-                    presentNewTabSearch: {
-                        tabs.focusSplitPane(side)
-                        spawnNewTabSearchBar()
-                    }
-                )
-                .zIndex(2)
+                pageToolbar(tabID: tabID, side: side, paneWidth: width).zIndex(2)
             }
-            browserPage(tabID: tabID, side: side)
+            browserPage(tabID: tabID, side: side, paneWidth: width)
                 .zIndex(1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -721,14 +722,16 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func webPage(tabID: UUID, side: BrowserSplitSide?) -> some View {
+    private func webPage(tabID: UUID, side: BrowserSplitSide?, paneWidth: CGFloat, compact: Bool, trafficLightsInset: CGFloat) -> some View {
         ObservedBrowserPage(browser: tabs.browser(for: tabID)) { browser in
-            observedWebPage(tabID: tabID, side: side, browser: browser)
+            observedWebPage(tabID: tabID, side: side, browser: browser, paneWidth: paneWidth,
+                            compact: compact, trafficLightsInset: trafficLightsInset)
         }
     }
 
     @ViewBuilder
-    private func observedWebPage(tabID: UUID, side: BrowserSplitSide?, browser: BrowserStore) -> some View {
+    private func observedWebPage(tabID: UUID, side: BrowserSplitSide?, browser: BrowserStore, paneWidth: CGFloat,
+                                 compact: Bool, trafficLightsInset: CGFloat) -> some View {
         let isActive = tabs.selectedID == tabID
         let isDisplayed = tabs.split.map { $0.side(containing: tabID) != nil } ?? isActive
         let isSearching = chat.isSearchingWeb && isActive
@@ -786,6 +789,11 @@ struct ContentView: View {
             BrowserView(browserID: tabID, browserGeneration: tabs.pageGeneration(for: tabID),
                         makeChromeBrowser: { tabs.chromeBrowser(for: tabID) },
                         pageOverlay: pageOverlay,
+                        header: hasNoPage ? nil : AnyView(pageToolbar(tabID: tabID, side: side, paneWidth: paneWidth,
+                            compact: compact, trafficLightsInset: trafficLightsInset)),
+                        headerHeight: hasNoPage ? 0 : BrowserChromeLayout.toolbarHeight,
+                        showsWindowControls: !tabs.isSidebarVisible && (side == nil || side == .left),
+                        isSelectedPane: side == nil ? nil : isActive,
                         isOverlayVisible: showsPageOverlay,
                         interactiveOverlayHeight: hasInteractivePageBanner ? 176 : 0,
                         onFocus: focusAction,
@@ -2123,7 +2131,7 @@ private struct BrowserToolbar: View {
         .padding(.leading, trafficLightsInset)
         .padding(.trailing, 7)
         .frame(height: BrowserChromeLayout.toolbarHeight)
-        .background(toolbarColour)
+        .background { ZStack { toolbarColour; NativeDocumentDragArea() } }
         .environment(\.colorScheme, toolbarScheme)
         .onAppear { addressDraft = browser.addressText }
         .onChange(of: browser.addressText) { _, address in
@@ -3046,6 +3054,11 @@ private struct AddressEntry: View {
                         .frame(width: geometry.size.width)
                         .fixedSize(horizontal: false, vertical: true)
                         .offset(y: style.suggestionOffset)
+                        .background {
+                            GeometryReader { panel in
+                                Color.clear.preference(key: BrowserHeaderHitRegions.self, value: [panel.frame(in: .global)])
+                            }
+                        }
                         .transition(suggestionPanelTransition)
                         .onHover { hovering in
                             isHoveringSuggestions = hovering

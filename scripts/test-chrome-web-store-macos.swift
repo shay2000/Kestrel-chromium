@@ -347,7 +347,13 @@ struct ChromeWebStoreAcceptance {
         for row in windows where (row[kCGWindowOwnerPID as String] as? Int) == Int(pid) {
             if let values = row[kCGWindowBounds as String] as? [String: Any],
                let bounds = CGRect(dictionaryRepresentation: values as CFDictionary),
-               abs(bounds.width - width) < 2, abs(bounds.height - height) < 2 { return bounds }
+               abs(bounds.width - width) < 2 {
+                let header = bounds.height - height
+                if abs(header - 40) < 2 {
+                    return CGRect(x: bounds.minX, y: bounds.minY + header, width: bounds.width, height: height)
+                }
+                if abs(header) < 2 { return bounds }
+            }
         }
         throw StoreProbeError(message: "No visible native page window matching \(width) × \(height)")
     }

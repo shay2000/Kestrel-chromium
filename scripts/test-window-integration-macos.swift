@@ -51,8 +51,11 @@ struct WindowIntegrationAcceptance {
         guard let node = FocusProbe.axNodes().first(where: { node in
             text(node, "AXRole") == role && [text(node, "AXTitle"), text(node, "AXDescription")]
                 .contains { prefixMatch ? $0.hasPrefix(label) : $0 == label }
-        }),
-              let position = FocusProbe.ax(node, "AXPosition"), let size = FocusProbe.ax(node, "AXSize") else { throw StoreProbeError(message: "No native control: \(label)") }
+        }) else { throw StoreProbeError(message: "No native control: \(label)") }
+        try clickAXNode(node)
+    }
+    static func clickAXNode(_ node: AXUIElement) throws {
+        guard let position = FocusProbe.ax(node, "AXPosition"), let size = FocusProbe.ax(node, "AXSize") else { throw StoreProbeError(message: "No native control bounds") }
         var origin = CGPoint.zero, dimensions = CGSize.zero
         guard AXValueGetValue(unsafeBitCast(position, to: AXValue.self), .cgPoint, &origin), AXValueGetValue(unsafeBitCast(size, to: AXValue.self), .cgSize, &dimensions) else { throw StoreProbeError(message: "No control bounds") }
         let point = CGPoint(x: origin.x + dimensions.width / 2, y: origin.y + dimensions.height / 2)
@@ -60,6 +63,58 @@ struct WindowIntegrationAcceptance {
             let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: point, mouseButton: .left)
             event?.flags = []; event?.post(tap: .cghidEventTap)
         }
+    }
+    static func position(_ node: AXUIElement) -> CGPoint? {
+        guard let raw = FocusProbe.ax(node, "AXPosition") else { return nil }
+        var point = CGPoint.zero
+        return AXValueGetValue(unsafeBitCast(raw, to: AXValue.self), .cgPoint, &point) ? point : nil
+    }
+    static func verifyDocumentDrag(_ page: [String: Any], owner: AXUIElement) async throws {
+        guard let before = position(owner) else { throw StoreProbeError(message: "No document position") }
+        let bounds = try await FocusProbe.nativePageBounds(page)
+        let start = CGPoint(x: bounds.minX + 4, y: bounds.minY - 20)
+        for kind in [CGEventType.mouseMoved, .leftMouseDown] {
+            let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: start, mouseButton: .left)
+            event?.flags = []; event?.post(tap: .cghidEventTap)
+        }
+        await FocusProbe.pause(0.1)
+        for step in 1...5 {
+            let point = CGPoint(x: start.x + CGFloat(step) * 5, y: start.y + CGFloat(step) * 3)
+            let event = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: point, mouseButton: .left)
+            event?.flags = []; event?.post(tap: .cghidEventTap)
+            await FocusProbe.pause(0.04)
+        }
+        let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
+            mouseCursorPosition: CGPoint(x: start.x + 25, y: start.y + 15), mouseButton: .left)
+        up?.flags = []; up?.post(tap: .cghidEventTap)
+        await FocusProbe.pause(0.3)
+        let after = position(owner) ?? before
+        check(after.x - before.x > 15 && after.y - before.y > 8, "dragging the hosted toolbar moves the whole Kestrel document")
+        var restore = before
+        if let value = AXValueCreate(.cgPoint, &restore) { _ = AXUIElementSetAttributeValue(owner, "AXPosition" as CFString, value) }
+        await FocusProbe.pause(0.3)
+    }
+    static func verifyNativeWindowControls(_ page: [String: Any], owner: AXUIElement) async throws {
+        try clickAXControl("Show or hide tabs"); await FocusProbe.pause(0.5)
+        let app = AXUIElementCreateApplication(FocusProbe.testedPID!)
+        let windows = FocusProbe.ax(app, "AXWindows") as? [AXUIElement] ?? []
+        let pageBounds = try await FocusProbe.nativePageBounds(page)
+        let pageWindow = windows.first { candidate in
+            guard !CFEqual(candidate, owner), let point = position(candidate) else { return false }
+            return abs(point.x - pageBounds.minX) < 2 && abs(point.y - (pageBounds.minY - 40)) < 2
+                && FocusProbe.ax(candidate, "AXMinimizeButton") != nil
+        }
+        guard let pageWindow, let raw = FocusProbe.ax(pageWindow, "AXMinimizeButton") else { throw StoreProbeError(message: "No native page-frame minimize control with the sidebar hidden") }
+        try clickAXNode(unsafeBitCast(raw, to: AXUIElement.self))
+        await FocusProbe.pause(0.5)
+        check(FocusProbe.ax(owner, "AXMinimized") as? Bool == true, "the hosted minimize button minimizes the whole Kestrel document")
+        _ = AXUIElementSetAttributeValue(owner, "AXMinimized" as CFString, kCFBooleanFalse)
+        _ = AXUIElementPerformAction(owner, "AXRaise" as CFString)
+        NSRunningApplication(processIdentifier: FocusProbe.testedPID!)?.activate(options: [])
+        await FocusProbe.pause(0.6)
+        try clickAXControl("Show or hide tabs"); await FocusProbe.pause(0.3)
+        try await clickElement(page, "entry")
+        check(FocusProbe.ax(owner, "AXMain") as? Bool == true, "page focus recovers after document minimize and restore")
     }
     static func clickElement(_ page: [String: Any], _ id: String) async throws {
         let literal = String(decoding: try JSONEncoder().encode(id), as: UTF8.self)
@@ -144,6 +199,8 @@ struct WindowIntegrationAcceptance {
             await FocusProbe.pause(0.6)
             check(try await FocusProbe.evaluate(page, "location.hash") as? String == "#from-search", "one address click and Return navigate the attached viewer")
             try preview("toolbar-focused")
+            try await verifyDocumentDrag(page, owner: owner)
+            try await verifyNativeWindowControls(page, owner: owner)
             _ = try await FocusProbe.open("http://127.0.0.1:18799/unreachable")
             await FocusProbe.pause(1)
             check(NSRunningApplication(processIdentifier: FocusProbe.testedPID!)?.isTerminated == false, "a refused connection does not crash Kestrel")

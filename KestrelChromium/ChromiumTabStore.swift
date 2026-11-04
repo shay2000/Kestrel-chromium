@@ -697,6 +697,9 @@ final class TabStore: ObservableObject {
         let model = webView(for: id)
         var options = CefChromeBrowserOptions()
         options.isFrameless = true
+        options.standardWindowButtons = true
+        options.titlebarHeight = Double(BrowserChromeLayout.toolbarHeight)
+        options.isResizable = false
         options.initialBounds = CGRect(x: -4096, y: -4096, width: 800, height: 600)
         let initialURL = model.url ?? URL(string: "about:blank")!
         let chrome = CefChromeBrowser.create(url: initialURL, options: options, delegate: model)
@@ -854,7 +857,8 @@ final class TabStore: ObservableObject {
               isCurrent(context), !Task.isCancelled, !view.isLoading,
               let nativeView = view.kestrelBrowser?.nativeView,
               nativeView.bounds.width > 0, nativeView.bounds.height > 0 else { return nil }
-        let bounds = nativeView.bounds
+        let bounds = view.kestrelPageBounds
+        guard !bounds.isNull, bounds.width > 0, bounds.height > 0 else { return nil }
         let representation = nativeView.bitmapImageRepForCachingDisplay(in: bounds)
         guard let representation else { return nil }
         nativeView.cacheDisplay(in: bounds, to: representation)
@@ -862,7 +866,7 @@ final class TabStore: ObservableObject {
         image.addRepresentation(representation)
         guard isCurrent(context), !Task.isCancelled, !view.isLoading,
               let currentMasks = await CefScriptRunner.shared.evaluateBody(script, in: view, tabID: context.tabID) as? [[String: Double]],
-              currentMasks == masks, nativeView.bounds == bounds else { return nil }
+              currentMasks == masks, view.kestrelPageBounds == bounds else { return nil }
         let output = NSImage(size: image.size)
         output.lockFocus()
         image.draw(in: NSRect(origin: .zero, size: image.size))
