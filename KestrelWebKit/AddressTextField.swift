@@ -11,8 +11,8 @@ struct AddressTextField: NSViewRepresentable {
     let fontSize: CGFloat
     let selectAllOnFocus: Bool
     let completion: (String) -> String?
-    let onSubmit: () -> Void
-    let onAssistant: () -> Void
+    let onSubmit: (String) -> Void
+    let onAssistant: (String) -> Void
     let onMove: (Int) -> Bool
     let onTab: () -> Bool
     let onEscape: () -> Void
@@ -31,7 +31,12 @@ struct AddressTextField: NSViewRepresentable {
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.setAccessibilityLabel("Address bar")
         field.delegate = context.coordinator
-        field.onAssistant = { [weak coordinator = context.coordinator] in coordinator?.parent.onAssistant() }
+        field.onAssistant = { [weak coordinator = context.coordinator, weak field] in
+            guard let coordinator, let field else { return }
+            let value = (field.currentEditor() as? NSTextView)?.string ?? field.stringValue
+            coordinator.parent.text = value
+            coordinator.parent.onAssistant(value)
+        }
         return field
     }
 
@@ -133,7 +138,10 @@ struct AddressTextField: NSViewRepresentable {
             guard !textView.hasMarkedText() else { return false }
             switch command {
             case #selector(NSResponder.insertNewline(_:)):
-                parent.onSubmit()
+                // A paste and Return can arrive before SwiftUI renders the
+                // changed binding. Submit the actual editor contents.
+                parent.text = textView.string
+                parent.onSubmit(textView.string)
                 return true
             case #selector(NSResponder.moveDown(_:)):
                 return parent.onMove(1)

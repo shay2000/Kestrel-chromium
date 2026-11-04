@@ -72,6 +72,7 @@ struct WindowIntegrationAcceptance {
         FocusProbe.record("toolbar_page_join", ["samples": colours, "pageFrame": NSStringFromRect(frame)])
     }
     static func main() async {
+        defer { FocusProbe.collectLifecycleLog() }
         do {
             guard CommandLine.arguments.count == 4 else { throw StoreProbeError(message: "usage: window-integration-test Kestrel.app evidence-dir fixture-url") }
             FocusProbe.app = URL(fileURLWithPath: CommandLine.arguments[1]); FocusProbe.output = URL(fileURLWithPath: CommandLine.arguments[2])

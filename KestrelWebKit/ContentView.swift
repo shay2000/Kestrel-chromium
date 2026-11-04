@@ -2966,11 +2966,15 @@ private struct AddressEntry: View {
                         return InlineAddressCompletion.complete(prefix, recentSearches: recentSearches,
                             bookmarks: bookmarks, openTabs: openTabs, suggestions: suggestions)
                     },
-                    onSubmit: {
-                        if isSuggestionPanelVisible { chooseSuggestion(at: highlightedSuggestion) }
-                        else { submitAddress() }
+                    onSubmit: { value in
+                        text = value
+                        if isSuggestionPanelVisible { chooseSuggestion(at: highlightedSuggestion, submittedText: value) }
+                        else { submitAddress(value) }
                     },
-                    onAssistant: searchWithAssistant,
+                    onAssistant: { value in
+                        text = value
+                        searchWithAssistant(value)
+                    },
                     onMove: { direction in
                         guard isSuggestionPanelVisible else { return false }
                         let lastIndex = visibleLocalSuggestionCount + visibleSuggestions.count + routeRowCount - 1
@@ -3414,19 +3418,19 @@ private struct AddressEntry: View {
         return Text(matchedQuery) + Text(completion).fontWeight(.semibold)
     }
 
-    private func chooseSuggestion(at index: Int) {
+    private func chooseSuggestion(at index: Int, submittedText: String? = nil) {
         if assistantOnly, index == 0 {
-            searchWithAssistant()
+            searchWithAssistant(submittedText ?? text)
             return
         }
         if index == 0 {
-            submitAddress()
+            submitAddress(submittedText ?? text)
             return
         }
         // The assistant route is only drawn while no shortcut is committed, so
         // with one active index 1 means the first local row instead.
         if index == 1, activeShortcut == nil {
-            searchWithAssistant()
+            searchWithAssistant(submittedText ?? text)
             return
         }
         // Indexed against the same rows the panel drew, not against every
@@ -3473,25 +3477,33 @@ private struct AddressEntry: View {
     }
 
     private func submitAddress() {
+        submitAddress(text)
+    }
+
+    private func submitAddress(_ value: String) {
         if assistantOnly {
-            searchWithAssistant()
+            searchWithAssistant(value)
             return
         }
-        guard let query = preparedQuery() else { return }
+        guard let query = preparedQuery(value) else { return }
         suggestions = []
         activeAddressField = nil
         onSubmit(query)
     }
 
     private func searchWithAssistant() {
-        guard let query = preparedQuery() else { return }
+        searchWithAssistant(text)
+    }
+
+    private func searchWithAssistant(_ value: String) {
+        guard let query = preparedQuery(value) else { return }
         suggestions = []
         activeAddressField = nil
         onAssistantSearch(query)
     }
 
-    private func preparedQuery() -> String? {
-        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func preparedQuery(_ value: String) -> String? {
+        let query = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return assistantOnly ? "" : nil }
         let prepared = activeShortcut.map { "!\($0.rawValue) \(query)" } ?? query
         activeShortcut = nil

@@ -143,6 +143,7 @@ private final class PersistentChromeHostView: NSView {
     private var windowObservers: [NSObjectProtocol] = []
     private var nativeOverlay: ClickThroughHostingView?
     private let attachment = ChromiumWindowAttachment()
+    private var loggedWindowGeometry = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -189,9 +190,16 @@ private final class PersistentChromeHostView: NSView {
             // The enclosing SwiftUI card owns its top corners and toolbar.
             // A separately rounded/shadowed CEF window creates a visible notch
             // below that toolbar because SwiftUI cannot clip another NSWindow.
+            let originalStyle = overlay.styleMask
+            // CEF's captionless window can still carry a titled/resizable
+            // AppKit frame, whose native corner clip is outside contentView.
+            // Its enclosing Kestrel document owns the frame and resize handles.
+            if overlay.styleMask != .borderless { overlay.styleMask = .borderless }
             overlay.hasShadow = false
             overlay.isOpaque = false
-            overlay.backgroundColor = .clear
+            overlay.backgroundColor = .windowBackgroundColor.withAlphaComponent(0.001)
+            let target = BrowserPageGeometry.coveringFrame(window.convertToScreen(convert(bounds, to: nil)), scale: window.backingScaleFactor)
+            if overlay.frame != target { overlay.setFrame(target, display: true) }
             if let root = overlay.contentView {
                 root.wantsLayer = true
                 if let layer = root.layer {
@@ -204,9 +212,11 @@ private final class PersistentChromeHostView: NSView {
                         : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
                     layer.masksToBounds = true
                 }
+                if !loggedWindowGeometry, CommandLine.arguments.contains(where: { $0.hasPrefix("--remote-debugging-port=") }) {
+                    loggedWindowGeometry = true
+                    NSLog("KESTREL_LIFECYCLE windowGeometry styleBefore=\(originalStyle.rawValue) styleAfter=\(overlay.styleMask.rawValue) root=\(type(of: root)) viewFlipped=\(root.isFlipped) layerFlipped=\(root.layer?.isGeometryFlipped ?? false) corner=\(root.layer?.cornerRadius ?? 0) masked=\(root.layer?.maskedCorners.rawValue ?? 0)")
+                }
             }
-            let target = BrowserPageGeometry.coveringFrame(window.convertToScreen(convert(bounds, to: nil)), scale: window.backingScaleFactor)
-            if overlay.frame != target { overlay.setFrame(target, display: true) }
             overlay.orderFront(nil)
         } else {
             attachment.detach()
