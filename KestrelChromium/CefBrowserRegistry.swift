@@ -15,6 +15,7 @@ enum CefBrowserRegistry {
         let browser: CefBrowser
         weak var rootView: NSView?
         var headerHeight: CGFloat = 0
+        var chromeOverlayVisible = false
     }
     private static var browsers: [ObjectIdentifier: Entry] = [:]
 
@@ -35,6 +36,15 @@ enum CefBrowserRegistry {
         guard let key = browsers.first(where: { $0.value.browser === browser })?.key else { return }
         browsers[key]?.rootView = root
         browsers[key]?.headerHeight = headerHeight
+    }
+
+    static func setChromeOverlayVisible(_ visible: Bool, for browser: CefBrowser) {
+        guard let key = browsers.first(where: { $0.value.browser === browser })?.key else { return }
+        browsers[key]?.chromeOverlayVisible = visible
+    }
+
+    static func hasChromeOverlay(for model: CefWebViewModel) -> Bool {
+        browsers[ObjectIdentifier(model)]?.chromeOverlayVisible ?? false
     }
 
     static func pageBounds(for model: CefWebViewModel) -> CGRect {
@@ -59,6 +69,7 @@ enum CefBrowserRegistry {
 extension CefWebViewModel {
     var kestrelBrowser: CefBrowser? { CefBrowserRegistry.browser(for: self) }
     var kestrelPageBounds: CGRect { CefBrowserRegistry.pageBounds(for: self) }
+    var kestrelHasChromeOverlay: Bool { CefBrowserRegistry.hasChromeOverlay(for: self) }
 
     func kestrelAttach(_ browser: CefBrowser) {
         CefBrowserRegistry.attach(browser, to: self)

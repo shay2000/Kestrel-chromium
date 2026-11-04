@@ -178,7 +178,9 @@ struct WindowIntegrationAcceptance {
             key(37, [.maskCommand, .maskControl]); await FocusProbe.pause(0.5)
             let focused = FocusProbe.ax(app, "AXFocusedUIElement") as! AXUIElement?
             check(text(focused, "AXValue").contains("window-focus.html"), "configured address shortcut reaches the actual search field from the page")
-            try await clickElement(page, "entry")
+            let viewport = try await FocusProbe.nativePageBounds(page)
+            try await FocusProbe.nativePageClick(page, x: viewport.width - 30, y: viewport.height - 30)
+            await FocusProbe.pause(0.3)
             try clickAXControl("Address bar,", prefixMatch: true); await FocusProbe.pause(0.2)
             let destination = CommandLine.arguments[3] + "#from-search"
             key(0, .maskCommand); type(destination)

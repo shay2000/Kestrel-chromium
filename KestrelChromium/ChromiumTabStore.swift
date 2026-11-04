@@ -843,6 +843,7 @@ final class TabStore: ObservableObject {
     func captureAgentPageImage(for context: BrowserActionContext) async -> Data? {
         guard isCurrent(context), !Task.isCancelled else { return nil }
         let view = webView(for: context.tabID)
+        guard !view.kestrelHasChromeOverlay else { return nil }
         let script = #"""
         if (document.querySelector('input[type="password"]')) { return null; }
         const fields = Array.from(document.querySelectorAll('input:not([type="radio"]):not([type="checkbox"]):not([type="button"]):not([type="submit"]), textarea, [contenteditable="true"]'));
@@ -852,7 +853,7 @@ final class TabStore: ObservableObject {
         });
         """#
         guard let masks = await CefScriptRunner.shared.evaluateBody(script, in: view, tabID: context.tabID) as? [[String: Double]],
-              isCurrent(context), !Task.isCancelled, !view.isLoading,
+              isCurrent(context), !Task.isCancelled, !view.isLoading, !view.kestrelHasChromeOverlay,
               let nativeView = view.kestrelBrowser?.nativeView,
               nativeView.bounds.width > 0, nativeView.bounds.height > 0 else { return nil }
         let bounds = view.kestrelPageBounds
@@ -862,7 +863,7 @@ final class TabStore: ObservableObject {
         nativeView.cacheDisplay(in: bounds, to: representation)
         let image = NSImage(size: bounds.size)
         image.addRepresentation(representation)
-        guard isCurrent(context), !Task.isCancelled, !view.isLoading,
+        guard isCurrent(context), !Task.isCancelled, !view.isLoading, !view.kestrelHasChromeOverlay,
               let currentMasks = await CefScriptRunner.shared.evaluateBody(script, in: view, tabID: context.tabID) as? [[String: Double]],
               currentMasks == masks, view.kestrelPageBounds == bounds else { return nil }
         let output = NSImage(size: image.size)

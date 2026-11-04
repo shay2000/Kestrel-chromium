@@ -214,6 +214,9 @@ private final class PersistentChromeHostView: NSView {
             attachment.onFocus = onFocus
             attachment.attach(owner: window, page: overlay)
             attachment.headerHeight = headerHeight
+            attachment.isNativeControlPoint = { [weak self] point in
+                self?.nativeHeader?.containsNativeControl(pointInWindow: point) ?? false
+            }
             // The native CEF window contains the toolbar and page together.
             // Its system corner clip now surrounds the complete card rather
             // than cutting a second curve below the toolbar.
@@ -331,7 +334,12 @@ private final class PersistentChromeHostView: NSView {
         .environment(\.browserViewportHeight, max(1, root.bounds.height - headerHeight))
         .environment(\.controlActiveState, BrowserWindowFocus.isActive(owner) ? .active : .inactive)
         .environment(\.colorScheme, owner.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light)
-        .onPreferenceChange(BrowserHeaderHitRegions.self) { [weak host] regions in host?.dropdownRegions = regions })
+        .onPreferenceChange(BrowserHeaderHitRegions.self) { [weak host, weak self] regions in
+            host?.dropdownRegions = regions
+            if let browser = self?.browser {
+                CefBrowserRegistry.setChromeOverlayVisible(!regions.isEmpty, for: browser.browser)
+            }
+        })
         host.frame = root.bounds
         host.autoresizingMask = [.width, .height]
         host.wantsLayer = true
@@ -359,6 +367,7 @@ private final class PersistentChromeHostView: NSView {
     }
 
     private func detachNativeHeader() {
+        if let browser { CefBrowserRegistry.setChromeOverlayVisible(false, for: browser.browser) }
         headerAccessibilityWindow?.setAccessibilityChildren(originalAccessibilityChildren)
         headerAccessibilityWindow = nil
         originalAccessibilityChildren = nil
@@ -380,10 +389,16 @@ private final class PersistentChromeHostView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard let superview else { return nil }
             let local = convert(point, from: superview)
+            guard containsNativeControl(localPoint: local) else { return nil }
+            return super.hitTest(point)
+        }
+        func containsNativeControl(pointInWindow: NSPoint) -> Bool {
+            containsNativeControl(localPoint: convert(pointInWindow, from: nil))
+        }
+        private func containsNativeControl(localPoint local: NSPoint) -> Bool {
             let top = CGPoint(x: local.x - bounds.minX,
                 y: isFlipped ? local.y - bounds.minY : bounds.maxY - local.y)
-            guard top.y >= 0, top.y <= headerHeight || dropdownRegions.contains(where: { $0.contains(top) }) else { return nil }
-            return super.hitTest(point)
+            return top.y >= 0 && (top.y <= headerHeight || dropdownRegions.contains(where: { $0.contains(top) }))
         }
     }
 

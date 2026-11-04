@@ -11,6 +11,7 @@ final class ChromiumWindowAttachment {
     private var mouseMonitor: Any?
     var onFocus: (() -> Void)?
     var headerHeight: CGFloat = 0
+    var isNativeControlPoint: ((CGPoint) -> Bool)?
 
     func attach(owner: NSWindow, page: NSWindow) {
         guard self.owner !== owner || self.page !== page else { return }
@@ -35,7 +36,8 @@ final class ChromiumWindowAttachment {
             if event.window === page {
                 if !page.isKeyWindow { page.makeKey() }
                 owner.makeMain()
-                if event.locationInWindow.y < page.frame.height - self.headerHeight {
+                if !(self.isNativeControlPoint?(event.locationInWindow)
+                    ?? (event.locationInWindow.y >= page.frame.height - self.headerHeight)) {
                     self.onFocus?()
                 }
             } else if event.window === owner {
