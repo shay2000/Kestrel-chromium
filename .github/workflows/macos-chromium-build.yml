@@ -140,6 +140,19 @@ jobs:
           swiftc -swift-version 5 -D KESTREL_LIFECYCLE_HARNESS -parse-as-library scripts/test-chrome-web-store-macos.swift scripts/test-window-integration-macos.swift -o "$RUNNER_TEMP/kestrel-window-test"
           "$RUNNER_TEMP/kestrel-window-test" "$GITHUB_WORKSPACE/build/Kestrel.app" "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/window-integration" http://localhost:8765/window-focus.html 2>&1 | tee "$RUNNER_TEMP/kestrel-window-test.log"
 
+      - name: Retain native window geometry diagnostics
+        if: always() && steps.launch-smoke.outcome == 'success'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP']) / 'kestrel-chromium-runtime-smoke/app-stderr.txt'
+          if path.exists():
+              lines = [line for line in path.read_text(errors='replace').splitlines() if 'KESTREL_LIFECYCLE windowGeometry' in line]
+              print('\n'.join(lines[-30:]))
+          PY
+
       - name: Operate native Chrome Web Store installs and verify restart
         if: always() && steps.launch-smoke.outcome == 'success'
         env:

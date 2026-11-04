@@ -200,7 +200,7 @@ private final class PersistentChromeHostView: NSView {
             overlay.backgroundColor = .windowBackgroundColor.withAlphaComponent(0.001)
             let target = BrowserPageGeometry.coveringFrame(window.convertToScreen(convert(bounds, to: nil)), scale: window.backingScaleFactor)
             if overlay.frame != target { overlay.setFrame(target, display: true) }
-            if let root = overlay.contentView {
+            if let root = browser?.rootView {
                 // CEF's custom NSThemeFrame can retain a layer mask even after
                 // the native style becomes borderless. It must not clip the
                 // page independently of Kestrel's enclosing card.
@@ -233,7 +233,9 @@ private final class PersistentChromeHostView: NSView {
                     loggedWindowGeometry = true
                     let bottom = root.convertToLayer(NSPoint(x: root.bounds.midX,
                         y: root.isFlipped ? root.bounds.maxY : root.bounds.minY))
-                    NSLog("KESTREL_LIFECYCLE windowGeometry styleBefore=\(originalStyle.rawValue) styleAfter=\(overlay.styleMask.rawValue) root=\(type(of: root)) viewFlipped=\(root.isFlipped) layerFlipped=\(root.layer?.isGeometryFlipped ?? false) bottom=\(NSStringFromPoint(bottom)) corner=\(root.layer?.cornerRadius ?? 0) masked=\(root.layer?.maskedCorners.rawValue ?? 0) frames=\(frameLayers)")
+                    let diagnostic = "KESTREL_LIFECYCLE windowGeometry styleBefore=\(originalStyle.rawValue) styleAfter=\(overlay.styleMask.rawValue) root=\(type(of: root)) content=\(overlay.contentView.map { String(describing: type(of: $0)) } ?? "nil") viewFlipped=\(root.isFlipped) layerFlipped=\(root.layer?.isGeometryFlipped ?? false) bottom=\(NSStringFromPoint(bottom)) corner=\(root.layer?.cornerRadius ?? 0) masked=\(root.layer?.maskedCorners.rawValue ?? 0) frames=\(frameLayers)"
+                    NSLog("%@", diagnostic)
+                    try? FileHandle.standardError.write(contentsOf: Data((diagnostic + "\n").utf8))
                 }
             }
             overlay.orderFront(nil)

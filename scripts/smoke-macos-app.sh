@@ -40,7 +40,7 @@ collect_failure_evidence() {
 case "$STAGE" in
   launch)
     if [[ -n "${KESTREL_SMOKE_DEBUG_PORT:-}" ]]; then
-      open -a "$APP" --args "--remote-debugging-port=$KESTREL_SMOKE_DEBUG_PORT" --force-renderer-accessibility 2>&1 | tee -a "$EVIDENCE_DIR/launch.txt"
+      open -a "$APP" --stdout "$EVIDENCE_DIR/app-stdout.txt" --stderr "$EVIDENCE_DIR/app-stderr.txt" --args "--remote-debugging-port=$KESTREL_SMOKE_DEBUG_PORT" --force-renderer-accessibility 2>&1 | tee -a "$EVIDENCE_DIR/launch.txt"
     else
       open -a "$APP" 2>&1 | tee -a "$EVIDENCE_DIR/launch.txt"
     fi
