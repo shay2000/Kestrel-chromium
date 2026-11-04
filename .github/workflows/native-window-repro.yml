@@ -1,0 +1,62 @@
+name: Reproduce native window focus and extension interaction
+on:
+  push:
+    branches: [fix/native-window-integration]
+    paths: [.github/workflows/native-window-repro.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  reproduce:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Kestrel-Chromium-macOS-DMG
+          run-id: 41214983097
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/original
+      - name: Copy the published Preview 2 app
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/original"
+          shasum -a 256 -c Kestrel-Chromium-1.0.0-arm64.dmg.sha256
+          hdiutil attach -readonly -nobrowse Kestrel-Chromium-1.0.0-arm64.dmg -mountpoint "$RUNNER_TEMP/original-mount"
+          ditto "$RUNNER_TEMP/original-mount/Kestrel.app" "$RUNNER_TEMP/Kestrel.app"
+          hdiutil detach "$RUNNER_TEMP/original-mount"
+      - name: Inspect native focus and first-click behaviour
+        id: focus
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory scripts/fixtures > "$RUNNER_TEMP/focus-fixture-server.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          swiftc -swift-version 5 -D KESTREL_LIFECYCLE_HARNESS -parse-as-library scripts/test-chrome-web-store-macos.swift scripts/test-window-integration-macos.swift -o "$RUNNER_TEMP/native-focus-test"
+          "$RUNNER_TEMP/native-focus-test" "$RUNNER_TEMP/Kestrel.app" "$RUNNER_TEMP/native-focus" http://localhost:8765/window-focus.html 2>&1 | tee "$RUNNER_TEMP/native-focus.log"
+      - name: Install extensions with actual macOS pointer input
+        id: store
+        if: always()
+        continue-on-error: true
+        env:
+          KESTREL_NATIVE_MOUSE_INPUT: "1"
+        shell: bash
+        run: |
+          swiftc -swift-version 5 -parse-as-library scripts/test-chrome-web-store-macos.swift -o "$RUNNER_TEMP/native-store-test"
+          "$RUNNER_TEMP/native-store-test" "$RUNNER_TEMP/Kestrel.app" "$RUNNER_TEMP/native-store" 2>&1 | tee "$RUNNER_TEMP/native-store.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-window-reproduction
+          path: |
+            ${{ runner.temp }}/native-focus
+            ${{ runner.temp }}/native-store
+            ${{ runner.temp }}/native-focus.log
+            ${{ runner.temp }}/native-store.log
+          if-no-files-found: warn
+      - name: Propagate failed acceptance
+        if: steps.focus.outcome != 'success' || steps.store.outcome != 'success'
+        run: exit 1

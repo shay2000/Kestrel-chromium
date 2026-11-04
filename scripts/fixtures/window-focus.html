@@ -1,0 +1,4 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Kestrel focus fixture</title>
+<style>html,body{margin:0;background:#21c782;font:18px system-ui}#edge{height:24px}main{padding:36px;background:#eef5ff;min-height:100vh}input,button{font:inherit;padding:16px;margin:10px;display:block}</style>
+<div id="edge"></div><main><h1>Kestrel focus fixture</h1><input id="entry" aria-label="Page focus input" placeholder="Type after one click"><button id="count">Count page click</button><output id="result">0</output></main>
+<script>window.clickCount=0;document.querySelector('#count').addEventListener('click',()=>{document.querySelector('#result').textContent=String(++window.clickCount)});</script></html>

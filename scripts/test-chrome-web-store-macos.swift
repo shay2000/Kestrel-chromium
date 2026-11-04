@@ -331,9 +331,34 @@ struct ChromeWebStoreAcceptance {
     }
     static func clickPageButton(_ page: [String: Any], label: String) async throws -> Bool {
         guard let point = try await buttonLocation(page, label: label), let x = point["x"] as? Double, let y = point["y"] as? Double else { return false }
+        if ProcessInfo.processInfo.environment["KESTREL_NATIVE_MOUSE_INPUT"] == "1" {
+            try await nativePageClick(page, x: x, y: y)
+            record("native_page_button", ["label": label, "x": x, "y": y]); return true
+        }
         _ = try await cdp(page, "Input.dispatchMouseEvent", ["type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1])
         _ = try await cdp(page, "Input.dispatchMouseEvent", ["type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1])
         record("page_button", ["label": label, "x": x, "y": y]); return true
+    }
+
+    static func nativePageBounds(_ page: [String: Any]) async throws -> CGRect {
+        let viewport = try await evaluate(page, "({width:innerWidth,height:innerHeight})") as? [String: Any] ?? [:]
+        guard let width = viewport["width"] as? Double, let height = viewport["height"] as? Double, let pid = testedPID else { throw StoreProbeError(message: "No native page dimensions") }
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        for row in windows where (row[kCGWindowOwnerPID as String] as? Int) == Int(pid) {
+            if let values = row[kCGWindowBounds as String] as? CFDictionary,
+               let bounds = CGRect(dictionaryRepresentation: values),
+               abs(bounds.width - width) < 2, abs(bounds.height - height) < 2 { return bounds }
+        }
+        throw StoreProbeError(message: "No visible native page window matching \(width) × \(height)")
+    }
+
+    static func nativePageClick(_ page: [String: Any], x: Double, y: Double) async throws {
+        let bounds = try await nativePageBounds(page)
+        let point = CGPoint(x: bounds.minX + x, y: bounds.minY + y)
+        guard CGDisplayBounds(CGMainDisplayID()).contains(point) else { throw StoreProbeError(message: "Page click is outside the runner display") }
+        for type in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+            CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+        }
     }
 
     static func clearRunnerDialogues() async {
