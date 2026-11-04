@@ -18,12 +18,22 @@ struct WindowIntegrationAcceptance {
         }
     }
     static func type(_ value: String) {
-        let characters = Array(value.utf16)
-        for down in [true, false] {
-            let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down)
-            characters.withUnsafeBufferPointer { event?.keyboardSetUnicodeString(stringLength: $0.count, unicodeString: $0.baseAddress) }
-            event?.post(tap: .cghidEventTap)
+        // A keyboard event carries a bounded Unicode payload. Long addresses
+        // must be several events; preserve complete Character boundaries.
+        var chunk = ""
+        func post(_ value: String) {
+            let characters = Array(value.utf16)
+            for down in [true, false] {
+                let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down)
+                characters.withUnsafeBufferPointer { event?.keyboardSetUnicodeString(stringLength: $0.count, unicodeString: $0.baseAddress) }
+                event?.post(tap: .cghidEventTap)
+            }
         }
+        for character in value {
+            if chunk.utf16.count + String(character).utf16.count > 16, !chunk.isEmpty { post(chunk); chunk = "" }
+            chunk.append(character)
+        }
+        if !chunk.isEmpty { post(chunk) }
     }
     static func text(_ element: AXUIElement?, _ attribute: String) -> String {
         guard let element else { return "" }
@@ -111,7 +121,17 @@ struct WindowIntegrationAcceptance {
             let focused = FocusProbe.ax(app, "AXFocusedUIElement") as! AXUIElement?
             check(text(focused, "AXValue").contains("window-focus.html"), "configured address shortcut reaches the actual search field from the page")
             try clickAXControl("Address bar", role: "AXTextField"); await FocusProbe.pause(0.2)
-            key(0, .maskCommand); type(CommandLine.arguments[3] + "#from-search"); key(36)
+            let destination = CommandLine.arguments[3] + "#from-search"
+            key(0, .maskCommand); type(destination)
+            var enteredAddress = ""
+            for _ in 0..<30 {
+                enteredAddress = text(FocusProbe.ax(app, "AXFocusedUIElement") as! AXUIElement?, "AXValue")
+                if enteredAddress == destination { break }
+                await FocusProbe.pause(0.01)
+            }
+            FocusProbe.record("native_address_input", ["actual": enteredAddress, "expected": destination])
+            check(enteredAddress == destination, "native address field contains the complete entered destination")
+            key(36)
             await FocusProbe.pause(0.6)
             check(try await FocusProbe.evaluate(page, "location.hash") as? String == "#from-search", "one address click and Return navigate the attached viewer")
             try preview("toolbar-focused")

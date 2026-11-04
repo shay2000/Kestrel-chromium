@@ -201,6 +201,21 @@ private final class PersistentChromeHostView: NSView {
             let target = BrowserPageGeometry.coveringFrame(window.convertToScreen(convert(bounds, to: nil)), scale: window.backingScaleFactor)
             if overlay.frame != target { overlay.setFrame(target, display: true) }
             if let root = overlay.contentView {
+                // CEF's custom NSThemeFrame can retain a layer mask even after
+                // the native style becomes borderless. It must not clip the
+                // page independently of Kestrel's enclosing card.
+                var ancestor = root.superview
+                var frameLayers: [String] = []
+                while let frame = ancestor {
+                    if let layer = frame.layer {
+                        frameLayers.append("\(type(of: frame)):corner=\(layer.cornerRadius),mask=\(layer.mask != nil),clip=\(layer.masksToBounds)")
+                        layer.cornerRadius = 0
+                        layer.maskedCorners = []
+                        layer.mask = nil
+                        layer.masksToBounds = false
+                    }
+                    ancestor = frame.superview
+                }
                 root.wantsLayer = true
                 if let layer = root.layer {
                     layer.cornerRadius = 10
@@ -212,9 +227,9 @@ private final class PersistentChromeHostView: NSView {
                         : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
                     layer.masksToBounds = true
                 }
-                if !loggedWindowGeometry, CommandLine.arguments.contains(where: { $0.hasPrefix("--remote-debugging-port=") }) {
+                if !loggedWindowGeometry {
                     loggedWindowGeometry = true
-                    NSLog("KESTREL_LIFECYCLE windowGeometry styleBefore=\(originalStyle.rawValue) styleAfter=\(overlay.styleMask.rawValue) root=\(type(of: root)) viewFlipped=\(root.isFlipped) layerFlipped=\(root.layer?.isGeometryFlipped ?? false) corner=\(root.layer?.cornerRadius ?? 0) masked=\(root.layer?.maskedCorners.rawValue ?? 0)")
+                    NSLog("KESTREL_LIFECYCLE windowGeometry styleBefore=\(originalStyle.rawValue) styleAfter=\(overlay.styleMask.rawValue) root=\(type(of: root)) viewFlipped=\(root.isFlipped) layerFlipped=\(root.layer?.isGeometryFlipped ?? false) corner=\(root.layer?.cornerRadius ?? 0) masked=\(root.layer?.maskedCorners.rawValue ?? 0) frames=\(frameLayers)")
                 }
             }
             overlay.orderFront(nil)
