@@ -697,8 +697,6 @@ final class TabStore: ObservableObject {
         let model = webView(for: id)
         var options = CefChromeBrowserOptions()
         options.isFrameless = true
-        options.standardWindowButtons = true
-        options.titlebarHeight = Double(BrowserChromeLayout.toolbarHeight)
         options.isResizable = false
         options.initialBounds = CGRect(x: -4096, y: -4096, width: 800, height: 600)
         let initialURL = model.url ?? URL(string: "about:blank")!

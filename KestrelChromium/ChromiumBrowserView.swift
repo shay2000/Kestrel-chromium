@@ -239,7 +239,9 @@ private final class PersistentChromeHostView: NSView {
                 if let browser { CefBrowserRegistry.setPageLayout(for: browser.browser, root: root, headerHeight: headerHeight) }
                 updateNativeOverlay()
                 updateNativeHeader(root: root, owner: window)
-                configureWindowButtons(page: overlay, owner: window)
+                for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                    overlay.standardWindowButton(type)?.isHidden = true
+                }
                 if !loggedWindowGeometry {
                     loggedWindowGeometry = true
                     let diagnostic = "KESTREL_LIFECYCLE windowGeometry integratedHeader=\(headerHeight) root=\(type(of: root)) card=\(NSStringFromRect(root.bounds))"
@@ -312,12 +314,18 @@ private final class PersistentChromeHostView: NSView {
         host.rootView = AnyView(ZStack {
             VStack(spacing: 0) {
                 header.frame(height: headerHeight)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Browser toolbar")
                 Spacer(minLength: 0).allowsHitTesting(false)
             }
             if let isSelectedPane {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .strokeBorder(Color.primary.opacity(isSelectedPane ? 0.25 : 0.06), lineWidth: isSelectedPane ? 1 : 0.5)
                     .allowsHitTesting(false)
+            }
+            if showsWindowControls && !owner.styleMask.contains(.fullScreen) {
+                NativeDocumentWindowControls().frame(width: 84, height: headerHeight)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .environment(\.browserViewportHeight, max(1, root.bounds.height - headerHeight))
@@ -344,7 +352,7 @@ private final class PersistentChromeHostView: NSView {
             originalAccessibilityChildren = page.accessibilityChildren()
             host.setAccessibilityElement(true)
             host.setAccessibilityRole(.toolbar)
-            host.setAccessibilityLabel("Browser toolbar")
+            host.setAccessibilityLabel("Kestrel browser controls")
             host.setAccessibilityParent(page)
             page.setAccessibilityChildren((originalAccessibilityChildren ?? []) + [host])
         }
@@ -357,31 +365,6 @@ private final class PersistentChromeHostView: NSView {
         nativeHeader?.setAccessibilityParent(nil)
         nativeHeader?.removeFromSuperview()
         nativeHeader = nil
-    }
-
-    private func configureWindowButtons(page: NSWindow, owner: NSWindow) {
-        for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
-            guard let button = page.standardWindowButton(type) else { continue }
-            button.isHidden = !showsWindowControls || owner.styleMask.contains(.fullScreen)
-            button.isEnabled = (owner.standardWindowButton(type)?.isEnabled ?? false)
-                && owner.attachedSheet == nil && page.attachedSheet == nil && NSApp.modalWindow == nil
-            button.tag = index
-            button.target = self
-            button.action = #selector(performDocumentWindowAction(_:))
-            if let container = button.superview {
-                let origin = NSPoint(x: 12 + CGFloat(index) * 23,
-                    y: container.bounds.midY - button.frame.height / 2)
-                if button.frame.origin != origin { button.setFrameOrigin(origin) }
-            }
-        }
-    }
-
-    @objc private func performDocumentWindowAction(_ sender: NSButton) {
-        let types: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
-        guard types.indices.contains(sender.tag), let owner = window,
-              owner.attachedSheet == nil, browser?.nsWindow?.attachedSheet == nil,
-              NSApp.modalWindow == nil else { return }
-        owner.standardWindowButton(types[sender.tag])?.performClick(sender)
     }
 
     private final class HeaderHostingView: NSHostingView<AnyView> {

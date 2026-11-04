@@ -96,16 +96,7 @@ struct WindowIntegrationAcceptance {
     }
     static func verifyNativeWindowControls(_ page: [String: Any], owner: AXUIElement) async throws {
         try clickAXControl("Show or hide tabs"); await FocusProbe.pause(0.5)
-        let app = AXUIElementCreateApplication(FocusProbe.testedPID!)
-        let windows = FocusProbe.ax(app, "AXWindows") as? [AXUIElement] ?? []
-        let pageBounds = try await FocusProbe.nativePageBounds(page)
-        let pageWindow = windows.first { candidate in
-            guard !CFEqual(candidate, owner), let point = position(candidate) else { return false }
-            return abs(point.x - pageBounds.minX) < 2 && abs(point.y - (pageBounds.minY - 40)) < 2
-                && FocusProbe.ax(candidate, "AXMinimizeButton") != nil
-        }
-        guard let pageWindow, let raw = FocusProbe.ax(pageWindow, "AXMinimizeButton") else { throw StoreProbeError(message: "No native page-frame minimize control with the sidebar hidden") }
-        try clickAXNode(unsafeBitCast(raw, to: AXUIElement.self))
+        try clickAXControl("Minimize Kestrel window")
         await FocusProbe.pause(0.5)
         check(FocusProbe.ax(owner, "AXMinimized") as? Bool == true, "the hosted minimize button minimizes the whole Kestrel document")
         _ = AXUIElementSetAttributeValue(owner, "AXMinimized" as CFString, kCFBooleanFalse)
@@ -143,6 +134,10 @@ struct WindowIntegrationAcceptance {
             check(flat, "web content meets the toolbar without a separate top corner at x=\(Int(offset))")
         }
         FocusProbe.record("toolbar_page_join", ["samples": colours, "pageFrame": NSStringFromRect(frame)])
+        let x = Int((frame.midX - display.minX) * CGFloat(bitmap.pixelsWide) / display.width)
+        let y = Int((frame.minY + 26 - display.minY) * CGFloat(bitmap.pixelsHigh) / display.height)
+        guard let body = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { throw StoreProbeError(message: "No first-page-row pixel") }
+        check(body.redComponent > 0.8 && body.blueComponent > 0.9, "native toolbar leaves the first webpage rows unobscured")
     }
     static func main() async {
         defer { FocusProbe.collectLifecycleLog() }
