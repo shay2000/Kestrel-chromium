@@ -219,17 +219,21 @@ private final class PersistentChromeHostView: NSView {
                 root.wantsLayer = true
                 if let layer = root.layer {
                     layer.cornerRadius = 10
-                    // AppKit maps the backing layer to the view's coordinate
-                    // system; CALayer.isGeometryFlipped alone does not report
-                    // the effective orientation of a flipped CEF content view.
-                    layer.maskedCorners = root.isFlipped
-                        ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-                        : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+                    // AppKit's backing layer can use a different coordinate
+                    // space from its view, independently of either flip flag.
+                    // Convert the physical bottom instead of guessing.
+                    let bottom = root.convertToLayer(NSPoint(x: root.bounds.midX,
+                        y: root.isFlipped ? root.bounds.maxY : root.bounds.minY))
+                    layer.maskedCorners = bottom.y < layer.bounds.midY
+                        ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+                        : [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
                     layer.masksToBounds = true
                 }
                 if !loggedWindowGeometry {
                     loggedWindowGeometry = true
-                    NSLog("KESTREL_LIFECYCLE windowGeometry styleBefore=\(originalStyle.rawValue) styleAfter=\(overlay.styleMask.rawValue) root=\(type(of: root)) viewFlipped=\(root.isFlipped) layerFlipped=\(root.layer?.isGeometryFlipped ?? false) corner=\(root.layer?.cornerRadius ?? 0) masked=\(root.layer?.maskedCorners.rawValue ?? 0) frames=\(frameLayers)")
+                    let bottom = root.convertToLayer(NSPoint(x: root.bounds.midX,
+                        y: root.isFlipped ? root.bounds.maxY : root.bounds.minY))
+                    NSLog("KESTREL_LIFECYCLE windowGeometry styleBefore=\(originalStyle.rawValue) styleAfter=\(overlay.styleMask.rawValue) root=\(type(of: root)) viewFlipped=\(root.isFlipped) layerFlipped=\(root.layer?.isGeometryFlipped ?? false) bottom=\(NSStringFromPoint(bottom)) corner=\(root.layer?.cornerRadius ?? 0) masked=\(root.layer?.maskedCorners.rawValue ?? 0) frames=\(frameLayers)")
                 }
             }
             overlay.orderFront(nil)
