@@ -25,6 +25,8 @@ struct WindowIntegrationAcceptance {
             let characters = Array(value.utf16)
             for down in [true, false] {
                 let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down)
+                if down { FocusProbe.record("native_text_event", ["utf16Count": characters.count, "initialModifiers": event?.flags.rawValue ?? 0]) }
+                event?.flags = []
                 characters.withUnsafeBufferPointer { event?.keyboardSetUnicodeString(stringLength: $0.count, unicodeString: $0.baseAddress) }
                 event?.post(tap: .cghidEventTap)
             }
@@ -44,14 +46,20 @@ struct WindowIntegrationAcceptance {
         guard let root = (FocusProbe.ax(app, "AXWindows") as? [AXUIElement])?.first(where: { text($0, "AXTitle") == "Kestrel focus fixture" }) else { throw StoreProbeError(message: "No Kestrel fixture window") }
         return root
     }
-    static func clickAXControl(_ label: String, role: String = "AXButton") throws {
+    static func clickAXControl(_ label: String, role: String = "AXButton", prefixMatch: Bool = false) throws {
         // Avoid AXPress, which bypasses first-click behaviour.
-        guard let node = FocusProbe.axNodes().first(where: { text($0, "AXRole") == role && (text($0, "AXTitle") == label || text($0, "AXDescription") == label) }),
+        guard let node = FocusProbe.axNodes().first(where: { node in
+            text(node, "AXRole") == role && [text(node, "AXTitle"), text(node, "AXDescription")]
+                .contains { prefixMatch ? $0.hasPrefix(label) : $0 == label }
+        }),
               let position = FocusProbe.ax(node, "AXPosition"), let size = FocusProbe.ax(node, "AXSize") else { throw StoreProbeError(message: "No native control: \(label)") }
         var origin = CGPoint.zero, dimensions = CGSize.zero
         guard AXValueGetValue(unsafeBitCast(position, to: AXValue.self), .cgPoint, &origin), AXValueGetValue(unsafeBitCast(size, to: AXValue.self), .cgSize, &dimensions) else { throw StoreProbeError(message: "No control bounds") }
         let point = CGPoint(x: origin.x + dimensions.width / 2, y: origin.y + dimensions.height / 2)
-        for event in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] { CGEvent(mouseEventSource: nil, mouseType: event, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap) }
+        for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+            let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: point, mouseButton: .left)
+            event?.flags = []; event?.post(tap: .cghidEventTap)
+        }
     }
     static func clickElement(_ page: [String: Any], _ id: String) async throws {
         let literal = String(decoding: try JSONEncoder().encode(id), as: UTF8.self)
@@ -120,7 +128,8 @@ struct WindowIntegrationAcceptance {
             key(37, [.maskCommand, .maskControl]); await FocusProbe.pause(0.5)
             let focused = FocusProbe.ax(app, "AXFocusedUIElement") as! AXUIElement?
             check(text(focused, "AXValue").contains("window-focus.html"), "configured address shortcut reaches the actual search field from the page")
-            try clickAXControl("Address bar", role: "AXTextField"); await FocusProbe.pause(0.2)
+            try await clickElement(page, "entry")
+            try clickAXControl("Address bar,", prefixMatch: true); await FocusProbe.pause(0.2)
             let destination = CommandLine.arguments[3] + "#from-search"
             key(0, .maskCommand); type(destination)
             var enteredAddress = ""

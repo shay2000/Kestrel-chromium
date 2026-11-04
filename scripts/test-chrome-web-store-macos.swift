@@ -357,7 +357,8 @@ struct ChromeWebStoreAcceptance {
         let point = CGPoint(x: bounds.minX + x, y: bounds.minY + y)
         guard CGDisplayBounds(CGMainDisplayID()).contains(point) else { throw StoreProbeError(message: "Page click is outside the runner display") }
         for type in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
-            CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+            let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)
+            event?.flags = []; event?.post(tap: .cghidEventTap)
         }
     }
 
@@ -381,7 +382,8 @@ struct ChromeWebStoreAcceptance {
         let display = CGDisplayBounds(CGMainDisplayID())
         let point = CGPoint(x: display.minX + box.midX * display.width, y: display.minY + (1 - box.midY) * display.height)
         for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
-            CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+            let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: point, mouseButton: .left)
+            event?.flags = []; event?.post(tap: .cghidEventTap)
         }
     }
 
