@@ -28,6 +28,7 @@ struct ExtensionToolbarButton: View {
         .disabled(!tabs.canShowExtensionActions(for: tabID))
         .help("Open installed extensions and their site access controls")
         .accessibilityLabel("Show extensions")
+        .background(ExtensionControlAnchor(name: "Show extensions").allowsHitTesting(false))
     }
 }
 
@@ -47,6 +48,7 @@ struct PinnedToolbarExtensionActions: View {
             .buttonStyle(.plain)
             .help("Open \(item.name)")
             .accessibilityLabel("Open \(item.name) toolbar extension")
+            .background(ExtensionControlAnchor(name: "Open \(item.name) toolbar extension").allowsHitTesting(false))
             .disabled(!tabs.canShowExtensionActions(for: tabID))
         }
     }
@@ -73,16 +75,17 @@ struct SidebarExtensionActions: View {
                 .buttonStyle(.plain)
                 .help("Open \(item.name)")
                 .accessibilityLabel("Open \(item.name) extension")
+                .background(ExtensionControlAnchor(name: "Open \(item.name) extension").allowsHitTesting(false))
                 .disabled(!tabs.canShowExtensionActions(for: tabs.selectedID))
             }
             if chosen.count > visible.count || chosen.isEmpty {
                 Menu {
                     ForEach(chosen.dropFirst(visible.count)) { item in
-                        Button(item.name) { tabs.showExtensionAction(item.id) }
+                        Button(item.name) { tabs.showExtensionAction(item.id, anchorLabel: "More extensions") }
                             .disabled(!tabs.canShowExtensionActions(for: tabs.selectedID))
                     }
                     if !chosen.isEmpty { Divider() }
-                    Button("All Extensions") { tabs.showExtensionMenu(for: tabs.selectedID) }
+                    Button("All Extensions") { tabs.showExtensionMenu(for: tabs.selectedID, anchorLabel: "More extensions") }
                         .disabled(!tabs.canShowExtensionActions(for: tabs.selectedID))
                     Button("Manage Extensions…") { tabs.openChromiumExtensions() }
                 } label: {
@@ -91,6 +94,7 @@ struct SidebarExtensionActions: View {
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                 .help("Show more extensions").accessibilityLabel("More extensions")
+                .background(ExtensionControlAnchor(name: "More extensions").allowsHitTesting(false))
             }
         }
     }

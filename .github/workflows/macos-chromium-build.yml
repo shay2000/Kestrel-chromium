@@ -171,6 +171,15 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/kestrel-web-store-test.log"
         shell: bash
 
+      - name: Verify genuine extension actions, placement choices and a cold restart
+        if: always() && steps.launch-smoke.outcome == 'success'
+        env:
+          KESTREL_NATIVE_MOUSE_INPUT: "1"
+        shell: bash
+        run: |
+          swiftc -swift-version 5 -D KESTREL_LIFECYCLE_HARNESS -parse-as-library scripts/test-chrome-web-store-macos.swift scripts/test-extension-actions-macos.swift -o "$RUNNER_TEMP/kestrel-extension-actions-test"
+          "$RUNNER_TEMP/kestrel-extension-actions-test" "$GITHUB_WORKSPACE/build/Kestrel.app" "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/extension-actions" 2>&1 | tee "$RUNNER_TEMP/kestrel-extension-actions-test.log"
+
       - name: Download the original WebKit 1.0.0 release
         id: webkit-release
         if: always() && steps.launch-smoke.outcome == 'success'
@@ -265,6 +274,17 @@ jobs:
           path: |
             ${{ runner.temp }}/kestrel-chromium-runtime-smoke/web-store-acceptance
             ${{ runner.temp }}/kestrel-web-store-test.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload native extension action evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-extension-actions
+          path: |
+            ${{ runner.temp }}/kestrel-chromium-runtime-smoke/extension-actions
+            ${{ runner.temp }}/kestrel-extension-actions-test.log
           if-no-files-found: ignore
           retention-days: 30
 

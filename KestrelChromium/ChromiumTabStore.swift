@@ -702,6 +702,7 @@ final class TabStore: ObservableObject {
         // Keep Chromium's genuine extension actions in this existing page
         // window, beneath Kestrel's native toolbar overlay.
         options.showsChromeToolbar = true
+        options.chromeToolbarHeight = 40
         options.initialBounds = CGRect(x: -4096, y: -4096, width: 800, height: 600)
         let initialURL = model.url ?? URL(string: "about:blank")!
         let chrome = CefChromeBrowser.create(url: initialURL, options: options, delegate: model)
@@ -779,8 +780,8 @@ final class TabStore: ObservableObject {
         return page.isVisible && page.parent != nil
     }
 
-    func showExtensionMenu(for id: UUID) {
-        activateExtension(name: nil, for: id)
+    func showExtensionMenu(for id: UUID, anchorLabel: String? = nil) {
+        activateExtension(name: nil, for: id, anchorLabel: anchorLabel)
     }
 
     func showExtensionAction(_ id: String, for tabID: UUID? = nil, anchorLabel: String? = nil) {

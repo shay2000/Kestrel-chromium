@@ -24,6 +24,9 @@ struct ChromeWebStoreAcceptance {
     static var nextCommandID = 0
     static let port = 9333
     static var uaProbe = false
+    static var additionalLaunchArguments: [String] = []
+    static var capturesNativeOutput = false
+    static var forcesRendererAccessibility = true
     static let items = [
         (id: "aapbdbdomjkkjkaonfhkkikfgjllcleb", slug: "google-translate", name: "Google Translate"),
         (id: "eimadpbcbfnmbkopoojfekhnkhdbieeh", slug: "dark-reader", name: "Dark Reader")
@@ -190,12 +193,28 @@ struct ChromeWebStoreAcceptance {
         }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
-        configuration.arguments = ["--remote-debugging-port=\(port)", "--force-renderer-accessibility"]
-        let running: NSRunningApplication = try await withCheckedThrowingContinuation { continuation in
+        configuration.arguments = ["--remote-debugging-port=\(port)"]
+            + (forcesRendererAccessibility ? ["--force-renderer-accessibility"] : [])
+            + additionalLaunchArguments
+        let running: NSRunningApplication
+        if capturesNativeOutput {
+            try command("/usr/bin/open", ["-n", "-a", app.path, "--stdout", output.appendingPathComponent("native-app.stdout.log").path,
+                                         "--stderr", output.appendingPathComponent("native-app.stderr.log").path, "--args"] + configuration.arguments)
+            var found: NSRunningApplication?
+            for _ in 0..<20 {
+                found = NSRunningApplication.runningApplications(withBundleIdentifier:"com.shayprasad.Kestrel").first { $0.bundleURL?.standardizedFileURL.path == app.path }
+                if found != nil { break }
+                await pause(0.1)
+            }
+            guard let application=found else { throw StoreProbeError(message:"Kestrel did not launch through LaunchServices") }
+            running=application
+        } else {
+        running = try await withCheckedThrowingContinuation { continuation in
             NSWorkspace.shared.openApplication(at: app, configuration: configuration) { application, error in
                 if let application { continuation.resume(returning: application) }
                 else { continuation.resume(throwing: error ?? StoreProbeError(message: "LaunchServices could not relaunch Kestrel")) }
             }
+        }
         }
         testedPID = running.processIdentifier; testedPIDs.insert(Int(running.processIdentifier))
         for _ in 0..<30 {
@@ -421,9 +440,12 @@ struct ChromeWebStoreAcceptance {
         let root = AXUIElementCreateApplication(pid)
         var windows: [[String: Any]] = []
         var chromeToolbars = 0
+        var embeddedChromeToolbars = 0
         for window in ax(root, "AXWindows") as? [AXUIElement] ?? [] {
             var controls: [[String: String]] = []
             var visited = 0
+            var nativeToolbars = 0
+            var hasKestrelHeader = false
             func visit(_ node: AXUIElement, _ depth: Int) {
                 guard depth < 35, visited < 5000 else { return }; visited += 1
                 let role = String(describing: ax(node, "AXRole") ?? "" as CFString)
@@ -433,10 +455,13 @@ struct ChromeWebStoreAcceptance {
                     description.localizedCaseInsensitiveContains("address and search bar") {
                     controls.append(["role": role, "description": description, "title": title])
                 }
-                if description.localizedCaseInsensitiveContains("address and search bar") { chromeToolbars += 1 }
+                if description == "Show extensions" { hasKestrelHeader = true }
+                if description.localizedCaseInsensitiveContains("address and search bar") { nativeToolbars += 1 }
                 for child in ax(node, "AXChildren") as? [AXUIElement] ?? [] { visit(child, depth + 1) }
             }
             visit(window, 0)
+            if hasKestrelHeader { embeddedChromeToolbars += nativeToolbars }
+            else { chromeToolbars += nativeToolbars }
             windows.append(["title": String(describing: ax(window, "AXTitle") ?? "" as CFString),
                             "subrole": String(describing: ax(window, "AXSubrole") ?? "" as CFString), "controls": controls])
         }
@@ -446,7 +471,8 @@ struct ChromeWebStoreAcceptance {
             Dictionary(uniqueKeysWithValues: ["id", "type", "url", "title"].map { ($0, target[$0] ?? "") })
         }
         let value: [String: Any] = ["stage": stage, "windows": windows, "visible": visible,
-                                  "targets": pages, "chromeToolbarCount": chromeToolbars]
+                                  "targets": pages, "chromeToolbarCount": chromeToolbars,
+                                  "embeddedChromeToolbarCount": embeddedChromeToolbars]
         record("window_census", value)
         try save("window-census-\(stage).json", value)
         try capture("window-census-\(stage)")

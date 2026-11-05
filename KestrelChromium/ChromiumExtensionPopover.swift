@@ -63,12 +63,10 @@ final class ChromiumExtensionPopover {
         guard !adjusting else { return }
         guard isCurrent(), let page, let owner, page.parent === owner, page.isVisible else { stop(); return }
         guard owner.attachedSheet == nil, page.attachedSheet == nil, NSApp.modalWindow == nil else { return }
-        let header = page.contentView?.subviews.first { $0.accessibilityLabel() == "Kestrel browser controls" }
-        let roots: [Any] = [header, owner.contentView].compactMap { $0 }
-        let preferred = anchorLabel.flatMap { ChromiumExtensionActions.controlFrame(named: $0, in: roots) }
-        guard let anchor = preferred ?? ChromiumExtensionActions.controlFrame(named: "Show extensions", in: roots) else { return }
+        let preferred = anchorLabel.flatMap { ChromiumExtensionAnchors.frame(named: $0, in: [page, owner]) }
+        guard let anchor = preferred ?? ChromiumExtensionAnchors.frame(named: "Show extensions", in: [page, owner]) else { return }
         for window in NSApp.windows where window.isVisible && window !== page && window !== owner
-            && !baseline.contains(window.windowNumber) && window.parent !== owner
+            && !baseline.contains(window.windowNumber) && window.parent === page
             && window.canBecomeKey && !window.styleMask.contains(.titled)
             && window.frame.height >= 40 && window.frame.width >= 80 {
             windows[window.windowNumber] = WeakWindow(window)
@@ -82,7 +80,7 @@ final class ChromiumExtensionPopover {
         for value in windows.values {
             guard let window = value.value, window.isVisible else { continue }
             let screen = owner.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? owner.frame
-            let sidebar = anchorLabel?.hasSuffix(" extension") == true && preferred != nil
+            let sidebar = (anchorLabel?.hasSuffix(" extension") == true || anchorLabel == "More extensions") && preferred != nil
             var x = sidebar ? anchor.maxX + 8 : anchor.maxX - window.frame.width
             var y = anchor.minY - window.frame.height - 4
             if y < screen.minY { y = anchor.maxY + 4 }

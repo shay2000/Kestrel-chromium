@@ -1,5 +1,5 @@
 diff --git a/Sources/CCef/include/CCef.h b/Sources/CCef/include/CCef.h
-index 347a2ef..d801d0d 100644
+index 347a2ef..c784163 100644
 --- a/Sources/CCef/include/CCef.h
 +++ b/Sources/CCef/include/CCef.h
 @@ -74,6 +74,8 @@
@@ -11,8 +11,16 @@ index 347a2ef..d801d0d 100644
  #include "include/capi/cef_resource_request_handler_capi.h"
  #include "include/capi/cef_response_capi.h"
  #include "include/capi/cef_scheme_capi.h"
+@@ -85,6 +87,7 @@
+ #include "include/capi/views/cef_view_capi.h"
+ #include "include/capi/views/cef_view_delegate_capi.h"
+ #include "include/capi/views/cef_panel_capi.h"
++#include "include/capi/views/cef_box_layout_capi.h"
+ #include "include/capi/views/cef_panel_delegate_capi.h"
+ #include "include/capi/views/cef_browser_view_capi.h"
+ #include "include/capi/views/cef_browser_view_delegate_capi.h"
 diff --git a/Sources/CCef/include/ccef_symbols.h b/Sources/CCef/include/ccef_symbols.h
-index e032b3d..99c5874 100644
+index e032b3d..7e04195 100644
 --- a/Sources/CCef/include/ccef_symbols.h
 +++ b/Sources/CCef/include/ccef_symbols.h
 @@ -105,6 +105,8 @@ CCEF_SYM(cef_request_context_t*, cef_request_context_create_context,
@@ -24,6 +32,14 @@ index e032b3d..99c5874 100644
  
  // --- Tasks ---------------------------------------------------------------------
  CCEF_SYM(int, cef_currently_on, (cef_thread_id_t threadId), (threadId))
+@@ -125,6 +127,7 @@ CCEF_SYM(cef_list_value_t*, cef_list_value_create, (void), ())
+ CCEF_SYM(cef_drag_data_t*, cef_drag_data_create, (void), ())
+ 
+ // --- Views framework (chrome-style windows) -----------------------------------
++CCEF_SYM(cef_panel_t*, cef_panel_create, (struct _cef_panel_delegate_t* delegate), (delegate))
+ CCEF_SYM(cef_browser_view_t*, cef_browser_view_create,
+          (struct _cef_client_t* client, const cef_string_t* url,
+           const struct _cef_browser_settings_t* settings,
 diff --git a/Sources/CefKit/BrowserClient.swift b/Sources/CefKit/BrowserClient.swift
 index 44a10e0..1053568 100644
 --- a/Sources/CefKit/BrowserClient.swift
@@ -781,10 +797,19 @@ index 9792836..2e076c4 100644
      public func browser(_ b: CefBrowser, decidePolicyForNavigation url: URL?, isRedirect: Bool, userGesture: Bool) -> CefNavigationDecision { .allow }
      public func browser(_ b: CefBrowser, didRequestNewTab url: URL?) -> Bool { false }
 diff --git a/Sources/CefKit/CefChromeBrowser.swift b/Sources/CefKit/CefChromeBrowser.swift
-index cce60bd..ad0062e 100644
+index cce60bd..e012682 100644
 --- a/Sources/CefKit/CefChromeBrowser.swift
 +++ b/Sources/CefKit/CefChromeBrowser.swift
-@@ -16,6 +16,9 @@ public struct CefChromeBrowserOptions {
+@@ -11,11 +11,18 @@ public struct CefChromeBrowserOptions {
+     /// only web content while the full Chrome runtime remains available.
+     public var showsChromeToolbar: Bool = false
+ 
++    /// Optional toolbar row height when native UI covers Chrome controls.
++    /// The row counts toward the top content inset, rather than adding to it.
++    public var chromeToolbarHeight: Double?
++
+     /// Creates the CEF window without a frame or title bar (and without the
+     /// standard close/minimize/zoom buttons). Used by `CefChromeWebView` to
      /// blend the window into a host app; for standalone windows keep `false`.
      public var isFrameless: Bool = false
  
@@ -794,7 +819,16 @@ index cce60bd..ad0062e 100644
      /// Initial window frame in AppKit screen coordinates (points,
      /// bottom-left origin). `nil` centers a default-sized window.
      public var initialBounds: CGRect?
-@@ -100,6 +103,8 @@ public final class CefChromeBrowser {
+@@ -80,6 +87,8 @@ public final class CefChromeBrowser {
+     // Owned +1 references; nil after the window is destroyed.
+     private var rawWindow: UnsafeMutablePointer<cef_window_t>?
+     private var rawBrowserView: UnsafeMutablePointer<cef_browser_view_t>?
++    private var rawToolbarPanel: UnsafeMutablePointer<cef_panel_t>?
++    private var toolbarDelegate: ChromeToolbarPanelDelegate?
+ 
+     /// Border space (DIP) reserved around the browser view inside the window,
+     /// so native overlays (e.g. a SwiftUI tab strip/omnibox) hosted on top of
+@@ -100,6 +109,8 @@ public final class CefChromeBrowser {
          self.options = options
      }
  
@@ -803,7 +837,7 @@ index cce60bd..ad0062e 100644
      // MARK: Creation
  
      /// Creates a chrome-style browser window loading `url`.
-@@ -127,6 +132,7 @@ public final class CefChromeBrowser {
+@@ -127,6 +138,7 @@ public final class CefChromeBrowser {
          // The raw cef_browser_t is adopted in on_browser_created.
          let cefBrowser = CefBrowser(raw: nil, client: client, delegate: delegate)
          client.attach(cefBrowser)
@@ -811,7 +845,7 @@ index cce60bd..ad0062e 100644
  
          let chrome = CefChromeBrowser(browser: cefBrowser, options: options)
          liveInstances[ObjectIdentifier(chrome)] = chrome
-@@ -151,7 +157,10 @@ public final class CefChromeBrowser {
+@@ -151,7 +163,10 @@ public final class CefChromeBrowser {
          // on_window_created (where the browser view is attached and the
          // window shown). Consumes the +1 delegate ref, returns a +1 window.
          chrome.rawWindow = cef_window_create_top_level(windowDelegate.makeStruct())
@@ -823,7 +857,7 @@ index cce60bd..ad0062e 100644
          return chrome
      }
  
-@@ -197,6 +206,15 @@ public final class CefChromeBrowser {
+@@ -197,6 +212,15 @@ public final class CefChromeBrowser {
          applyLayout()
      }
  
@@ -839,7 +873,67 @@ index cce60bd..ad0062e 100644
      /// Applies a vertical `BoxLayout` to the window carrying the current
      /// ``insets`` as `inside_border_insets`, then re-lays-out. The single child
      /// (the browser view) gets the default flex (1) and stretches to fill the
-@@ -251,6 +269,7 @@ public final class CefChromeBrowser {
+@@ -207,11 +231,18 @@ public final class CefChromeBrowser {
+         settings.size = MemoryLayout<cef_box_layout_settings_t>.stride
+         settings.horizontal = 0
+         settings.inside_border_insets = insets
++        if let toolbarDelegate {
++            settings.inside_border_insets.top = max(0, insets.top - toolbarDelegate.height)
++        }
+         settings.cross_axis_alignment = CEF_AXIS_ALIGNMENT_STRETCH
+         settings.main_axis_alignment = CEF_AXIS_ALIGNMENT_STRETCH
+         settings.default_flex = 1
+         withUnsafeMutablePointer(to: &rawWindow.pointee.base) { panel in
+             if let layout = panel.pointee.set_to_box_layout?(panel, &settings) {
++                if let rawToolbarPanel {
++                    let toolbar = UnsafeMutableRawPointer(rawToolbarPanel).assumingMemoryBound(to: cef_view_t.self)
++                    layout.pointee.set_flex_for_view?(layout, toolbar, 0)
++                }
+                 // set_to_box_layout returns a +1 cef_box_layout_t we own.
+                 cefRelease(UnsafeMutableRawPointer(layout))
+             }
+@@ -230,6 +261,7 @@ public final class CefChromeBrowser {
+         withUnsafeMutablePointer(to: &window.pointee.base) { panel in
+             panel.pointee.add_child_view?(panel, view)
+         }
++        attachChromeToolbar(to: window)
+         // Apply a BoxLayout carrying any insets set before window creation
+         // (default insets = zero ⇒ browser fills the window, as with the
+         // implicit FillLayout). This must run after add_child_view so the
+@@ -242,6 +274,32 @@ public final class CefChromeBrowser {
+         window.pointee.show?(window)
+     }
+ 
++    private func attachChromeToolbar(to window: UnsafeMutablePointer<cef_window_t>) {
++        guard options.showsChromeToolbar, rawToolbarPanel == nil,
++              let rawBrowserView,
++              let toolbar = rawBrowserView.pointee.get_chrome_toolbar?(rawBrowserView) else { return }
++        // CEF creates the toolbar but explicitly leaves placement to the host.
++        // Attach it to this SAME window, as cefclient does in AddControls.
++        let preferred = toolbar.pointee.get_preferred_size?(toolbar).height ?? 40
++        let requested = options.chromeToolbarHeight ?? Double(preferred)
++        let delegate = ChromeToolbarPanelDelegate(height: Int32(max(1, min(512, requested.isFinite ? requested : 40)).rounded()))
++        guard let panel = cef_panel_create(delegate.makeStruct()) else {
++            cefRelease(UnsafeMutableRawPointer(toolbar))
++            return
++        }
++        toolbarDelegate = delegate
++        rawToolbarPanel = panel
++        if let layout = panel.pointee.set_to_fill_layout?(panel) {
++            cefRelease(UnsafeMutableRawPointer(layout))
++        }
++        panel.pointee.add_child_view?(panel, toolbar) // consumes toolbar's +1
++        cefAddRef(UnsafeMutableRawPointer(panel))
++        let view = UnsafeMutableRawPointer(panel).assumingMemoryBound(to: cef_view_t.self)
++        withUnsafeMutablePointer(to: &window.pointee.base) {
++            $0.pointee.add_child_view_at?($0, view, 0)
++        }
++    }
++
+     fileprivate func handleBrowserCreated(_ raw: UnsafeMutablePointer<cef_browser_t>) {
+         browser.adoptRaw(raw)
+     }
+@@ -251,6 +309,7 @@ public final class CefChromeBrowser {
      }
  
      fileprivate func handleWindowDestroyed() {
@@ -847,7 +941,14 @@ index cce60bd..ad0062e 100644
          if let rawWindow {
              cefRelease(UnsafeMutableRawPointer(rawWindow))
          }
-@@ -263,6 +282,8 @@ public final class CefChromeBrowser {
+@@ -259,10 +318,15 @@ public final class CefChromeBrowser {
+             cefRelease(UnsafeMutableRawPointer(rawBrowserView))
+         }
+         rawBrowserView = nil
++        if let rawToolbarPanel { cefRelease(UnsafeMutableRawPointer(rawToolbarPanel)) }
++        rawToolbarPanel = nil
++        toolbarDelegate = nil
+         viewDelegate = nil
          windowDelegate = nil
          onWindowDestroyed?()
          Self.liveInstances[ObjectIdentifier(self)] = nil
@@ -856,7 +957,7 @@ index cce60bd..ad0062e 100644
      }
  
      // MARK: Helpers
-@@ -457,6 +478,12 @@ final class ChromeWindowDelegate {
+@@ -457,6 +521,12 @@ final class ChromeWindowDelegate {
              return MainActor.assumeIsolated { me.options.isFrameless ? 0 : 1 }
          }
  
@@ -869,6 +970,28 @@ index cce60bd..ad0062e 100644
          d.pointee.get_initial_bounds = { delegateSelf, window in
              cefRelease(window.map(UnsafeMutableRawPointer.init))
              guard let me = ChromeWindowDelegate.owner(delegateSelf.map(UnsafeMutableRawPointer.init)) else {
+@@ -480,3 +550,21 @@ final class ChromeWindowDelegate {
+         return d
+     }
+ }
++
++/// A fixed-height CEF panel keeps the real Chrome toolbar under native chrome
++/// while the browser view retains all remaining space in the same window.
++@MainActor
++final class ChromeToolbarPanelDelegate {
++    let height: Int32
++    init(height: Int32) { self.height = height }
++
++    func makeStruct() -> UnsafeMutablePointer<cef_panel_delegate_t> {
++        let value = cefAllocate(cef_panel_delegate_t.self, owner: self)
++        value.pointee.base.get_preferred_size = { pointer, view in
++            cefRelease(view.map(UnsafeMutableRawPointer.init))
++            guard let owner = cefOwner(ChromeToolbarPanelDelegate.self, pointer.map(UnsafeMutableRawPointer.init)) else { return cef_size_t() }
++            return MainActor.assumeIsolated { cef_size_t(width: 1, height: owner.height) }
++        }
++        return value
++    }
++}
 diff --git a/Sources/CefKit/CefJSDialog.swift b/Sources/CefKit/CefJSDialog.swift
 index 18341fb..8a3c68a 100644
 --- a/Sources/CefKit/CefJSDialog.swift
@@ -1113,10 +1236,10 @@ index b793569..aea14fc 100644
  }
 diff --git a/Tests/CefKitTests/KestrelLifecycleTests.swift b/Tests/CefKitTests/KestrelLifecycleTests.swift
 new file mode 100644
-index 0000000..b7fc3ca
+index 0000000..0d8966f
 --- /dev/null
 +++ b/Tests/CefKitTests/KestrelLifecycleTests.swift
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,202 @@
 +import Foundation
 +import Testing
 +@testable import CCef
@@ -1134,6 +1257,15 @@ index 0000000..b7fc3ca
 +        defer { cefRelease(UnsafeMutableRawPointer(delegate)) }
 +        #expect(delegate.pointee.with_standard_window_buttons?(delegate, nil) == 0)
 +        #expect(delegate.pointee.can_resize?(delegate, nil) == 0)
++    }
++    @Test func nativeToolbarRowPreservesTheRequestedHeight() {
++        let owner = ChromeToolbarPanelDelegate(height: 40)
++        let delegate = owner.makeStruct()
++        defer { cefRelease(UnsafeMutableRawPointer(delegate)) }
++        let size = withUnsafeMutablePointer(to: &delegate.pointee.base) {
++            $0.pointee.get_preferred_size?($0, nil)
++        }
++        #expect(size?.height == 40)
 +    }
 +    final class Identity { let id: Int32; init(_ id: Int32) { self.id = id } }
 +    final class Observer: CefBrowserDelegate {
