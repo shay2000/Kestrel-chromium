@@ -24,6 +24,7 @@ CYCLES = int(os.environ.get("KESTREL_STRESS_CYCLES", "12"))
 assert 1 <= CYCLES <= 30
 OUT.mkdir(parents=True, exist_ok=True)
 events, hits = [], []
+observed_mismatches = []
 started = time.monotonic()
 AX_CLIENT = OUT / "macos-accessibility"
 PID = None
@@ -109,6 +110,17 @@ def verify_menu_state(menu_name, expected):
         observed = rows.get(title)
         record("menu_state_assert", menu=menu_name, item=title, expected=value, actual=observed, passed=observed == value)
         assert observed == value, f"{menu_name} menu item {title!r}: expected enabled={value}, got {observed}"
+
+
+def select_menu_item(menu_name, item_name):
+    menu = quote(menu_name)
+    item = quote(item_name)
+    ui(f'''click menu bar item {menu} of menu bar 1
+delay 0.15
+click menu item {item} of menu 1 of menu bar item {menu} of menu bar 1
+delay 0.25
+key code 53''')
+    record("menu_command", menu=menu_name, item=item_name)
 
 
 def click(label):
@@ -265,7 +277,15 @@ try:
         invoke("Navigate", "Go Forward")
         wait(lambda: any(b in value for value in fields("Address bar")), "forward to B")
         invoke("Tabs", "Move Tab to Left Split")
-        wait(lambda: count("Address bar") == 2, "two independent address controls")
+        try:
+            wait(lambda: count("Address bar") == 2, "two independent address controls", timeout=3)
+        except AssertionError:
+            values = fields("Address bar")
+            mismatch = f"Move Tab to Left Split shortcut did not create two address controls; visible address values: {values}"
+            observed_mismatches.append(mismatch)
+            record("shortcut_mismatch", item="Move Tab to Left Split", address_values=values)
+            select_menu_item("Tabs", "Move Tab to Left Split")
+            wait(lambda: count("Address bar") == 2, "two independent address controls after using the Tabs menu")
         verify_menu_state("Tabs", {"Separate Split View": True, "Equal Split Widths": True})
         invoke("Tabs", "Next Tab")
         if cycle == 0:
@@ -296,9 +316,9 @@ try:
         key(draft)
         wait(lambda: message_value() == draft, "typed draft read back")
         click("Agent mode")
-        wait(lambda: fields("Agent mode") == ["On"], "Agent mode On")
+        wait(lambda: fields("Agent mode") == ["On"], "Agent mode On in the sidebar")
         click("Agent mode")
-        wait(lambda: fields("Agent mode") == ["Off"], "Agent mode Off")
+        wait(lambda: fields("Agent mode") == ["Off"], "Agent mode Off in the sidebar")
         if cycle == 0:
             pointer_click("Attach files")
             wait(lambda: count("Open") == 1, "native file picker opened")
@@ -341,7 +361,11 @@ try:
     snapshot("stress-complete")
     script('tell application "Kestrel" to quit')
     wait(lambda: subprocess.run(["pgrep", "-x", "Kestrel"], capture_output=True).returncode != 0, "app exited after stress", timeout=10)
-    result.update(passed=True, cycles_completed=CYCLES, elapsed_seconds=round(time.monotonic() - started, 2))
+    result.update(passed=not observed_mismatches, cycles_completed=CYCLES,
+                  observed_mismatches=observed_mismatches,
+                  elapsed_seconds=round(time.monotonic() - started, 2))
+    if observed_mismatches:
+        raise AssertionError("; ".join(observed_mismatches))
 except Exception as error:
     result.update(passed=False, error=traceback.format_exc(), elapsed_seconds=round(time.monotonic() - started, 2))
     if getattr(error, "stderr", None):
