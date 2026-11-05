@@ -1,11 +1,11 @@
 {
   "repository": "shay2000/Kestrel-chromium",
-  "tag": "v1.0.1-chromium-preview.1",
-  "title": "Kestrel Chromium 1.0.1 — Native window integration preview",
-  "source": "f263131f4617eebcecdbda37c8e1987801ec9e87",
-  "run_id": 42012454676,
-  "artifact_id": 13407608436,
-  "artifact_digest": "sha256:661bd16fc4a1c8f00bc94985b0ff7a71e5f7bad0806a59232a8c14c1db6025fd",
-  "dmg": "Kestrel-Chromium-1.0.1-arm64.dmg",
-  "notes": "docs/releases/v1.0.1-chromium-preview.1.md"
+  "tag": "v1.0.2-chromium-preview.1",
+  "title": "Kestrel Chromium 1.0.2 — Extensions inside Kestrel",
+  "source": "757a17f779ea6dfe01527500c1189e4cebaedc09",
+  "run_id": 42085793532,
+  "artifact_id": 13444795070,
+  "artifact_digest": "sha256:4b368265ad2ced2c2c1e8f5129cb7809a8389abf1b00e0749fc5904342153b12",
+  "dmg": "Kestrel-Chromium-1.0.2-arm64.dmg",
+  "notes": "docs/releases/v1.0.2-chromium-preview.1.md"
 }
