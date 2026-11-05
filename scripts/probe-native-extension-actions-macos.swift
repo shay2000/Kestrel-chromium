@@ -104,8 +104,18 @@ struct NativeExtensionActionProbe {
             try ActionProbe.save("result.json",["probeCompleted":true,"menuPress":menuResult.rawValue,"actionPress":actionResult.rawValue])
         } catch {
             try? preview("failure");try? ActionProbe.dumpAX("failure.json")
+            await ActionProbe.pause(5)
             _ = ActionProbe.collectCrashReports()
             ActionProbe.collectLifecycleLog()
+            let capture = Process(); let pipe=Pipe()
+            capture.executableURL=URL(fileURLWithPath:"/usr/bin/log")
+            capture.arguments=["show","--last","5m","--style","compact","--predicate","process == 'Kestrel'"]
+            capture.standardOutput=pipe; capture.standardError=pipe
+            try? capture.run()
+            let diagnostics=pipe.fileHandleForReading.readDataToEndOfFile();capture.waitUntilExit()
+            print("KESTREL_NATIVE_APP_DIAGNOSTICS "+String((String(data:diagnostics,encoding:.utf8) ?? "").suffix(50000)))
+            let access=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/com.shayprasad.Kestrel/CefSwift/native-action-access-probe.jsonl")
+            if let data=try? String(contentsOf:access,encoding:.utf8) { print("KESTREL_NATIVE_ACTION_ACCESS_FILE "+String(data.suffix(24000))) }
             fputs("Native action probe failed: \(error.localizedDescription)\n",stderr);exit(1)
         }
     }
