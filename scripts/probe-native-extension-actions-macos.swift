@@ -83,11 +83,12 @@ struct NativeExtensionActionProbe {
     static func settingsSidebar(_ enabled: Bool) async throws {
         key(43,.maskCommand);await ActionProbe.pause(0.8)
         let rows=try ActionProbe.capture("native-settings-navigation")
-        guard let row=rows.filter({$0.text=="Extensions" && $0.box.maxY<0.94}).min(by:{$0.box.minX<$1.box.minX}) else {throw StoreProbeError(message:"No Extensions settings category")}
+        guard let row=rows.filter({($0.text=="Extensions" || $0.text.hasSuffix(" Extensions")) && $0.box.maxY<0.94}).min(by:{$0.box.minX<$1.box.minX}) else {throw StoreProbeError(message:"No Extensions settings category")}
         let screen=CGDisplayBounds(CGMainDisplayID())
         let point=CGPoint(x:screen.width*row.box.midX,y:screen.height*(1-row.box.midY))
         for kind in [CGEventType.mouseMoved,.leftMouseDown,.leftMouseUp] {CGEvent(mouseEventSource:nil,mouseType:kind,mouseCursorPosition:point,mouseButton:.left)?.post(tap:.cghidEventTap)}
         await ActionProbe.pause(0.4)
+        describeButtons("placement-settings")
         try await click("Show extensions beside Chats",role:"AXCheckBox")
         await ActionProbe.pause(0.3)
         try preview(enabled ? "native-settings-sidebar-on" : "native-settings-sidebar-off")
