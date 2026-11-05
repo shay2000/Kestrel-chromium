@@ -38,10 +38,12 @@ def digest(path):
 
 def validate_request(request):
     require(request["repository"] == REPOSITORY, "Unexpected destination repository")
-    require(re.fullmatch(r"v\d+\.\d+\.\d+-chromium-preview\.\d+", request["tag"]), "Preview tag required")
+    version = re.fullmatch(r"v(\d+\.\d+\.\d+)-chromium-preview\.\d+", request["tag"])
+    require(version is not None, "Preview tag required")
     require(re.fullmatch(r"[0-9a-f]{40}", request["source"]), "Full source commit required")
     require(re.fullmatch(r"sha256:[0-9a-f]{64}", request["artifact_digest"]), "Pinned artifact digest required")
     require(re.fullmatch(r"Kestrel-Chromium-\d+\.\d+\.\d+-arm64\.dmg", request["dmg"]), "Unexpected DMG filename")
+    require(request["dmg"] == f"Kestrel-Chromium-{version[1]}-arm64.dmg", "Tag and DMG version mismatch")
     require(request["notes"] == f"docs/releases/{request['tag']}.md", "Unexpected notes path")
 
 
@@ -84,7 +86,7 @@ def api(path, payload=None, method="PATCH"):
     return json.loads(result.stdout)
 
 
-def verify_mounted_app(dmg):
+def verify_mounted_app(dmg, version):
     command("hdiutil", "verify", str(dmg))
     attached = command("hdiutil", "attach", "-readonly", "-nobrowse", "-plist", str(dmg), capture_output=True)
     entities = plistlib.loads(attached.stdout)["system-entities"]
@@ -94,7 +96,7 @@ def verify_mounted_app(dmg):
         command("codesign", "--verify", "--deep", "--strict", str(app))
         with (app / "Contents/Info.plist").open("rb") as stream:
             info = plistlib.load(stream)
-        require(info["CFBundleShortVersionString"] == "1.0.0", "Wrong application version")
+        require(info["CFBundleShortVersionString"] == version, "Wrong application version")
         require(bool(info.get("NSBluetoothAlwaysUsageDescription")), "Bluetooth purpose string missing")
         require(not (app / "Contents/Resources/ChromiumExtensionSmoke").exists(), "CI fixture still bundled")
         architecture = command("lipo", "-archs", str(app / "Contents/MacOS" / info["CFBundleExecutable"]), text=True, capture_output=True).stdout.strip()
@@ -139,7 +141,8 @@ def main(request_path, output_path):
     with archive.open("wb") as stream:
         command("gh", "api", f"repos/{REPOSITORY}/actions/artifacts/{request['artifact_id']}/zip", stdout=stream)
     checksum = unpack_verified(request, archive, output)
-    application = verify_mounted_app(output / request["dmg"])
+    version = re.fullmatch(r"v(\d+\.\d+\.\d+)-chromium-preview\.\d+", request["tag"])[1]
+    application = verify_mounted_app(output / request["dmg"], version)
     notes = Path(request["notes"]).read_text()
     tags = api(f"git/matching-refs/tags/{request['tag']}")
     if not any(item["ref"] == "refs/tags/" + request["tag"] for item in tags):

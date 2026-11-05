@@ -29,6 +29,14 @@ class PublicationGuards(unittest.TestCase):
         publisher.validate_request(self.request)
         publisher.validate_origin(self.request, self.run, self.artifact)
 
+    def test_new_app_version_must_match_tag_and_asset(self):
+        request = dict(self.request, tag="v1.0.1-chromium-preview.1",
+                       notes="docs/releases/v1.0.1-chromium-preview.1.md",
+                       dmg="Kestrel-Chromium-1.0.0-arm64.dmg")
+        with self.assertRaises(ValueError):
+            publisher.validate_request(request)
+        publisher.validate_request(dict(request, dmg="Kestrel-Chromium-1.0.1-arm64.dmg"))
+
     def test_resumes_existing_draft_by_id_without_tag_lookup_or_creation(self):
         draft = {"id": 42, "tag_name": self.request["tag"], "draft": True}
         result = mock.Mock(stdout=json.dumps([[draft]]))
