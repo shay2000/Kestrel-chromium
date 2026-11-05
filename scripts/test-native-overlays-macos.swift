@@ -57,6 +57,19 @@ struct NativeOverlayRegression {
         precondition(live.accessibilityChildren()?.contains { ($0 as AnyObject) === nativeControls } == true)
         precondition(object_getClass(live) === originalClass, "CEF window classes must remain intact")
         precondition(ChromiumWindowAccessibility.update(window: live, header: nil))
+        let settings = NSWindow(contentRect: root.bounds, styleMask: .titled, backing: .buffered, defer: false)
+        settings.isReleasedWhenClosed = false
+        precondition(ChromiumWindowAttachment.shouldOrderPageFront(owner: window, page: live, keyWindow: window))
+        precondition(ChromiumWindowAttachment.shouldOrderPageFront(owner: window, page: live, keyWindow: live))
+        precondition(!ChromiumWindowAttachment.shouldOrderPageFront(owner: window, page: live, keyWindow: settings),
+                     "updating the page must not cover Settings or a different document")
+        let popup = NSWindow(contentRect: root.bounds, styleMask: .borderless, backing: .buffered, defer: false)
+        popup.isReleasedWhenClosed = false
+        live.addChildWindow(popup, ordered: .above)
+        precondition(ChromiumWindowAttachment.shouldOrderPageFront(owner: window, page: live, keyWindow: popup))
+        live.removeChildWindow(popup)
+        popup.close()
+        settings.close()
         live.close()
         window.close()
         print("Native overlay hit testing: dispatch, page fallback, ownership, instance isolation, rebinding and weak lifetime passed")
