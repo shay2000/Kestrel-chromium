@@ -45,8 +45,6 @@ enum ChromiumExtensionActions {
                     label($0).components(separatedBy: "\n").first == name
                 })
                 if pinned.count == 1 { _ = pinned[0].accessibilityPerformPress(); return }
-                let existing = unique(nodes(in: [chrome.rootView].compactMap { $0 }).filter { $0.accessibilityRole() == .button && label($0) == name })
-                if existing.count == 1 { _ = existing[0].accessibilityPerformPress(); return }
             }
             let existingSurfaces = Set(NSApp.windows.filter(\.isVisible).map(ObjectIdentifier.init))
             var button = menuButton(in: chrome)
@@ -89,18 +87,11 @@ enum ChromiumExtensionActions {
     private static func nativeActionControls(in chrome: CefChromeBrowser) -> [NSAccessibilityProtocol] {
         guard let page = chrome.nsWindow else { return [] }
         return unique(nodes(in: [chrome.rootView].compactMap { $0 }).filter {
-            guard $0.accessibilityRole() == .button || $0.accessibilityRole() == .popUpButton,
+            guard $0.accessibilityRole() == .popUpButton,
                   !menuLabels.contains(label($0)) else { return false }
             let window = $0.accessibilityWindow() as AnyObject?
             return window === page || label($0).contains("\n")
         })
-    }
-
-    static func controlFrame(named name: String, in roots: [Any]) -> CGRect? {
-        let controls = unique(nodes(in: roots).filter { label($0) == name && $0.accessibilityRole() == .button })
-        guard controls.count == 1 else { return nil }
-        let frame = controls[0].accessibilityFrame()
-        return frame.isEmpty ? nil : frame
     }
 
     private static func nodes(in roots: [Any]) -> [NSAccessibilityProtocol] {
@@ -109,7 +100,8 @@ enum ChromiumExtensionActions {
             let next = pending.removeFirst() as AnyObject
             guard seen.insert(ObjectIdentifier(next)).inserted,
                   let element = next as? NSAccessibilityProtocol else { continue }
-            guard element.accessibilityRole()?.rawValue != "AXWebArea" else { continue }
+            guard element.accessibilityRole()?.rawValue != "AXWebArea",
+                  element.accessibilityLabel() != "Kestrel browser controls" else { continue }
             result.append(element)
             pending += element.accessibilityChildren() ?? []
         }
