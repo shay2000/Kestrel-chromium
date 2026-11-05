@@ -28,6 +28,12 @@ jobs:
           swift --version
           uname -m
 
+      - name: Verify native overlay hit testing and ownership
+        shell: bash
+        run: |
+          swiftc -swift-version 5 -parse-as-library KestrelChromium/ChromiumNativeOverlays.swift scripts/test-native-overlays-macos.swift -o "$RUNNER_TEMP/kestrel-native-overlays-test"
+          "$RUNNER_TEMP/kestrel-native-overlays-test"
+
       - name: Verify CRX3 signatures and identity preservation
         run: bash scripts/test-crx-package.sh 2>&1 | tee "$RUNNER_TEMP/kestrel-crx-tests.log"
         shell: bash

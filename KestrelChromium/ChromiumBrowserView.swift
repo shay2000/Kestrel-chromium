@@ -239,7 +239,6 @@ private final class PersistentChromeHostView: NSView {
             let target = BrowserPageGeometry.coveringFrame(card, scale: window.backingScaleFactor)
             if overlay.frame != target { overlay.setFrame(target, display: true) }
             if let root = browser?.rootView {
-                _ = nativeContentHost(for: root)
                 if let browser { CefBrowserRegistry.setPageLayout(for: browser.browser, root: root, headerHeight: headerHeight) }
                 updateNativeOverlay()
                 updateNativeHeader(root: root, owner: window)
@@ -281,7 +280,6 @@ private final class PersistentChromeHostView: NSView {
             nativeOverlay = nil
             return
         }
-        let contentHost = nativeContentHost(for: root)
         let host = nativeOverlay ?? ClickThroughHostingView(rootView: pageOverlay)
         host.rootView = pageOverlay
         let page = BrowserPageGeometry.contentRect(in: root.bounds, headerHeight: headerHeight, isFlipped: root.isFlipped)
@@ -300,11 +298,12 @@ private final class PersistentChromeHostView: NSView {
         host.autoresizingMask = [.width, .height]
         host.wantsLayer = true
         host.layer?.backgroundColor = NSColor.clear.cgColor
-        if host.superview !== contentHost {
+        if host.superview !== root {
             host.removeFromSuperview()
-            contentHost.addSubview(host, positioned: .above, relativeTo: nil)
+            root.addSubview(host, positioned: .above, relativeTo: nil)
         }
         nativeOverlay = host
+        ChromiumNativeOverlays.update(root: root, header: nativeHeader, pageOverlay: host)
     }
 
     private func updateNativeHeader(root: NSView, owner: NSWindow) {
@@ -312,7 +311,6 @@ private final class PersistentChromeHostView: NSView {
             detachNativeHeader()
             return
         }
-        let contentHost = nativeContentHost(for: root)
         let host = nativeHeader ?? HeaderHostingView(rootView: AnyView(EmptyView()))
         // CEF already reserves this strip. Disable the hosting view's own
         // titlebar inset so drawing, native hit testing and AX use one origin.
@@ -351,13 +349,14 @@ private final class PersistentChromeHostView: NSView {
         host.wantsLayer = true
         host.layer?.backgroundColor = NSColor.clear.cgColor
         host.layer?.isOpaque = false
-        if host.superview !== contentHost {
+        if host.superview !== root {
             host.removeFromSuperview()
-            contentHost.addSubview(host, positioned: .above, relativeTo: nil)
-        } else if contentHost.subviews.last !== host {
-            contentHost.addSubview(host, positioned: .above, relativeTo: nil)
+            root.addSubview(host, positioned: .above, relativeTo: nil)
+        } else if root.subviews.last !== host {
+            root.addSubview(host, positioned: .above, relativeTo: nil)
         }
         nativeHeader = host
+        ChromiumNativeOverlays.update(root: root, header: host, pageOverlay: nativeOverlay)
         // BridgedContentView exposes Chromium's AX tree instead of ordinary
         // AppKit subviews. Preserve that tree and add our native toolbar at
         // the window level so VoiceOver and normal AX clients can reach it.
@@ -380,45 +379,6 @@ private final class PersistentChromeHostView: NSView {
         nativeHeader?.setAccessibilityParent(nil)
         nativeHeader?.removeFromSuperview()
         nativeHeader = nil
-    }
-
-    /// Keep Chromium's original native root and its renderer hierarchy intact,
-    /// inside one ordinary AppKit container. Native UI is its sibling, so
-    /// NSWindow performs normal hit testing and gesture-recognizer dispatch
-    /// before reaching CEF's Views hit-test override.
-    private func nativeContentHost(for root: NSView) -> NSView {
-        if let container = root.superview as? NativeContentContainer { return container }
-        guard let window = root.window, window.contentView === root else { return root }
-        let container = NativeContentContainer(frame: root.frame, cefRoot: root)
-        window.contentView = container
-        container.addSubview(root)
-        root.autoresizingMask = [.width, .height]
-        root.frame = container.bounds
-        return container
-    }
-
-    private final class NativeContentContainer: NSView {
-        let cefRoot: NSView
-        init(frame: NSRect, cefRoot: NSView) {
-            self.cefRoot = cefRoot
-            super.init(frame: frame)
-        }
-        required init?(coder: NSCoder) { return nil }
-        override func layout() {
-            super.layout()
-            if cefRoot.frame != bounds { cefRoot.frame = bounds }
-        }
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            let target = super.hitTest(point)
-            return target === self ? nil : target
-        }
-        // CEF's native window can forward menu/background events directly to
-        // its content view. Preserve that path through the original root.
-        override func keyDown(with event: NSEvent) { cefRoot.keyDown(with: event) }
-        override func keyUp(with event: NSEvent) { cefRoot.keyUp(with: event) }
-        override func flagsChanged(with event: NSEvent) { cefRoot.flagsChanged(with: event) }
-        override func rightMouseDown(with event: NSEvent) { cefRoot.rightMouseDown(with: event) }
-        override func rightMouseUp(with event: NSEvent) { cefRoot.rightMouseUp(with: event) }
     }
 
     private final class HeaderHostingView: NSHostingView<AnyView> {
