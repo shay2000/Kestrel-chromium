@@ -42,6 +42,7 @@ struct NativeExtensionActionProbe {
             try FileManager.default.createDirectory(at:ActionProbe.output,withIntermediateDirectories:true)
             ActionProbe.additionalLaunchArguments=["--kestrel-extension-toolbar-probe"]
             ActionProbe.allowsNativeToolbarHeight=true
+            ActionProbe.capturesNativeOutput=true
             try await ActionProbe.launch();await ActionProbe.widenRunnerWindow()
             let item=ActionProbe.items[0]
             try await ActionProbe.install(id:item.id,slug:item.slug,name:item.name)
@@ -107,6 +108,7 @@ struct NativeExtensionActionProbe {
             await ActionProbe.pause(5)
             _ = ActionProbe.collectCrashReports()
             ActionProbe.collectLifecycleLog()
+            if let stderr=try? String(contentsOf:ActionProbe.output.appendingPathComponent("native-app.stderr.log"),encoding:.utf8) { print("KESTREL_NATIVE_STDERR "+String(stderr.suffix(80000))) }
             let capture = Process(); let pipe=Pipe()
             capture.executableURL=URL(fileURLWithPath:"/usr/bin/log")
             capture.arguments=["show","--last","5m","--style","compact","--predicate","process == 'Kestrel'"]

@@ -26,6 +26,7 @@ struct ChromeWebStoreAcceptance {
     static var uaProbe = false
     static var additionalLaunchArguments: [String] = []
     static var allowsNativeToolbarHeight = false
+    static var capturesNativeOutput = false
     static let items = [
         (id: "aapbdbdomjkkjkaonfhkkikfgjllcleb", slug: "google-translate", name: "Google Translate"),
         (id: "eimadpbcbfnmbkopoojfekhnkhdbieeh", slug: "dark-reader", name: "Dark Reader")
@@ -194,11 +195,25 @@ struct ChromeWebStoreAcceptance {
         configuration.createsNewApplicationInstance = true
         configuration.arguments = ["--remote-debugging-port=\(port)", "--force-renderer-accessibility"]
             + additionalLaunchArguments
-        let running: NSRunningApplication = try await withCheckedThrowingContinuation { continuation in
+        let running: NSRunningApplication
+        if capturesNativeOutput {
+            try command("/usr/bin/open", ["-n", "-a", app.path, "--stdout", output.appendingPathComponent("native-app.stdout.log").path,
+                                         "--stderr", output.appendingPathComponent("native-app.stderr.log").path, "--args"] + configuration.arguments)
+            var found: NSRunningApplication?
+            for _ in 0..<20 {
+                found = NSRunningApplication.runningApplications(withBundleIdentifier:"com.shayprasad.Kestrel").first { $0.bundleURL?.standardizedFileURL.path == app.path }
+                if found != nil { break }
+                await pause(0.1)
+            }
+            guard let application=found else { throw StoreProbeError(message:"Kestrel did not launch through LaunchServices") }
+            running=application
+        } else {
+        running = try await withCheckedThrowingContinuation { continuation in
             NSWorkspace.shared.openApplication(at: app, configuration: configuration) { application, error in
                 if let application { continuation.resume(returning: application) }
                 else { continuation.resume(throwing: error ?? StoreProbeError(message: "LaunchServices could not relaunch Kestrel")) }
             }
+        }
         }
         testedPID = running.processIdentifier; testedPIDs.insert(Int(running.processIdentifier))
         for _ in 0..<30 {
