@@ -371,8 +371,14 @@ private final class PersistentChromeHostView: NSView {
             host.setAccessibilityRole(.group)
             host.setAccessibilityLabel("Kestrel browser controls")
             host.setAccessibilityParent(page)
-            ChromiumWindowAccessibility.update(window: page, header: host)
+            for delay in [0.15, 0.5, 1.5] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak page, weak host] in
+                    guard let page, let host, host.window === page else { return }
+                    ChromiumWindowAccessibility.update(window: page, header: host)
+                }
+            }
         }
+        if let page = root.window { ChromiumWindowAccessibility.update(window: page, header: host) }
     }
 
     private func detachNativeHeader() {
