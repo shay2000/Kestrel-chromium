@@ -99,7 +99,7 @@ struct NativeExtensionActionProbe {
             guard !pins.isEmpty else {throw StoreProbeError(message:"Pinning did not expose the extension in Kestrel's own toolbar")}
             let actionNodes=ActionProbe.axNodes().filter { node in
                 let label=text(node,"AXDescription")+" "+text(node,"AXTitle")
-                return text(node,"AXRole")=="AXButton" && label.localizedCaseInsensitiveContains("Google Translate") && !label.localizedCaseInsensitiveContains("pin") && !label.localizedCaseInsensitiveContains("more")
+                return text(node,"AXRole")=="AXButton" && [text(node,"AXDescription"),text(node,"AXTitle")].contains("Google Translate")
             }
             let actions = Dictionary(grouping: actionNodes, by: { rect($0).map(NSStringFromRect) ?? "missing" }).values.compactMap(\.first)
             guard actions.count==1 else{throw StoreProbeError(message:"Expected one Translate menu action, found \(actions.count)")}
