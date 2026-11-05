@@ -25,6 +25,10 @@ struct KestrelChromiumApp: CefSwiftApp {
         configuration.extraCommandLineSwitches.updateValue(nil, forKey: "hide-scrollbars")
         // Retain the pinned Chromium engine identity and matching client hints.
         configuration.extraCommandLineSwitches.merge(BrowserExtensionHost.commandLineSwitches()) { _, new in new }
+        NSLog("KESTREL_STARTUP_CONFIGURATION force=%d", configuration.extraCommandLineSwitches.keys.contains("force-renderer-accessibility"))
+        configuration.onBeforeCommandLineProcessing = { command in
+            NSLog("KESTREL_STARTUP_COMMAND force=%d", command.hasSwitch("force-renderer-accessibility"))
+        }
         return configuration
     }
 

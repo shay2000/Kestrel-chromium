@@ -207,6 +207,15 @@ struct NativeExtensionActionProbe {
             try ActionProbe.save("result.json",["probeCompleted":true,"menuPress":menuResult.rawValue,"actionPress":actionResult.rawValue])
         } catch {
             try? preview("failure");try? ActionProbe.dumpAX("failure.json")
+            if let button=ActionProbe.axNodes().first(where:{text($0,"AXTitle")=="OK"}) {_=AXUIElementPerformAction(button,kAXPressAction as CFString)}
+            if let version=try? await ActionProbe.open("chrome://version/") {
+                let state=try? await ActionProbe.evaluate(version,"({force:document.getElementById('command_line')?.innerText.includes('force-renderer-accessibility'),profile:document.getElementById('profile_path')?.innerText})")
+                ActionProbe.record("cold_startup_diagnostic",["state":state ?? NSNull()])
+            }
+            if let manager=try? await ActionProbe.open("chrome://extensions/") {
+                let state=try? await ActionProbe.cdp(manager,"Runtime.evaluate",["expression":"new Promise(resolve=>chrome.developerPrivate.getExtensionsInfo({includeDisabled:true,includeTerminated:true},items=>resolve(items.map(i=>({id:i.id,name:i.name,state:i.state,disableReasons:i.disableReasons})))))","returnByValue":true,"awaitPromise":true])
+                ActionProbe.record("cold_extensions_diagnostic",state ?? [:])
+            }
             await ActionProbe.pause(5)
             _ = ActionProbe.collectCrashReports()
             ActionProbe.collectLifecycleLog()
