@@ -211,7 +211,30 @@ base = f"http://127.0.0.1:{server.server_port}"
 def navigate(path):
     invoke("Navigate", "Focus Address Bar")
     key("a", ["command"])
-    key(base + path)
+    target = base + path
+    key(target)
+    try:
+        # Wait for the edit itself, not only the eventual page load. This
+        # preserves evidence when the focus shortcut opens suggestions but
+        # the following keystrokes do not replace the address.
+        wait(lambda: any(path in value for value in fields("Address bar")),
+             "address field accepted " + path, timeout=2)
+    except AssertionError:
+        values = fields("Address bar")
+        mismatch = f"Focus Address Bar followed by typing did not place {path!r} in the address field; values: {values}"
+        observed_mismatches.append(mismatch)
+        record("address_shortcut_input_mismatch", path=path, address_values=values)
+        snapshot("address-shortcut-input-mismatch")
+        # Retry with a real pointer click only when the layout exposes one
+        # address control. The original keyboard attempt remains a reported
+        # mismatch even if this diagnostic retry succeeds.
+        if count("Address bar") != 1:
+            raise AssertionError(mismatch)
+        pointer_click("Address bar")
+        key("a", ["command"])
+        key(target)
+        wait(lambda: any(path in value for value in fields("Address bar")),
+             "address field accepted " + path + " after pointer focus")
     enter()
     wait(lambda: path in hits and any(path in value for value in fields("Address bar")), "loaded " + path)
     record("address_focus_verified_by_navigation", path=path)
