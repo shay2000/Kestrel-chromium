@@ -63,7 +63,8 @@ final class ChromiumExtensionPopover {
         guard !adjusting else { return }
         guard isCurrent(), let page, let owner, page.parent === owner, page.isVisible else { stop(); return }
         guard owner.attachedSheet == nil, page.attachedSheet == nil, NSApp.modalWindow == nil else { return }
-        let roots: [Any] = [page.contentView?.subviews.last, owner.contentView].compactMap { $0 }
+        let header = page.contentView?.subviews.first { $0.accessibilityLabel() == "Kestrel browser controls" }
+        let roots: [Any] = [header, owner.contentView].compactMap { $0 }
         let preferred = anchorLabel.flatMap { ChromiumExtensionActions.controlFrame(named: $0, in: roots) }
         guard let anchor = preferred ?? ChromiumExtensionActions.controlFrame(named: "Show extensions", in: roots) else { return }
         for window in NSApp.windows where window.isVisible && window !== page && window !== owner

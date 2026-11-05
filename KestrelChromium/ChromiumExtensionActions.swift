@@ -6,8 +6,15 @@ import CefKit
 /// No helper browser, popup URL navigation, DevTools or system AX permission.
 @MainActor
 enum ChromiumExtensionActions {
-    private static var menuLabel: String {
-        CefChromeBrowser.localizedChromeString(named: "IDS_EXTENSIONS_MENU_BUTTON_LABEL") ?? "Extensions"
+    private static var cachedMenuLabels: Set<String>?
+    private static var menuLabels: Set<String> {
+        if let cachedMenuLabels { return cachedMenuLabels }
+        let names = ["IDS_ACC_NAME_EXTENSIONS_BUTTON", "IDS_TOOLTIP_EXTENSIONS_BUTTON",
+                     "IDS_ACC_NAME_EXTENSIONS_BUTTON_ALL_EXTENSIONS_BLOCKED",
+                     "IDS_ACC_NAME_EXTENSIONS_BUTTON_ANY_EXTENSION_HAS_ACCESS"]
+        let labels = Set(names.compactMap { CefChromeBrowser.localizedChromeString(named: $0) }.filter { !$0.isEmpty })
+        cachedMenuLabels = labels.isEmpty ? ["Extensions"] : labels
+        return cachedMenuLabels!
     }
 
     static func pinnedActions(in chrome: CefChromeBrowser, installed: [ChromiumExtensionDescriptor]) -> [String] {
@@ -69,7 +76,7 @@ enum ChromiumExtensionActions {
 
     private static func menuButton(in chrome: CefChromeBrowser) -> NSAccessibilityProtocol? {
         let values = unique(nodes(in: [chrome.rootView].compactMap { $0 }).filter {
-            $0.accessibilityRole() == .popUpButton && label($0) == menuLabel
+            $0.accessibilityRole() == .popUpButton && menuLabels.contains(label($0))
         })
         return values.count == 1 ? values[0] : nil
     }
@@ -78,7 +85,7 @@ enum ChromiumExtensionActions {
         guard let page = chrome.nsWindow else { return [] }
         return unique(nodes(in: [chrome.rootView].compactMap { $0 }).filter {
             guard $0.accessibilityRole() == .button || $0.accessibilityRole() == .popUpButton,
-                  label($0) != menuLabel else { return false }
+                  !menuLabels.contains(label($0)) else { return false }
             let window = $0.accessibilityWindow() as AnyObject?
             return window === page || label($0).contains("\n")
         })
