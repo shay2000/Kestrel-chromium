@@ -10,6 +10,8 @@ final class ChromiumInstalledExtensions: ObservableObject {
     static let shared = ChromiumInstalledExtensions()
     @Published private(set) var installed: [ChromiumExtensionDescriptor] = []
     @Published private(set) var readFailed = false
+    @Published private(set) var pinnedActionIDs: [String] = []
+    var nativePinnedActions: @MainActor ([ChromiumExtensionDescriptor]) -> [String] = { _ in [] }
     var actions: [ChromiumExtensionDescriptor] { installed.filter(\.hasAction) }
     private var polling: Task<Void, Never>?
 
@@ -40,6 +42,8 @@ final class ChromiumInstalledExtensions: ObservableObject {
             installed = []
             readFailed = true
         }
+        let pinned = nativePinnedActions(actions)
+        if pinnedActionIDs != pinned { pinnedActionIDs = pinned }
     }
 }
 #endif

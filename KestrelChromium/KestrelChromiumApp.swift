@@ -38,6 +38,9 @@ struct KestrelChromiumApp: CefSwiftApp {
             tabs?.routeChromeUIBrowser(browser)
         }
         let chat = AIChatStore()
+        ChromiumInstalledExtensions.shared.nativePinnedActions = { [weak tabs] installed in
+            tabs?.pinnedExtensionActions(installed) ?? []
+        }
         let mcpServer = KestrelMCPServer()
         let updater = KestrelUpdater()
 

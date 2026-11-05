@@ -31,6 +31,27 @@ struct ExtensionToolbarButton: View {
     }
 }
 
+struct PinnedToolbarExtensionActions: View {
+    @ObservedObject var tabs: TabStore
+    @ObservedObject private var catalogue = ChromiumInstalledExtensions.shared
+    let tabID: UUID
+    let limit: Int
+    private var pinned: [ChromiumExtensionDescriptor] {
+        catalogue.actions.filter { catalogue.pinnedActionIDs.contains($0.id) }
+    }
+    var body: some View {
+        ForEach(Array(pinned.prefix(limit))) { item in
+            Button { tabs.showExtensionAction(item.id, for: tabID) } label: {
+                ExtensionActionIcon(item: item).frame(width: 26, height: 30).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open \(item.name)")
+            .accessibilityLabel("Open \(item.name) toolbar extension")
+            .disabled(!tabs.canShowExtensionActions(for: tabID))
+        }
+    }
+}
+
 struct SidebarExtensionActions: View {
     @ObservedObject var tabs: TabStore
     @ObservedObject var settings: AppSettings

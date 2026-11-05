@@ -38,7 +38,8 @@ enum ChromiumExtensionCatalog {
                   let manifest = json(directory.appendingPathComponent("manifest.json"), limit: 1024 * 1024),
                   let rawName = manifest["name"] as? String,
                   let version = manifest["version"] as? String else { return nil }
-            let name = localized(rawName, manifest: manifest, directory: directory, languages: languages)
+            let runtimeName = (value["manifest"] as? [String: Any])?["name"] as? String
+            let name = localized(runtimeName ?? rawName, manifest: manifest, directory: directory, languages: languages)
             guard !name.isEmpty, name.utf8.count <= 1024, version.utf8.count <= 128 else { return nil }
             let action = manifest["action"] as? [String: Any] ?? manifest["browser_action"] as? [String: Any]
             return ChromiumExtensionDescriptor(id: id, name: name, version: version, directory: directory,

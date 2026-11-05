@@ -238,14 +238,12 @@ private final class PersistentChromeHostView: NSView {
             let target = BrowserPageGeometry.coveringFrame(card, scale: window.backingScaleFactor)
             if overlay.frame != target { overlay.setFrame(target, display: true) }
             if let root = browser?.rootView {
-                if browser?.options.showsChromeToolbar == true {
-                    let rect = browser?.setChromeToolbarBounds(CGRect(x: 0, y: -headerHeight,
-                                                          width: root.bounds.width, height: headerHeight))
-                    NSLog("KESTREL_NATIVE_TOOLBAR_LAYOUT %@", rect.map(NSStringFromRect) ?? "unavailable")
-                }
                 if let browser { CefBrowserRegistry.setPageLayout(for: browser.browser, root: root, headerHeight: headerHeight) }
                 updateNativeOverlay()
                 updateNativeHeader(root: root, owner: window)
+                if let browser, let nativeHeader, browser.options.showsChromeToolbar {
+                    ChromiumExtensionActions.alignToolbar(in: browser, header: nativeHeader, height: headerHeight)
+                }
                 for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
                     overlay.standardWindowButton(type)?.isHidden = true
                 }

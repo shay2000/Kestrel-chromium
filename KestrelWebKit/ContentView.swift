@@ -2059,6 +2059,8 @@ private struct BrowserToolbar: View {
             }
 
             if settings.extensions.toolbarActionsVisible {
+                PinnedToolbarExtensionActions(tabs: tabs, tabID: paneID ?? tabs.selectedID,
+                                              limit: isNarrowPane ? 0 : (isCompact ? 1 : 2))
                 ExtensionToolbarButton(tabs: tabs, tabID: paneID ?? tabs.selectedID)
             }
 

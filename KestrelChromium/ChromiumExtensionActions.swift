@@ -6,6 +6,28 @@ import CefKit
 /// No helper browser, popup URL navigation, DevTools or system AX permission.
 @MainActor
 enum ChromiumExtensionActions {
+    static func alignToolbar(in chrome: CefChromeBrowser, header: NSView, height: CGFloat) {
+        guard let root = chrome.rootView, height > 0 else { return }
+        let base = CGRect(x: 0, y: -height, width: root.bounds.width, height: height)
+        chrome.setChromeToolbarBounds(base)
+        guard let engine = menuButton(in: chrome, height: height),
+              let control = nodes(in: [header]).first(where: {
+                  $0.accessibilityRole() == .button && label($0) == "Show extensions"
+              }) else { return }
+        let native = engine.accessibilityFrame(), target = control.accessibilityFrame()
+        guard !native.isEmpty, !target.isEmpty else { return }
+        chrome.setChromeToolbarBounds(CGRect(x: target.midX - native.midX,
+            y: -height + native.midY - target.midY, width: base.width, height: base.height))
+    }
+
+    static func pinnedActions(in chrome: CefChromeBrowser, installed: [ChromiumExtensionDescriptor]) -> [String] {
+        guard chrome.isWindowAlive, chrome.nsWindow?.isVisible == true else { return [] }
+        let labels = nodes(in: [chrome.rootView].compactMap { $0 })
+            .filter { $0.accessibilityRole() == .popUpButton }
+            .map { label($0).components(separatedBy: "\n").first ?? "" }
+        return installed.filter { $0.name != "Extensions" && labels.contains($0.name) }.map(\.id)
+    }
+
     static func show(in chrome: CefChromeBrowser, name: String? = nil,
                      isCurrent: @escaping @MainActor () -> Bool) {
         guard let page = chrome.nsWindow, let owner = page.parent,
@@ -20,15 +42,16 @@ enum ChromiumExtensionActions {
             owner.orderFront(nil)
             owner.makeMain()
             page.makeKey()
+            if let header = chrome.rootView?.subviews.first(where: { $0.accessibilityLabel() == "Kestrel browser controls" }) {
+                alignToolbar(in: chrome, header: header, height: BrowserChromeLayout.headerHeight)
+            }
             if let name {
                 let existing = unique(nodes(in: [chrome.rootView].compactMap { $0 }).filter { $0.accessibilityRole() == .button && label($0) == name })
                 if existing.count == 1 { _ = existing[0].accessibilityPerformPress(); return }
             }
-            let buttons = unique(nodes(in: [chrome.rootView].compactMap { $0 }).filter {
-                $0.accessibilityRole() == .popUpButton && label($0) == "Extensions"
-            })
             let existingSurfaces = Set(NSApp.windows.filter(\.isVisible).map(ObjectIdentifier.init))
-            guard buttons.count == 1, buttons[0].accessibilityPerformPress() else { unavailable(owner: owner); return }
+            guard let button = menuButton(in: chrome, height: BrowserChromeLayout.headerHeight),
+                  button.accessibilityPerformPress() else { unavailable(owner: owner); return }
             guard let name else { return }
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard isCurrent(), chrome.isWindowAlive, page.parent === owner else { return }
@@ -50,6 +73,20 @@ enum ChromiumExtensionActions {
     private static func label(_ element: NSAccessibilityProtocol) -> String {
         let value = element.accessibilityLabel() ?? ""
         return value.isEmpty ? (element.accessibilityTitle() ?? "") : value
+    }
+
+    /// Chromium's Extensions control follows its pinned action buttons. Scope
+    /// this to the reserved native toolbar so localised labels work and page
+    /// controls cannot be mistaken for browser actions.
+    private static func menuButton(in chrome: CefChromeBrowser, height: CGFloat) -> NSAccessibilityProtocol? {
+        guard let page = chrome.nsWindow else { return nil }
+        let strip = CGRect(x: page.frame.minX, y: page.frame.maxY - height - 8,
+                           width: page.frame.width, height: height + 16)
+        return unique(nodes(in: [chrome.rootView].compactMap { $0 }).filter {
+            let frame = $0.accessibilityFrame()
+            return $0.accessibilityRole() == .popUpButton && !frame.isEmpty
+                && strip.contains(CGPoint(x: frame.midX, y: frame.midY))
+        }).max { $0.accessibilityFrame().midX < $1.accessibilityFrame().midX }
     }
 
     private static func nodes(in roots: [Any]) -> [NSAccessibilityProtocol] {

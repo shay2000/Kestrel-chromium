@@ -29,6 +29,18 @@ struct NativeExtensionActionProbe {
         }
         ActionProbe.record("native_action_nodes",["stage":stage,"nodes":rows,"roleCounts":Dictionary(grouping:all,by:{text($0,"AXRole")}).mapValues(\.count)])
     }
+    static func click(_ label: String, role: String = "AXButton") async throws {
+        let nodes=ActionProbe.axNodes().filter { text($0,"AXRole")==role && [text($0,"AXDescription"),text($0,"AXTitle")].contains(label) }
+        let unique=Dictionary(grouping:nodes,by:{rect($0).map(NSStringFromRect) ?? "missing"}).values.compactMap(\.first)
+        guard unique.count==1,let bounds=rect(unique[0]) else { throw StoreProbeError(message:"Expected one Kestrel control: \(label), found \(unique.count)") }
+        for kind in [CGEventType.mouseMoved,.leftMouseDown,.leftMouseUp] {
+            let event=CGEvent(mouseEventSource:nil,mouseType:kind,mouseCursorPosition:CGPoint(x:bounds.midX,y:bounds.midY),mouseButton:.left)
+            event?.flags=[];event?.post(tap:.cghidEventTap);await ActionProbe.pause(0.04)
+        }
+    }
+    static func key(_ code:CGKeyCode,_ flags:CGEventFlags=[]) {
+        for down in [true,false] {let event=CGEvent(keyboardEventSource:nil,virtualKey:code,keyDown:down);event?.flags=flags;event?.post(tap:.cghidEventTap)}
+    }
     static func main() async {
         defer {
             let access=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/com.shayprasad.Kestrel/CefSwift/native-action-access-probe.jsonl")
@@ -43,6 +55,9 @@ struct NativeExtensionActionProbe {
             ActionProbe.additionalLaunchArguments=["--kestrel-extension-toolbar-probe"]
             ActionProbe.allowsNativeToolbarHeight=true
             ActionProbe.capturesNativeOutput=true
+            let defaults=UserDefaults(suiteName:"com.shayprasad.Kestrel")!
+            defaults.set(try JSONSerialization.data(withJSONObject:["menuBarVisible":true,"allowsUnpackedImports":false,"toolbarActionsVisible":true,"sidebarActionsVisible":true]),forKey:"kestrel.extensions.settings.v1")
+            defaults.synchronize()
             try await ActionProbe.launch();await ActionProbe.widenRunnerWindow()
             let item=ActionProbe.items[0]
             try await ActionProbe.install(id:item.id,slug:item.slug,name:item.name)
@@ -102,6 +117,22 @@ struct NativeExtensionActionProbe {
             ActionProbe.record("genuine_popup_context",context)
             describeButtons("popup-settled");try preview("native-action-popup-settled")
             try ActionProbe.dumpAX("native-action-popup-settled.json")
+            key(53);await ActionProbe.pause(0.5)
+            try await click("Open Google Translate extension")
+            await ActionProbe.pause(2)
+            describeButtons("sidebar-action");try preview("native-sidebar-action-popup")
+            let profile=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/com.shayprasad.Kestrel/CefSwift/Default")
+            for filename in ["Preferences","Secure Preferences"] {
+                if let data=try? Data(contentsOf:profile.appendingPathComponent(filename)),
+                   let prefs=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any],
+                   let extensions=(prefs["extensions"] as? [String:Any])?["settings"] as? [String:Any],
+                   let entry=extensions[item.id] as? [String:Any] {
+                    var metadata:[String:Any]=["file":filename]
+                    for key in ["path","state","disable_reasons"] {metadata[key]=entry[key]}
+                    metadata["name"]=(entry["manifest"] as? [String:Any])?["name"]
+                    ActionProbe.record("own_extension_profile_metadata",metadata)
+                }
+            }
             try ActionProbe.save("result.json",["probeCompleted":true,"menuPress":menuResult.rawValue,"actionPress":actionResult.rawValue])
         } catch {
             try? preview("failure");try? ActionProbe.dumpAX("failure.json")

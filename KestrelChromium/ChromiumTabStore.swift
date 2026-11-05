@@ -781,9 +781,14 @@ final class TabStore: ObservableObject {
         activateExtension(name: nil, for: id)
     }
 
-    func showExtensionAction(_ id: String) {
+    func showExtensionAction(_ id: String, for tabID: UUID? = nil) {
         guard let action = ChromiumInstalledExtensions.shared.actions.first(where: { $0.id == id }) else { return }
-        activateExtension(name: action.name, for: selectedID)
+        activateExtension(name: action.name, for: tabID ?? selectedID)
+    }
+
+    func pinnedExtensionActions(_ installed: [ChromiumExtensionDescriptor]) -> [String] {
+        guard CefRuntime.shared.isAcceptingBrowsers, let chrome = chromeBrowsers[selectedID] else { return [] }
+        return ChromiumExtensionActions.pinnedActions(in: chrome, installed: installed)
     }
 
     private func activateExtension(name: String?, for id: UUID) {
