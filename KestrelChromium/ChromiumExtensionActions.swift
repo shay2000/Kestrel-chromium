@@ -53,7 +53,7 @@ enum ChromiumExtensionActions {
             let next = pending.removeFirst() as AnyObject
             guard seen.insert(ObjectIdentifier(next)).inserted,
                   let element = next as? NSAccessibilityProtocol else { continue }
-            guard element.accessibilityRole() != .webArea else { continue }
+            guard element.accessibilityRole()?.rawValue != "AXWebArea" else { continue }
             result.append(element)
             pending += element.accessibilityChildren() ?? []
         }
