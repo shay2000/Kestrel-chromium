@@ -2131,7 +2131,19 @@ private struct BrowserToolbar: View {
         .padding(.leading, trafficLightsInset)
         .padding(.trailing, 7)
         .frame(height: BrowserChromeLayout.toolbarHeight)
-        .background { ZStack { toolbarColour; NativeDocumentDragArea() } }
+        .background {
+            ZStack {
+                toolbarColour
+                // A native drag view across the whole background wins
+                // AppKit hit testing over SwiftUI-drawn buttons. Only the
+                // explicit, empty toolbar margins should receive it.
+                HStack(spacing: 0) {
+                    NativeDocumentDragArea().frame(width: trafficLightsInset)
+                    Spacer(minLength: 0).allowsHitTesting(false)
+                    NativeDocumentDragArea().frame(width: 7)
+                }
+            }
+        }
         .environment(\.colorScheme, toolbarScheme)
         .onAppear { addressDraft = browser.addressText }
         .onChange(of: browser.addressText) { _, address in
