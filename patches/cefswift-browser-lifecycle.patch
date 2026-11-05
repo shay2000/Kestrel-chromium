@@ -970,10 +970,44 @@ index 144ded0..05259e2 100644
  
      func start() {
 diff --git a/Sources/CefKit/CefRuntime.swift b/Sources/CefKit/CefRuntime.swift
-index b793569..aea14fc 100644
+index b793569..8613751 100644
 --- a/Sources/CefKit/CefRuntime.swift
 +++ b/Sources/CefKit/CefRuntime.swift
-@@ -107,11 +107,54 @@ public final class CefRuntime {
+@@ -3,6 +3,33 @@ import CCef
+ import CCefAppKit
+ import Foundation
+ 
++/// Keeps the initial CEF argv alive through shutdown. Some Chromium services
++/// consume startup flags before OnBeforeCommandLineProcessing runs.
++final class CefOwnedMainArguments {
++    let count: Int32
++    let values: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
++
++    init(arguments: [String], switches: [String: String?]) {
++        let extras = switches.keys.sorted().map { name -> String in
++            if let value = switches[name] ?? nil { return "--\(name)=\(value)" }
++            return "--\(name)"
++        }
++        var merged = arguments
++        let insertion = merged.firstIndex(of: "--") ?? merged.endIndex
++        merged.insert(contentsOf: extras, at: insertion)
++        count = Int32(merged.count)
++        values = .allocate(capacity: merged.count + 1)
++        values.initialize(repeating: nil, count: merged.count + 1)
++        for (index, value) in merged.enumerated() { values[index] = strdup(value) }
++    }
++
++    deinit {
++        for index in 0..<Int(count) { free(values[index]) }
++        values.deinitialize(count: Int(count) + 1)
++        values.deallocate()
++    }
++}
++
+ // MARK: - Settings mapping (inlined from CefSettingsMapping.swift)
+ 
+ /// Owns a fully-populated `cef_settings_t` whose string members are released
+@@ -107,11 +134,55 @@ public final class CefRuntime {
      /// call them via `window.cefSwift.invoke(name, params)`. See ``CefBridge``.
      public let bridge = CefBridge()
  
@@ -985,6 +1019,7 @@ index b793569..aea14fc 100644
 +
      var messagePump: CefMessagePump?
      private var appContext: CefAppContext?
++    private var mainArguments: CefOwnedMainArguments?
      private var settings: MappedCefSettings?
      private var browsers: [Int32: CefBrowser] = [:]
 -    private var isTerminationRequested = false
@@ -1029,7 +1064,24 @@ index b793569..aea14fc 100644
  
      private init() {}
  
-@@ -230,7 +273,10 @@ public final class CefRuntime {
+@@ -177,12 +248,15 @@ public final class CefRuntime {
+             frameworkDirectory: frameworkBinary.deletingLastPathComponent()
+         )
+ 
+-        var mainArgs = cef_main_args_t(argc: CommandLine.argc, argv: CommandLine.unsafeArgv)
++        let arguments = CefOwnedMainArguments(arguments: CommandLine.arguments, switches: configuration.extraCommandLineSwitches)
++        mainArguments = arguments
++        var mainArgs = cef_main_args_t(argc: arguments.count, argv: arguments.values)
+         // cef_initialize consumes our +1 reference on `app`.
+         let result = cef_initialize(&mainArgs, &mapped.raw, app, nil)
+         guard result != 0 else {
+             let exitCode = cef_get_exit_code()
+             ccef_unload_framework()
++            mainArguments = nil
+             throw CefError.initializationFailed(exitCode: exitCode)
+         }
+ 
+@@ -230,12 +304,16 @@ public final class CefRuntime {
      /// Shuts CEF down and unloads the framework. All browsers must already
      /// be closed. Call once, at process exit.
      public func shutdown() {
@@ -1041,7 +1093,13 @@ index b793569..aea14fc 100644
          messagePump?.stop()
          messagePump = nil
          CEFApplication.setTerminateHandler(nil)
-@@ -390,34 +436,54 @@ public final class CefRuntime {
+         cef_shutdown()
+         ccef_unload_framework()
++        mainArguments = nil
+         appContext = nil
+         settings = nil
+         configuration = nil
+@@ -390,34 +468,54 @@ public final class CefRuntime {
      // MARK: Browser registry / termination
  
      func registerBrowser(_ browser: CefBrowser) {
@@ -1113,10 +1171,10 @@ index b793569..aea14fc 100644
  }
 diff --git a/Tests/CefKitTests/KestrelLifecycleTests.swift b/Tests/CefKitTests/KestrelLifecycleTests.swift
 new file mode 100644
-index 0000000..b7fc3ca
+index 0000000..0fd76d5
 --- /dev/null
 +++ b/Tests/CefKitTests/KestrelLifecycleTests.swift
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,205 @@
 +import Foundation
 +import Testing
 +@testable import CCef
@@ -1125,6 +1183,18 @@ index 0000000..b7fc3ca
 +@MainActor
 +@Suite(.serialized)
 +struct KestrelLifecycleTests {
++    @Test func startupSwitchesAreOwnedAndPrecedeTheArgumentSeparator() {
++        let arguments = CefOwnedMainArguments(
++            arguments: ["/Applications/Kestrel Browser.app/Kestrel", "--existing", "--", "https://example.com/a b"],
++            switches: ["force-renderer-accessibility": nil, "load-extension": "/tmp/extension α"]
++        )
++        let values = (0..<Int(arguments.count)).map { String(cString: arguments.values[$0]!) }
++        #expect(values == ["/Applications/Kestrel Browser.app/Kestrel", "--existing",
++                           "--force-renderer-accessibility", "--load-extension=/tmp/extension α",
++                           "--", "https://example.com/a b"])
++        #expect(arguments.values[Int(arguments.count)] == nil)
++    }
++
 +    @Test func embeddedHeaderHasNoExtraTitlebarOrIndependentResize() {
 +        var options = CefChromeBrowserOptions()
 +        options.isFrameless = true

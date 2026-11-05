@@ -28,6 +28,7 @@ jobs:
           swiftc -swift-version 5 -parse-as-library KestrelChromium/ChromiumNativeOverlays.swift KestrelChromium/ChromiumWindowAccessibility.swift scripts/test-native-overlays-macos.swift -o "$RUNNER_TEMP/kestrel-native-overlays-test"
           "$RUNNER_TEMP/kestrel-native-overlays-test"
           ./build.sh release
+          swift test --package-path .build/checkouts/CefSwift --filter KestrelLifecycleTests
       - name: Save successful build cache
         uses: actions/cache/save@v4
         with:
