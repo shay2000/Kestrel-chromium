@@ -780,8 +780,8 @@ final class TabStore: ObservableObject {
         return page.isVisible && page.parent != nil
     }
 
-    func showExtensionMenu(for id: UUID) {
-        activateExtension(name: nil, for: id)
+    func showExtensionMenu(for id: UUID, anchorLabel: String? = nil) {
+        activateExtension(name: nil, for: id, anchorLabel: anchorLabel)
     }
 
     func showExtensionAction(_ id: String, for tabID: UUID? = nil, anchorLabel: String? = nil) {

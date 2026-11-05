@@ -87,7 +87,7 @@ final class ChromiumExtensionPopover {
         for value in windows.values {
             guard let window = value.value, window.isVisible else { continue }
             let screen = owner.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? owner.frame
-            let sidebar = anchorLabel?.hasSuffix(" extension") == true && preferred != nil
+            let sidebar = (anchorLabel?.hasSuffix(" extension") == true || anchorLabel == "More extensions") && preferred != nil
             var x = sidebar ? anchor.maxX + 8 : anchor.maxX - window.frame.width
             var y = anchor.minY - window.frame.height - 4
             if y < screen.minY { y = anchor.maxY + 4 }

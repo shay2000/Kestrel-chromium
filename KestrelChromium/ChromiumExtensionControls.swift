@@ -81,11 +81,11 @@ struct SidebarExtensionActions: View {
             if chosen.count > visible.count || chosen.isEmpty {
                 Menu {
                     ForEach(chosen.dropFirst(visible.count)) { item in
-                        Button(item.name) { tabs.showExtensionAction(item.id) }
+                        Button(item.name) { tabs.showExtensionAction(item.id, anchorLabel: "More extensions") }
                             .disabled(!tabs.canShowExtensionActions(for: tabs.selectedID))
                     }
                     if !chosen.isEmpty { Divider() }
-                    Button("All Extensions") { tabs.showExtensionMenu(for: tabs.selectedID) }
+                    Button("All Extensions") { tabs.showExtensionMenu(for: tabs.selectedID, anchorLabel: "More extensions") }
                         .disabled(!tabs.canShowExtensionActions(for: tabs.selectedID))
                     Button("Manage Extensions…") { tabs.openChromiumExtensions() }
                 } label: {
@@ -94,6 +94,7 @@ struct SidebarExtensionActions: View {
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                 .help("Show more extensions").accessibilityLabel("More extensions")
+                .background(ExtensionControlAnchor(name: "More extensions").allowsHitTesting(false))
             }
         }
     }
