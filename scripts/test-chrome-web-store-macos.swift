@@ -444,9 +444,12 @@ struct ChromeWebStoreAcceptance {
         let root = AXUIElementCreateApplication(pid)
         var windows: [[String: Any]] = []
         var chromeToolbars = 0
+        var embeddedChromeToolbars = 0
         for window in ax(root, "AXWindows") as? [AXUIElement] ?? [] {
             var controls: [[String: String]] = []
             var visited = 0
+            var nativeToolbars = 0
+            var hasKestrelHeader = false
             func visit(_ node: AXUIElement, _ depth: Int) {
                 guard depth < 35, visited < 5000 else { return }; visited += 1
                 let role = String(describing: ax(node, "AXRole") ?? "" as CFString)
@@ -456,10 +459,13 @@ struct ChromeWebStoreAcceptance {
                     description.localizedCaseInsensitiveContains("address and search bar") {
                     controls.append(["role": role, "description": description, "title": title])
                 }
-                if description.localizedCaseInsensitiveContains("address and search bar") { chromeToolbars += 1 }
+                if description == "Show extensions" { hasKestrelHeader = true }
+                if description.localizedCaseInsensitiveContains("address and search bar") { nativeToolbars += 1 }
                 for child in ax(node, "AXChildren") as? [AXUIElement] ?? [] { visit(child, depth + 1) }
             }
             visit(window, 0)
+            if hasKestrelHeader { embeddedChromeToolbars += nativeToolbars }
+            else { chromeToolbars += nativeToolbars }
             windows.append(["title": String(describing: ax(window, "AXTitle") ?? "" as CFString),
                             "subrole": String(describing: ax(window, "AXSubrole") ?? "" as CFString), "controls": controls])
         }
@@ -469,7 +475,8 @@ struct ChromeWebStoreAcceptance {
             Dictionary(uniqueKeysWithValues: ["id", "type", "url", "title"].map { ($0, target[$0] ?? "") })
         }
         let value: [String: Any] = ["stage": stage, "windows": windows, "visible": visible,
-                                  "targets": pages, "chromeToolbarCount": chromeToolbars]
+                                  "targets": pages, "chromeToolbarCount": chromeToolbars,
+                                  "embeddedChromeToolbarCount": embeddedChromeToolbars]
         record("window_census", value)
         try save("window-census-\(stage).json", value)
         try capture("window-census-\(stage)")
