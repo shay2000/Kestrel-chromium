@@ -251,12 +251,18 @@ struct NativeExtensionActionProbe {
             _ = try await extensionOptionsPoint()
             try preview("native-cold-extension-popup")
             try await ActionProbe.inspectWindowSurfaces(stage:"cold-native-actions")
+            guard let running = NSRunningApplication(processIdentifier: ActionProbe.testedPID!), running.terminate() else {
+                throw StoreProbeError(message: "Could not quit Kestrel with the extension popup open")
+            }
+            for _ in 0..<30 where !running.isTerminated { await ActionProbe.pause(0.2) }
+            guard running.isTerminated else { throw StoreProbeError(message: "Kestrel did not finish quitting with the popup open") }
+            await ActionProbe.pause(2)
             guard !ActionProbe.collectCrashReports() else {throw StoreProbeError(message:"The native action flow crashed")}
             try ActionProbe.save("result.json",["probeCompleted":true,"menuPress":menuResult.rawValue,"actionPress":actionResult.rawValue])
         } catch {
             try? preview("failure");try? ActionProbe.dumpAX("failure.json")
             key(36);await ActionProbe.pause(0.4)
-            if let current=try? await ActionProbe.targets().first(where:{$0["type"] as? String == "page" && ($0["url"] as? String)?.hasPrefix("https://example.org") == true}) {
+            if let current=try? await ActionProbe.targets().first(where:{$0["type"] as? String == "page" && ($0["url"] as? String)?.hasPrefix("https://example.") == true}) {
                 _ = try? await ActionProbe.cdp(current,"Page.navigate",["url":"chrome://version/"])
                 await ActionProbe.pause(1)
                 let state=try? await ActionProbe.evaluate(current,"({force:document.getElementById('command_line')?.innerText.includes('force-renderer-accessibility'),profile:document.getElementById('profile_path')?.innerText})")

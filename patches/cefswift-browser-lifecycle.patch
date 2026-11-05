@@ -797,7 +797,7 @@ index 9792836..2e076c4 100644
      public func browser(_ b: CefBrowser, decidePolicyForNavigation url: URL?, isRedirect: Bool, userGesture: Bool) -> CefNavigationDecision { .allow }
      public func browser(_ b: CefBrowser, didRequestNewTab url: URL?) -> Bool { false }
 diff --git a/Sources/CefKit/CefChromeBrowser.swift b/Sources/CefKit/CefChromeBrowser.swift
-index cce60bd..91dc0f4 100644
+index cce60bd..6ceb09a 100644
 --- a/Sources/CefKit/CefChromeBrowser.swift
 +++ b/Sources/CefKit/CefChromeBrowser.swift
 @@ -11,11 +11,18 @@ public struct CefChromeBrowserOptions {
@@ -877,7 +877,7 @@ index cce60bd..91dc0f4 100644
      /// Applies a vertical `BoxLayout` to the window carrying the current
      /// ``insets`` as `inside_border_insets`, then re-lays-out. The single child
      /// (the browser view) gets the default flex (1) and stretches to fill the
-@@ -207,11 +235,18 @@ public final class CefChromeBrowser {
+@@ -207,11 +235,23 @@ public final class CefChromeBrowser {
          settings.size = MemoryLayout<cef_box_layout_settings_t>.stride
          settings.horizontal = 0
          settings.inside_border_insets = insets
@@ -891,12 +891,17 @@ index cce60bd..91dc0f4 100644
              if let layout = panel.pointee.set_to_box_layout?(panel, &settings) {
 +                if let rawToolbarPanel {
 +                    let toolbar = UnsafeMutableRawPointer(rawToolbarPanel).assumingMemoryBound(to: cef_view_t.self)
-+                    layout.pointee.set_flex_for_view?(layout, toolbar, 0)
++                    // CEF consumes a +1 for object arguments, including layout
++                    // configuration. Keep our panel reference alive across re-layouts.
++                    if let setFlex = layout.pointee.set_flex_for_view {
++                        cefAddRef(UnsafeMutableRawPointer(toolbar))
++                        setFlex(layout, toolbar, 0)
++                    }
 +                }
                  // set_to_box_layout returns a +1 cef_box_layout_t we own.
                  cefRelease(UnsafeMutableRawPointer(layout))
              }
-@@ -242,6 +277,40 @@ public final class CefChromeBrowser {
+@@ -242,6 +282,40 @@ public final class CefChromeBrowser {
          window.pointee.show?(window)
      }
  
@@ -937,7 +942,7 @@ index cce60bd..91dc0f4 100644
      fileprivate func handleBrowserCreated(_ raw: UnsafeMutablePointer<cef_browser_t>) {
          browser.adoptRaw(raw)
      }
-@@ -251,6 +320,7 @@ public final class CefChromeBrowser {
+@@ -251,6 +325,7 @@ public final class CefChromeBrowser {
      }
  
      fileprivate func handleWindowDestroyed() {
@@ -945,7 +950,7 @@ index cce60bd..91dc0f4 100644
          if let rawWindow {
              cefRelease(UnsafeMutableRawPointer(rawWindow))
          }
-@@ -259,10 +329,15 @@ public final class CefChromeBrowser {
+@@ -259,10 +334,15 @@ public final class CefChromeBrowser {
              cefRelease(UnsafeMutableRawPointer(rawBrowserView))
          }
          rawBrowserView = nil
@@ -961,7 +966,7 @@ index cce60bd..91dc0f4 100644
      }
  
      // MARK: Helpers
-@@ -314,6 +389,15 @@ final class ChromeBrowserViewDelegate {
+@@ -314,6 +394,15 @@ final class ChromeBrowserViewDelegate {
      func makeStruct() -> UnsafeMutablePointer<cef_browser_view_delegate_t> {
          let d = cefAllocate(cef_browser_view_delegate_t.self, owner: self)
  
@@ -977,7 +982,7 @@ index cce60bd..91dc0f4 100644
          d.pointee.on_browser_created = { delegateSelf, browserView, rawBrowser in
              cefRelease(browserView.map(UnsafeMutableRawPointer.init))
              guard let me = ChromeBrowserViewDelegate.owner(delegateSelf.map(UnsafeMutableRawPointer.init)),
-@@ -372,7 +456,8 @@ final class ChromeBrowserViewDelegate {
+@@ -372,7 +461,8 @@ final class ChromeBrowserViewDelegate {
                  return CEF_CTT_NONE
              }
              return MainActor.assumeIsolated {
@@ -987,7 +992,7 @@ index cce60bd..91dc0f4 100644
              }
          }
  
-@@ -457,6 +542,12 @@ final class ChromeWindowDelegate {
+@@ -457,6 +547,12 @@ final class ChromeWindowDelegate {
              return MainActor.assumeIsolated { me.options.isFrameless ? 0 : 1 }
          }
  
@@ -1000,7 +1005,7 @@ index cce60bd..91dc0f4 100644
          d.pointee.get_initial_bounds = { delegateSelf, window in
              cefRelease(window.map(UnsafeMutableRawPointer.init))
              guard let me = ChromeWindowDelegate.owner(delegateSelf.map(UnsafeMutableRawPointer.init)) else {
-@@ -480,3 +571,21 @@ final class ChromeWindowDelegate {
+@@ -480,3 +576,21 @@ final class ChromeWindowDelegate {
          return d
      }
  }
