@@ -83,6 +83,7 @@ final class TabStore: ObservableObject {
     private var browserStores: [UUID: BrowserStore] = [:]
     private var webViews: [UUID: CefWebViewModel] = [:]
     private var chromeBrowsers: [UUID: CefChromeBrowser] = [:]
+    private var extensionActionRequest = UUID()
     private var pendingPageCloses: [UUID: () -> Void] = [:]
     private var browserDelegates: [UUID: CefBrowserDelegateProxy] = [:]
     private var cancellables: [UUID: AnyCancellable] = [:]
@@ -782,10 +783,11 @@ final class TabStore: ObservableObject {
         activateExtension(name: nil, for: id)
     }
 
-    func showExtensionAction(_ id: String, for tabID: UUID? = nil) {
+    func showExtensionAction(_ id: String, for tabID: UUID? = nil, anchorLabel: String? = nil) {
         guard let action = ChromiumInstalledExtensions.shared.actions.first(where: { $0.id == id }) else { return }
         let names = ChromiumInstalledExtensions.shared.actions.filter { $0.name == action.name }
-        activateExtension(name: names.count == 1 ? action.name : nil, for: tabID ?? selectedID)
+        activateExtension(name: names.count == 1 ? action.name : nil, for: tabID ?? selectedID,
+                          anchorLabel: anchorLabel ?? "Open \(action.name) toolbar extension")
     }
 
     func pinnedExtensionActions(_ installed: [ChromiumExtensionDescriptor]) -> [String] {
@@ -793,14 +795,16 @@ final class TabStore: ObservableObject {
         return ChromiumExtensionActions.pinnedActions(in: chrome, installed: installed)
     }
 
-    private func activateExtension(name: String?, for id: UUID) {
+    private func activateExtension(name: String?, for id: UUID, anchorLabel: String? = nil) {
         guard canShowExtensionActions(for: id), let chrome = chromeBrowsers[id] else { return }
         select(id: id)
+        let request = UUID()
+        extensionActionRequest = request
         let address = browser(for: id).addressText
-        ChromiumExtensionActions.show(in: chrome, name: name) { [weak self, weak chrome] in
+        ChromiumExtensionActions.show(in: chrome, name: name, anchorLabel: anchorLabel) { [weak self, weak chrome] in
             guard let self, let chrome, CefRuntime.shared.isAcceptingBrowsers,
                   self.collection.tabs.contains(where: { $0.id == id }) else { return false }
-            return self.selectedID == id && self.chromeBrowsers[id] === chrome
+            return self.extensionActionRequest == request && self.selectedID == id && self.chromeBrowsers[id] === chrome
                 && self.pendingPageCloses[id] == nil && self.browser(for: id).addressText == address
                 && CefRuntime.shared.isAcceptingBrowsers
         }

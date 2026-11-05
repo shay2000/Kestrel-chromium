@@ -6,30 +6,18 @@ import CefKit
 /// No helper browser, popup URL navigation, DevTools or system AX permission.
 @MainActor
 enum ChromiumExtensionActions {
-    static func alignToolbar(in chrome: CefChromeBrowser, header: NSView, height: CGFloat) {
-        guard let root = chrome.rootView, height > 0 else { return }
-        let base = CGRect(x: 0, y: -height, width: root.bounds.width, height: height)
-        chrome.setChromeToolbarBounds(base)
-        guard let engine = menuButton(in: chrome, height: height),
-              let control = nodes(in: [header]).first(where: {
-                  $0.accessibilityRole() == .button && label($0) == "Show extensions"
-              }) else { return }
-        let native = engine.accessibilityFrame(), target = control.accessibilityFrame()
-        guard !native.isEmpty, !target.isEmpty else { return }
-        chrome.setChromeToolbarBounds(CGRect(x: target.midX - native.midX,
-            y: -height + native.midY - target.midY, width: base.width, height: base.height))
+    private static var menuLabel: String {
+        CefChromeBrowser.localizedChromeString(named: "IDS_EXTENSIONS_MENU_BUTTON_LABEL") ?? "Extensions"
     }
 
     static func pinnedActions(in chrome: CefChromeBrowser, installed: [ChromiumExtensionDescriptor]) -> [String] {
         guard chrome.isWindowAlive, chrome.nsWindow?.isVisible == true else { return [] }
-        let menuFrame = menuButton(in: chrome, height: BrowserChromeLayout.headerHeight)?.accessibilityFrame()
-        let labels = toolbarControls(in: chrome, height: BrowserChromeLayout.headerHeight)
-            .filter { $0.accessibilityFrame() != menuFrame }
+        let labels = nativeActionControls(in: chrome)
             .map { label($0).components(separatedBy: "\n").first ?? "" }
         return installed.filter { labels.contains($0.name) }.map(\.id)
     }
 
-    static func show(in chrome: CefChromeBrowser, name: String? = nil,
+    static func show(in chrome: CefChromeBrowser, name: String? = nil, anchorLabel: String? = nil,
                      isCurrent: @escaping @MainActor () -> Bool) {
         guard let page = chrome.nsWindow, let owner = page.parent,
               page.isVisible, owner.isVisible, owner.attachedSheet == nil, page.attachedSheet == nil,
@@ -43,11 +31,10 @@ enum ChromiumExtensionActions {
             owner.orderFront(nil)
             owner.makeMain()
             page.makeKey()
-            if let header = chrome.rootView?.subviews.first(where: { $0.accessibilityLabel() == "Kestrel browser controls" }) {
-                alignToolbar(in: chrome, header: header, height: BrowserChromeLayout.headerHeight)
-            }
+            ChromiumExtensionPopover.begin(page: page, owner: owner,
+                anchorLabel: anchorLabel, isCurrent: isCurrent)
             if let name {
-                let pinned = unique(toolbarControls(in: chrome, height: BrowserChromeLayout.headerHeight).filter {
+                let pinned = unique(nativeActionControls(in: chrome).filter {
                     label($0).components(separatedBy: "\n").first == name
                 })
                 if pinned.count == 1 { _ = pinned[0].accessibilityPerformPress(); return }
@@ -55,7 +42,7 @@ enum ChromiumExtensionActions {
                 if existing.count == 1 { _ = existing[0].accessibilityPerformPress(); return }
             }
             let existingSurfaces = Set(NSApp.windows.filter(\.isVisible).map(ObjectIdentifier.init))
-            guard let button = menuButton(in: chrome, height: BrowserChromeLayout.headerHeight),
+            guard let button = menuButton(in: chrome),
                   button.accessibilityPerformPress() else { unavailable(owner: owner); return }
             guard let name else { return }
             try? await Task.sleep(nanoseconds: 100_000_000)
@@ -80,23 +67,28 @@ enum ChromiumExtensionActions {
         return value.isEmpty ? (element.accessibilityTitle() ?? "") : value
     }
 
-    /// Chromium's Extensions control follows its pinned action buttons. Scope
-    /// this to the reserved native toolbar so localised labels work and page
-    /// controls cannot be mistaken for browser actions.
-    private static func menuButton(in chrome: CefChromeBrowser, height: CGFloat) -> NSAccessibilityProtocol? {
-        toolbarControls(in: chrome, height: height).filter { $0.accessibilityRole() == .popUpButton }
-            .max { $0.accessibilityFrame().midX < $1.accessibilityFrame().midX }
+    private static func menuButton(in chrome: CefChromeBrowser) -> NSAccessibilityProtocol? {
+        let values = unique(nodes(in: [chrome.rootView].compactMap { $0 }).filter {
+            $0.accessibilityRole() == .popUpButton && label($0) == menuLabel
+        })
+        return values.count == 1 ? values[0] : nil
     }
 
-    private static func toolbarControls(in chrome: CefChromeBrowser, height: CGFloat) -> [NSAccessibilityProtocol] {
+    private static func nativeActionControls(in chrome: CefChromeBrowser) -> [NSAccessibilityProtocol] {
         guard let page = chrome.nsWindow else { return [] }
-        let strip = CGRect(x: page.frame.minX, y: page.frame.maxY - height - 8,
-                           width: page.frame.width, height: height + 16)
         return unique(nodes(in: [chrome.rootView].compactMap { $0 }).filter {
-            let frame = $0.accessibilityFrame()
-            return ($0.accessibilityRole() == .popUpButton || $0.accessibilityRole() == .button) && !frame.isEmpty
-                && strip.contains(CGPoint(x: frame.midX, y: frame.midY))
+            guard $0.accessibilityRole() == .button || $0.accessibilityRole() == .popUpButton,
+                  label($0) != menuLabel else { return false }
+            let window = $0.accessibilityWindow() as AnyObject?
+            return window === page || label($0).contains("\n")
         })
+    }
+
+    static func controlFrame(named name: String, in roots: [Any]) -> CGRect? {
+        let controls = unique(nodes(in: roots).filter { label($0) == name && $0.accessibilityRole() == .button })
+        guard controls.count == 1 else { return nil }
+        let frame = controls[0].accessibilityFrame()
+        return frame.isEmpty ? nil : frame
     }
 
     private static func nodes(in roots: [Any]) -> [NSAccessibilityProtocol] {

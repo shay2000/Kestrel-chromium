@@ -241,9 +241,6 @@ private final class PersistentChromeHostView: NSView {
                 if let browser { CefBrowserRegistry.setPageLayout(for: browser.browser, root: root, headerHeight: headerHeight) }
                 updateNativeOverlay()
                 updateNativeHeader(root: root, owner: window)
-                if let browser, let nativeHeader, browser.options.showsChromeToolbar {
-                    ChromiumExtensionActions.alignToolbar(in: browser, header: nativeHeader, height: headerHeight)
-                }
                 for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
                     overlay.standardWindowButton(type)?.isHidden = true
                 }

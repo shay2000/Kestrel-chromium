@@ -67,7 +67,7 @@ struct SidebarExtensionActions: View {
     var body: some View {
         HStack(spacing: 3) {
             ForEach(visible) { item in
-                Button { tabs.showExtensionAction(item.id) } label: {
+                Button { tabs.showExtensionAction(item.id, anchorLabel: "Open \(item.name) extension") } label: {
                     ExtensionActionIcon(item: item).frame(width: 26, height: 30).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
