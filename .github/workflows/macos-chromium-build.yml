@@ -57,6 +57,8 @@ jobs:
         shell: bash
 
       - name: Run the complete Kestrel SwiftPM regression suite
+        id: native-tests
+        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
@@ -383,3 +385,10 @@ jobs:
           path: ${{ runner.temp }}/kestrel-chromium-runtime-smoke/desktop-comparison
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Report native regression suite failure after desktop checks
+        if: always() && steps.native-tests.outcome == 'failure'
+        shell: bash
+        run: |
+          echo 'The complete Kestrel SwiftPM regression suite failed; its log and the desktop comparison artifacts were retained.' >&2
+          exit 1
