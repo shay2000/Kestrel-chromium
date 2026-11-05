@@ -696,6 +696,7 @@ final class TabStore: ObservableObject {
               collection.tabs.contains(where: { $0.id == id }), pendingPageCloses[id] == nil else { return nil }
         let model = webView(for: id)
         var options = CefChromeBrowserOptions()
+        options.showsChromeToolbar = CommandLine.arguments.contains("--kestrel-extension-toolbar-probe")
         options.isFrameless = true
         options.isResizable = false
         options.initialBounds = CGRect(x: -4096, y: -4096, width: 800, height: 600)

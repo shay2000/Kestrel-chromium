@@ -24,6 +24,8 @@ struct ChromeWebStoreAcceptance {
     static var nextCommandID = 0
     static let port = 9333
     static var uaProbe = false
+    static var additionalLaunchArguments: [String] = []
+    static var allowsNativeToolbarHeight = false
     static let items = [
         (id: "aapbdbdomjkkjkaonfhkkikfgjllcleb", slug: "google-translate", name: "Google Translate"),
         (id: "eimadpbcbfnmbkopoojfekhnkhdbieeh", slug: "dark-reader", name: "Dark Reader")
@@ -191,6 +193,7 @@ struct ChromeWebStoreAcceptance {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
         configuration.arguments = ["--remote-debugging-port=\(port)", "--force-renderer-accessibility"]
+            + additionalLaunchArguments
         let running: NSRunningApplication = try await withCheckedThrowingContinuation { continuation in
             NSWorkspace.shared.openApplication(at: app, configuration: configuration) { application, error in
                 if let application { continuation.resume(returning: application) }
@@ -349,6 +352,9 @@ struct ChromeWebStoreAcceptance {
                let bounds = CGRect(dictionaryRepresentation: values as CFDictionary),
                abs(bounds.width - width) < 2 {
                 let header = bounds.height - height
+                if allowsNativeToolbarHeight, header >= 0, header < 100 {
+                    return CGRect(x: bounds.minX, y: bounds.minY + header, width: bounds.width, height: height)
+                }
                 if abs(header - 40) < 2 {
                     return CGRect(x: bounds.minX, y: bounds.minY + header, width: bounds.width, height: height)
                 }

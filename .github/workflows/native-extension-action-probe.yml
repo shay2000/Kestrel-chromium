@@ -1,0 +1,48 @@
+name: Probe native extension actions inside Kestrel
+on:
+  push:
+    branches: [prototype/extension-actions]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore CEF
+        uses: actions/cache@v4
+        with:
+          path: .cef
+          key: kestrel-cef-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift') }}
+      - name: Restore compatible build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .build
+          key: kestrel-actions-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift','patches/**') }}-${{ hashFiles('KestrelChromium/**/*.swift','KestrelWebKit/**/*.swift') }}
+          restore-keys: |
+            kestrel-actions-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift','patches/**') }}-
+      - name: Build the Kestrel probe app
+        run: ./build.sh release
+      - name: Save successful build cache
+        uses: actions/cache/save@v4
+        with:
+          path: .build
+          key: kestrel-actions-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift','patches/**') }}-${{ hashFiles('KestrelChromium/**/*.swift','KestrelWebKit/**/*.swift') }}
+      - name: Operate the real native extension menu and action
+        env:
+          KESTREL_NATIVE_MOUSE_INPUT: '1'
+        shell: bash
+        run: |
+          swiftc -swift-version 5 -D KESTREL_LIFECYCLE_HARNESS -parse-as-library scripts/test-chrome-web-store-macos.swift scripts/probe-native-extension-actions-macos.swift -o "$RUNNER_TEMP/kestrel-action-probe"
+          "$RUNNER_TEMP/kestrel-action-probe" "$GITHUB_WORKSPACE/build/Kestrel.app" "$RUNNER_TEMP/kestrel-action-evidence" 2>&1 | tee "$RUNNER_TEMP/kestrel-action-probe.log"
+      - name: Retain native action evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-native-extension-action-probe
+          path: |
+            ${{ runner.temp }}/kestrel-action-evidence
+            ${{ runner.temp }}/kestrel-action-probe.log
+          retention-days: 30

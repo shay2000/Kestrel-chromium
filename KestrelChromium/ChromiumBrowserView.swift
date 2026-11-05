@@ -221,7 +221,7 @@ private final class PersistentChromeHostView: NSView {
             // Its system corner clip now surrounds the complete card rather
             // than cutting a second curve below the toolbar.
             if insetHeight != headerHeight {
-                browser?.setContentInsets(top: Double(headerHeight))
+                browser?.setContentInsets(top: browser?.options.showsChromeToolbar == true ? 0 : Double(headerHeight))
                 insetHeight = headerHeight
             }
             overlay.titlebarAppearsTransparent = true
