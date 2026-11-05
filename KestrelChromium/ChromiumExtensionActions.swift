@@ -9,17 +9,22 @@ enum ChromiumExtensionActions {
     static func show(in chrome: CefChromeBrowser, name: String? = nil,
                      isCurrent: @escaping @MainActor () -> Bool) {
         guard let page = chrome.nsWindow, let owner = page.parent,
-              page.isVisible, owner.isVisible, owner.attachedSheet == nil,
+              page.isVisible, owner.isVisible, owner.attachedSheet == nil, page.attachedSheet == nil,
               NSApp.modalWindow == nil, isCurrent() else { return }
         // Let Kestrel's command menu finish dismissing before Chromium opens a bubble.
         Task { @MainActor [weak chrome, weak page, weak owner] in
             try? await Task.sleep(nanoseconds: 80_000_000)
             guard let chrome, let page, let owner, chrome.isWindowAlive,
                   chrome.nsWindow === page, page.parent === owner, isCurrent(),
-                  owner.attachedSheet == nil, NSApp.modalWindow == nil else { return }
+                  owner.attachedSheet == nil, page.attachedSheet == nil, NSApp.modalWindow == nil else { return }
+            owner.orderFront(nil)
             owner.makeMain()
             page.makeKey()
-            let buttons = unique(nodes(in: [page]).filter {
+            if let name {
+                let existing = unique(nodes(in: [chrome.rootView].compactMap { $0 }).filter { $0.accessibilityRole() == .button && label($0) == name })
+                if existing.count == 1 { _ = existing[0].accessibilityPerformPress(); return }
+            }
+            let buttons = unique(nodes(in: [chrome.rootView].compactMap { $0 }).filter {
                 $0.accessibilityRole() == .popUpButton && label($0) == "Extensions"
             })
             let existingSurfaces = Set(NSApp.windows.filter(\.isVisible).map(ObjectIdentifier.init))
@@ -32,7 +37,7 @@ enum ChromiumExtensionActions {
             let surfaces = NSApp.windows.filter {
                 $0.isVisible && $0 !== owner && ($0 === page || !existingSurfaces.contains(ObjectIdentifier($0)))
             }
-            let actions = unique(nodes(in: surfaces).filter {
+            let actions = unique(nodes(in: surfaces.compactMap(\.contentView)).filter {
                 $0.accessibilityRole() == .button && label($0) == name
             })
             // Duplicate names never choose an arbitrary action. Leave the real
