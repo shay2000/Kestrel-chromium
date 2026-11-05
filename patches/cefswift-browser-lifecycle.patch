@@ -797,7 +797,7 @@ index 9792836..2e076c4 100644
      public func browser(_ b: CefBrowser, decidePolicyForNavigation url: URL?, isRedirect: Bool, userGesture: Bool) -> CefNavigationDecision { .allow }
      public func browser(_ b: CefBrowser, didRequestNewTab url: URL?) -> Bool { false }
 diff --git a/Sources/CefKit/CefChromeBrowser.swift b/Sources/CefKit/CefChromeBrowser.swift
-index cce60bd..6ceb09a 100644
+index cce60bd..c8f3329 100644
 --- a/Sources/CefKit/CefChromeBrowser.swift
 +++ b/Sources/CefKit/CefChromeBrowser.swift
 @@ -11,11 +11,18 @@ public struct CefChromeBrowserOptions {
@@ -877,7 +877,7 @@ index cce60bd..6ceb09a 100644
      /// Applies a vertical `BoxLayout` to the window carrying the current
      /// ``insets`` as `inside_border_insets`, then re-lays-out. The single child
      /// (the browser view) gets the default flex (1) and stretches to fill the
-@@ -207,11 +235,23 @@ public final class CefChromeBrowser {
+@@ -207,11 +235,18 @@ public final class CefChromeBrowser {
          settings.size = MemoryLayout<cef_box_layout_settings_t>.stride
          settings.horizontal = 0
          settings.inside_border_insets = insets
@@ -891,17 +891,27 @@ index cce60bd..6ceb09a 100644
              if let layout = panel.pointee.set_to_box_layout?(panel, &settings) {
 +                if let rawToolbarPanel {
 +                    let toolbar = UnsafeMutableRawPointer(rawToolbarPanel).assumingMemoryBound(to: cef_view_t.self)
-+                    // CEF consumes a +1 for object arguments, including layout
-+                    // configuration. Keep our panel reference alive across re-layouts.
-+                    if let setFlex = layout.pointee.set_flex_for_view {
-+                        cefAddRef(UnsafeMutableRawPointer(toolbar))
-+                        setFlex(layout, toolbar, 0)
-+                    }
++                    Self.fixToolbarFlex(layout, toolbar: toolbar)
 +                }
                  // set_to_box_layout returns a +1 cef_box_layout_t we own.
                  cefRelease(UnsafeMutableRawPointer(layout))
              }
-@@ -242,6 +282,40 @@ public final class CefChromeBrowser {
+@@ -219,6 +254,14 @@ public final class CefChromeBrowser {
+         }
+     }
+ 
++    /// Object arguments transfer a +1 through CEF's C API. Layout must not
++    /// consume the panel reference retained for later updates and destruction.
++    static func fixToolbarFlex(_ layout: UnsafeMutablePointer<cef_box_layout_t>, toolbar: UnsafeMutablePointer<cef_view_t>) {
++        guard let setFlex = layout.pointee.set_flex_for_view else { return }
++        cefAddRef(UnsafeMutableRawPointer(toolbar))
++        setFlex(layout, toolbar, 0)
++    }
++
+     // MARK: Callbacks from delegates
+ 
+     /// The window exists in the views hierarchy: attach the browser view.
+@@ -242,6 +285,40 @@ public final class CefChromeBrowser {
          window.pointee.show?(window)
      }
  
@@ -942,7 +952,7 @@ index cce60bd..6ceb09a 100644
      fileprivate func handleBrowserCreated(_ raw: UnsafeMutablePointer<cef_browser_t>) {
          browser.adoptRaw(raw)
      }
-@@ -251,6 +325,7 @@ public final class CefChromeBrowser {
+@@ -251,6 +328,7 @@ public final class CefChromeBrowser {
      }
  
      fileprivate func handleWindowDestroyed() {
@@ -950,7 +960,7 @@ index cce60bd..6ceb09a 100644
          if let rawWindow {
              cefRelease(UnsafeMutableRawPointer(rawWindow))
          }
-@@ -259,10 +334,15 @@ public final class CefChromeBrowser {
+@@ -259,10 +337,15 @@ public final class CefChromeBrowser {
              cefRelease(UnsafeMutableRawPointer(rawBrowserView))
          }
          rawBrowserView = nil
@@ -966,7 +976,7 @@ index cce60bd..6ceb09a 100644
      }
  
      // MARK: Helpers
-@@ -314,6 +394,15 @@ final class ChromeBrowserViewDelegate {
+@@ -314,6 +397,15 @@ final class ChromeBrowserViewDelegate {
      func makeStruct() -> UnsafeMutablePointer<cef_browser_view_delegate_t> {
          let d = cefAllocate(cef_browser_view_delegate_t.self, owner: self)
  
@@ -982,7 +992,7 @@ index cce60bd..6ceb09a 100644
          d.pointee.on_browser_created = { delegateSelf, browserView, rawBrowser in
              cefRelease(browserView.map(UnsafeMutableRawPointer.init))
              guard let me = ChromeBrowserViewDelegate.owner(delegateSelf.map(UnsafeMutableRawPointer.init)),
-@@ -372,7 +461,8 @@ final class ChromeBrowserViewDelegate {
+@@ -372,7 +464,8 @@ final class ChromeBrowserViewDelegate {
                  return CEF_CTT_NONE
              }
              return MainActor.assumeIsolated {
@@ -992,7 +1002,7 @@ index cce60bd..6ceb09a 100644
              }
          }
  
-@@ -457,6 +547,12 @@ final class ChromeWindowDelegate {
+@@ -457,6 +550,12 @@ final class ChromeWindowDelegate {
              return MainActor.assumeIsolated { me.options.isFrameless ? 0 : 1 }
          }
  
@@ -1005,7 +1015,7 @@ index cce60bd..6ceb09a 100644
          d.pointee.get_initial_bounds = { delegateSelf, window in
              cefRelease(window.map(UnsafeMutableRawPointer.init))
              guard let me = ChromeWindowDelegate.owner(delegateSelf.map(UnsafeMutableRawPointer.init)) else {
-@@ -480,3 +576,21 @@ final class ChromeWindowDelegate {
+@@ -480,3 +579,21 @@ final class ChromeWindowDelegate {
          return d
      }
  }
@@ -1271,10 +1281,10 @@ index b793569..aea14fc 100644
  }
 diff --git a/Tests/CefKitTests/KestrelLifecycleTests.swift b/Tests/CefKitTests/KestrelLifecycleTests.swift
 new file mode 100644
-index 0000000..0d8966f
+index 0000000..7b66e0d
 --- /dev/null
 +++ b/Tests/CefKitTests/KestrelLifecycleTests.swift
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,222 @@
 +import Foundation
 +import Testing
 +@testable import CCef
@@ -1301,6 +1311,26 @@ index 0000000..0d8966f
 +            $0.pointee.get_preferred_size?($0, nil)
 +        }
 +        #expect(size?.height == 40)
++    }
++    @Test func repeatedToolbarLayoutPreservesItsOwnedViewUntilFinalRelease() {
++        var identity: Identity? = Identity(98010)
++        weak var retained = identity
++        let toolbar = cefAllocate(cef_view_t.self, owner: identity!)
++        identity = nil
++        let layout = cefAllocate(cef_box_layout_t.self, owner: Identity(98011))
++        defer { cefRelease(UnsafeMutableRawPointer(layout)) }
++        // Model the documented CEF argument transfer, rather than retaining
++        // the view in a fake layout and accidentally masking a missing +1.
++        layout.pointee.set_flex_for_view = { _, view, _ in
++            cefRelease(view.map(UnsafeMutableRawPointer.init))
++        }
++        for _ in 0..<50 {
++            CefChromeBrowser.fixToolbarFlex(layout, toolbar: toolbar)
++            #expect(retained != nil)
++            guard retained != nil else { return }
++        }
++        cefRelease(UnsafeMutableRawPointer(toolbar))
++        #expect(retained == nil)
 +    }
 +    final class Identity { let id: Int32; init(_ id: Int32) { self.id = id } }
 +    final class Observer: CefBrowserDelegate {
