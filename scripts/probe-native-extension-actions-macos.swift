@@ -70,10 +70,11 @@ struct NativeExtensionActionProbe {
             await ActionProbe.pause(1)
             describeButtons("menu-open");try preview("native-action-menu")
             try ActionProbe.dumpAX("native-action-menu.json")
-            let actions=ActionProbe.axNodes().filter { node in
+            let actionNodes=ActionProbe.axNodes().filter { node in
                 let label=text(node,"AXDescription")+" "+text(node,"AXTitle")
                 return text(node,"AXRole")=="AXButton" && label.localizedCaseInsensitiveContains("Google Translate") && !label.localizedCaseInsensitiveContains("pin") && !label.localizedCaseInsensitiveContains("more")
             }
+            let actions = Dictionary(grouping: actionNodes, by: { rect($0).map(NSStringFromRect) ?? "missing" }).values.compactMap(\.first)
             guard actions.count==1 else{throw StoreProbeError(message:"Expected one Translate menu action, found \(actions.count)")}
             let actionResult=AXUIElementPerformAction(actions[0],kAXPressAction as CFString)
             ActionProbe.record("native_translate_action_pressed",["result":actionResult.rawValue])
