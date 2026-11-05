@@ -1,5 +1,13 @@
 # Application cleanup and optimisation
 
+## Native extension actions and 1.0.2 release — 5 November 2026
+
+Published [1.0.2](https://github.com/shay2000/Kestrel-chromium/releases/tag/v1.0.2-chromium-preview.1) from source `757a17f779ea6dfe01527500c1189e4cebaedc09` and [complete Mac run 42085793532](https://github.com/shay2000/Kestrel-chromium/actions/runs/42085793532). Genuine actions now live in Kestrel's Extensions command menu, pinned toolbar shortcuts and independently chosen shortcuts beside Chats. Google Translate's real active-tab API, menu/sidebar popup, options page, visible Settings toggles, clean restart without forced renderer accessibility and quitting with its popup open passed. Window censuses found zero escaped standalone Chromium toolbars.
+
+Fixed the missing CEF toolbar attachment at `OnWindowChanged`, retained a temporary view argument for each consuming `SetFlexForView` call, and prevented native page layout updates from covering Settings. The native ownership regression repeats 50 layouts and final release; the window regression covers independent Settings and page-owned popups. The test clears shortcut modifiers before physical settings navigation. Existing 17 focus/toolbar/network assertions, seven CRX cases, 11 lifecycle/ownership cases, both Store installs/options/restart, WebKit comparison and clean packaging/signatures passed.
+
+[Publication 42087963304](https://github.com/shay2000/Kestrel-chromium/actions/runs/42087963304) passed ten guards and promoted the exact tested DMG without rebuilding, including mounted-app and uploaded-byte checks. SHA-256 `2f54d9ea0655af392adb48b6d2221c416a3cc3f2ca95400a22f8c2963f238c47`. [Provenance](docs/CHROMIUM_1_0_2_RELEASE_2026-11-05.md) · [Implementation](docs/EXTENSION_ACTIONS_2026-11-05.md). Apple silicon/ad-hoc/non-notarised; native QR and physical passkey ceremonies remain unverified, and Apple's Passwords helper still lacks an accepted Kestrel identity. Full extension-catalogue/API compatibility, dynamic shortcut artwork/badges and Settings imports are not established. No paid credential service or main merge.
+
 ## Published extension-bar and QR audit — 5 November 2026
 
 At the user's request, tested the exact released 1.0.1 DMG in [run 42036805210](https://github.com/shay2000/Kestrel-chromium/actions/runs/42036805210), audit source `03beb31621143d6a680cc6bb974355d63a8de926`. Actual Google Translate installation succeeded, but neither the native toolbar nor the macOS Extensions menu exposed its action. The menu offers management/import guidance only. The Kestrel action UI is missing and must not be inferred from installation/options acceptance.

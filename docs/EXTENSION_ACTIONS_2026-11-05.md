@@ -1,6 +1,6 @@
 # Native extension actions in Kestrel
 
-The 1.0.2 source is under native acceptance. The published 1.0.1 DMG has not yet changed.
+[Kestrel Chromium 1.0.2 is published](https://github.com/shay2000/Kestrel-chromium/releases/tag/v1.0.2-chromium-preview.1). The app and checks use source `757a17f779ea6dfe01527500c1189e4cebaedc09`, [complete Mac run 42085793532](https://github.com/shay2000/Kestrel-chromium/actions/runs/42085793532). [Exact DMG and publication provenance](CHROMIUM_1_0_2_RELEASE_2026-11-05.md).
 
 Kestrel retains Chromium's real Chrome toolbar/action controllers inside its existing CEF page window, behind the original SwiftUI header. Its toolbar button, Extensions command menu and optional sidebar shortcuts activate those controllers through public in-process `NSAccessibilityProtocol` objects. No second browser, remote debugging endpoint, system Accessibility grant or navigation to a `default_popup` URL is used by the product. Renderer web areas are excluded from control discovery. Action requests revalidate the selected tab, browser instance, address and request generation after asynchronous menu dismissal.
 
@@ -12,13 +12,13 @@ The native restart failure exposed a CefSwift integration bug: selecting `CEF_CT
 
 The first full regression also caught a transferred-reference bug in the new layout call: CEF consumes a +1 for the view argument to `SetFlexForView`. Each call must receive a temporary retained reference. Keeping the stored panel reference prevents repeated layout and shutdown from using freed memory. A native regression models CEF's argument consumption across 50 updates and verifies the final view release. The UI suite also quits with a genuine popup open. Native layout refreshes only raise the page for its own active document or popup; an independent Settings window must stay above the browser so extension placement choices remain usable.
 
-## Evidence so far
+## Verified native acceptance
 
-- [Mac probe 42060608797](https://github.com/shay2000/Kestrel-chromium/actions/runs/42060608797), source `01ad464`, installed the real Google Translate extension from its Store page, physically clicked Kestrel's toolbar button, opened the genuine native action and inspected its real popup. `chrome.runtime.id` was `aapbdbdomjkkjkaonfhkkikfgjllcleb`; `chrome.tabs.query({active:true,currentWindow:true})` returned the selected Kestrel `https://example.com/` tab. The popup was visibly rendered inside Kestrel. The renderer viewport remained below the reserved header.
-- [Placement probe 42071024985](https://github.com/shay2000/Kestrel-chromium/actions/runs/42071024985) confirmed pinning, Kestrel’s mirrored toolbar icon, the sidebar shortcut, visibly anchored genuine popups and the extension options page. A second-tab/cold-start gate then exposed the missing toolbar attachment described below; complete acceptance is still pending.
-- Linux: 433 tests, five platform skips, zero failures. This includes legacy placement decoding, independent placement/selection persistence, profile-path containment, disabled entries and runtime-localised action names. Linux does not validate the Mac UI.
-
-The final build must pass genuine native pinning, sidebar and menu activation, its extension options page, a fresh launch without forced renderer accessibility, the existing no-extra-Chromium-window census and the full native focus/toolbar regression. No 1.0.2 release is claimed until those checks pass.
+- [Complete production-app workflow 42085793532](https://github.com/shay2000/Kestrel-chromium/actions/runs/42085793532) passed the genuine Google Translate menu, native pin and Kestrel toolbar shortcut, sidebar action, macOS command-menu action and actual options document. The popup's `chrome.runtime.id` matched `aapbdbdomjkkjkaonfhkkikfgjllcleb`; `chrome.tabs.query({active:true,currentWindow:true})` returned the selected example.com tab.
+- Both real Settings sidebar-toggle states passed. The Settings window stays above the browser and selected shortcut choices persist. A fresh launch without forced renderer accessibility or prior external AX inspection opened the native menu and real popup for example.org. Quitting with the genuine popup open passed. Window censuses reported zero escaped standalone Chromium toolbars and separately counted the toolbar inside Kestrel's own header window.
+- Existing 17 native focus/first-click/address/join/canvas/window/network assertions, native overlay/window-order regression, seven CRX cases, 11 CEF lifecycle/ownership cases, both Store installs/options/restart, original WebKit comparison and clean DMG/signatures passed. Native action/setup and visual captures were inspected.
+- Linux's unchanged portable sources passed 433 tests, five platform skips and zero failures, including placement decoding/selection, path containment, disabled entries and runtime-localised names. Linux does not validate the Mac UI.
+- [Publication 42087963304](https://github.com/shay2000/Kestrel-chromium/actions/runs/42087963304) passed ten publication guards and promoted the exact tested DMG without rebuilding. The mounted app and downloaded release assets were verified. [Full provenance](CHROMIUM_1_0_2_RELEASE_2026-11-05.md).
 
 ## Limits
 
