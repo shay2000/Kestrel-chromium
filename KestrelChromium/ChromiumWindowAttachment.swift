@@ -9,6 +9,7 @@ final class ChromiumWindowAttachment {
     private weak var page: NSWindow?
     private var observers: [NSObjectProtocol] = []
     private var mouseMonitor: Any?
+    private var loggedPointerEvents = 0
     var onFocus: (() -> Void)?
     var headerHeight: CGFloat = 0
     var isNativeControlPoint: ((CGPoint) -> Bool)?
@@ -19,6 +20,7 @@ final class ChromiumWindowAttachment {
         detach()
         self.owner = owner
         self.page = page
+        loggedPointerEvents = 0
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: page, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -39,6 +41,14 @@ final class ChromiumWindowAttachment {
                   page.parent === owner, NSApp.isActive, owner.isVisible,
                   !owner.isMiniaturized, owner.attachedSheet == nil, page.attachedSheet == nil,
                   NSApp.modalWindow == nil else { return event }
+            if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type),
+               event.window === page || event.window === owner,
+               self.loggedPointerEvents < 10,
+               CommandLine.arguments.contains("--remote-debugging-port=9333") {
+                self.loggedPointerEvents += 1
+                let diagnostic = "KESTREL_LIFECYCLE windowGeometry pointerWindow=\(event.windowNumber) owner=\(owner.windowNumber) page=\(page.windowNumber) point=\(NSStringFromPoint(event.locationInWindow)) native=\(self.isNativeControlPoint?(event.locationInWindow) ?? false)"
+                try? FileHandle.standardError.write(contentsOf: Data((diagnostic + "\n").utf8))
+            }
             if event.window === page {
                 if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
                     if !page.isKeyWindow { page.makeKey() }

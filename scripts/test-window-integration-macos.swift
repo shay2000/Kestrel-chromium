@@ -59,6 +59,8 @@ struct WindowIntegrationAcceptance {
         var origin = CGPoint.zero, dimensions = CGSize.zero
         guard AXValueGetValue(unsafeBitCast(position, to: AXValue.self), .cgPoint, &origin), AXValueGetValue(unsafeBitCast(size, to: AXValue.self), .cgSize, &dimensions) else { throw StoreProbeError(message: "No control bounds") }
         let point = CGPoint(x: origin.x + dimensions.width / 2, y: origin.y + dimensions.height / 2)
+        FocusProbe.record("native_control_click", ["label": text(node, "AXDescription"),
+            "bounds": NSStringFromRect(CGRect(origin: origin, size: dimensions)), "point": NSStringFromPoint(point)])
         for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
             let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: point, mouseButton: .left)
             event?.flags = []; event?.post(tap: .cghidEventTap)

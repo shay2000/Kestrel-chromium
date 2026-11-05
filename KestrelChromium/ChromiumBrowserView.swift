@@ -314,6 +314,9 @@ private final class PersistentChromeHostView: NSView {
             return
         }
         let host = nativeHeader ?? HeaderHostingView(rootView: AnyView(EmptyView()))
+        // CEF already reserves this strip. Disable the hosting view's own
+        // titlebar inset so drawing, native hit testing and AX use one origin.
+        host.safeAreaRegions = []
         host.headerHeight = headerHeight
         let radius: CGFloat
         if #available(macOS 26, *) { radius = 20 } else { radius = 16 }
@@ -334,11 +337,6 @@ private final class PersistentChromeHostView: NSView {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        // This hosting view is an overlay in CEF's full-size content view.
-        // SwiftUI otherwise reserves the native titlebar's safe area a
-        // second time, moving the toolbar below its native hit-test region
-        // and covering the first rows of the webpage.
-        .ignoresSafeArea()
         .environment(\.browserViewportHeight, max(1, root.bounds.height - headerHeight))
         .environment(\.controlActiveState, BrowserWindowFocus.isActive(owner) ? .active : .inactive)
         .environment(\.colorScheme, owner.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light)
@@ -367,7 +365,7 @@ private final class PersistentChromeHostView: NSView {
             headerAccessibilityWindow = page
             originalAccessibilityChildren = page.accessibilityChildren()
             host.setAccessibilityElement(true)
-            host.setAccessibilityRole(.toolbar)
+            host.setAccessibilityRole(.group)
             host.setAccessibilityLabel("Kestrel browser controls")
             host.setAccessibilityParent(page)
             page.setAccessibilityChildren((originalAccessibilityChildren ?? []) + [host])
@@ -390,6 +388,7 @@ private final class PersistentChromeHostView: NSView {
         private weak var leftTarget: NSView?
         private weak var rightTarget: NSView?
         private weak var otherTarget: NSView?
+        private var loggedPointerEvents = 0
 
         /// BridgedContentView returns itself for CEF Views' non-web areas,
         /// before asking AppKit subviews to hit-test. Dispatch the original
@@ -422,9 +421,17 @@ private final class PersistentChromeHostView: NSView {
             case .mouseMoved, .scrollWheel: break
             default: return false
             }
-            guard let superview,
-                  containsNativeControl(pointInWindow: event.locationInWindow),
-                  let target = hitTest(superview.convert(event.locationInWindow, from: nil)) else { return false }
+            guard let superview else { return false }
+            let native = containsNativeControl(pointInWindow: event.locationInWindow)
+            let point = superview.convert(event.locationInWindow, from: nil)
+            let hit = native ? hitTest(point) : nil
+            if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type),
+               loggedPointerEvents < 10, CommandLine.arguments.contains("--remote-debugging-port=9333") {
+                loggedPointerEvents += 1
+                let diagnostic = "KESTREL_LIFECYCLE windowGeometry headerPoint=\(NSStringFromPoint(point)) bounds=\(NSStringFromRect(bounds)) flipped=\(isFlipped) native=\(native) target=\(hit.map { String(describing: type(of: $0)) } ?? "none")"
+                try? FileHandle.standardError.write(contentsOf: Data((diagnostic + "\n").utf8))
+            }
+            guard let target = hit else { return false }
             switch event.type {
             case .leftMouseDown: leftTarget = target; target.mouseDown(with: event)
             case .rightMouseDown: rightTarget = target; target.rightMouseDown(with: event)
@@ -436,13 +443,6 @@ private final class PersistentChromeHostView: NSView {
             return true
         }
 
-        override func accessibilityFrame() -> NSRect {
-            guard let window else { return .zero }
-            let height = min(bounds.height, max(headerHeight, dropdownRegions.map(\.maxY).max() ?? 0))
-            let rect = NSRect(x: bounds.minX, y: isFlipped ? bounds.minY : bounds.maxY - height,
-                              width: bounds.width, height: height)
-            return window.convertToScreen(convert(rect, to: nil))
-        }
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard let superview else { return nil }
             let local = convert(point, from: superview)
