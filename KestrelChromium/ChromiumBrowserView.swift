@@ -251,7 +251,9 @@ private final class PersistentChromeHostView: NSView {
                     try? FileHandle.standardError.write(contentsOf: Data((diagnostic + "\n").utf8))
                 }
             }
-            overlay.orderFront(nil)
+            if ChromiumWindowAttachment.shouldOrderPageFront(owner: window, page: overlay, keyWindow: NSApp.keyWindow) {
+                overlay.orderFront(nil)
+            }
         } else {
             attachment.detach()
             overlay.parent?.removeChildWindow(overlay)

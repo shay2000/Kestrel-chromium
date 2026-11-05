@@ -64,6 +64,12 @@ final class ChromiumWindowAttachment {
         restoreDocumentMainWindow()
     }
 
+    /// Layout updates must not raise a browser page over Settings or another document.
+    static func shouldOrderPageFront(owner: NSWindow, page: NSWindow, keyWindow: NSWindow?) -> Bool {
+        guard let keyWindow else { return true }
+        return keyWindow === owner || keyWindow === page || keyWindow.parent === page
+    }
+
     private func restoreDocumentMainWindow() {
         guard let owner, let page, page.parent === owner, page.isKeyWindow,
               NSApp.isActive, owner.isVisible, !owner.isMiniaturized,

@@ -25,7 +25,7 @@ jobs:
             kestrel-actions-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift','patches/**') }}-
       - name: Build the Kestrel probe app
         run: |
-          swiftc -swift-version 5 -parse-as-library KestrelChromium/ChromiumNativeOverlays.swift KestrelChromium/ChromiumWindowAccessibility.swift scripts/test-native-overlays-macos.swift -o "$RUNNER_TEMP/kestrel-native-overlays-test"
+          swiftc -swift-version 5 -parse-as-library KestrelChromium/ChromiumNativeOverlays.swift KestrelChromium/ChromiumWindowAccessibility.swift KestrelChromium/ChromiumWindowAttachment.swift scripts/test-native-overlays-macos.swift -o "$RUNNER_TEMP/kestrel-native-overlays-test"
           "$RUNNER_TEMP/kestrel-native-overlays-test"
           ./build.sh release
           swift test --package-path .build/checkouts/CefSwift --filter KestrelLifecycleTests
