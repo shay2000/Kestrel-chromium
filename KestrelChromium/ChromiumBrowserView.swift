@@ -360,7 +360,7 @@ private final class PersistentChromeHostView: NSView {
         // BridgedContentView exposes Chromium's AX tree instead of ordinary
         // AppKit subviews. Preserve that tree and add our native toolbar at
         // the window level so VoiceOver and normal AX clients can reach it.
-        if let page = root.window, headerAccessibilityWindow !== page {
+        if let page = root.window, browser?.options.showsChromeToolbar != true, headerAccessibilityWindow !== page {
             headerAccessibilityWindow = page
             originalAccessibilityChildren = page.accessibilityChildren()?.filter { ($0 as AnyObject) !== host }
             host.setAccessibilityElement(true)

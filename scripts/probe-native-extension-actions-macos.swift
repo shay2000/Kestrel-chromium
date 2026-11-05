@@ -23,10 +23,11 @@ struct NativeExtensionActionProbe {
         }
     }
     static func describeButtons(_ stage:String) {
-        let rows=ActionProbe.axNodes().filter{["AXButton","AXToolbar","AXMenuButton"].contains(text($0,"AXRole"))}.map{node in
+        let all=ActionProbe.axNodes()
+        let rows=all.filter{["AXButton","AXToolbar","AXMenuButton","AXPopUpButton"].contains(text($0,"AXRole")) || text($0,"AXDescription").localizedCaseInsensitiveContains("extensions")}.map{node in
             ["role":text(node,"AXRole"),"label":text(node,"AXDescription"),"title":text(node,"AXTitle"),"identifier":text(node,"AXIdentifier"),"help":text(node,"AXHelp"),"bounds":rect(node).map(NSStringFromRect) ?? ""]
         }
-        ActionProbe.record("native_action_nodes",["stage":stage,"nodes":rows])
+        ActionProbe.record("native_action_nodes",["stage":stage,"nodes":rows,"roleCounts":Dictionary(grouping:all,by:{text($0,"AXRole")}).mapValues(\.count)])
     }
     static func main() async {
         do {
@@ -39,15 +40,24 @@ struct NativeExtensionActionProbe {
             try await ActionProbe.install(id:item.id,slug:item.slug,name:item.name)
             let page=try await ActionProbe.open("https://example.com/")
             await ActionProbe.pause(2)
+            let app=AXUIElementCreateApplication(ActionProbe.testedPID!)
+            if let raw=ActionProbe.ax(app,"AXMainWindow") {
+                let owner=unsafeBitCast(raw,to:AXUIElement.self)
+                var size=CGSize(width:1000,height:700),point=CGPoint(x:30,y:55)
+                if let value=AXValueCreate(.cgSize,&size) {_=AXUIElementSetAttributeValue(owner,"AXSize" as CFString,value)}
+                if let value=AXValueCreate(.cgPoint,&point) {_=AXUIElementSetAttributeValue(owner,"AXPosition" as CFString,value)}
+                await ActionProbe.pause(0.5)
+            }
             let body=try await ActionProbe.nativePageBounds(page)
+            ActionProbe.record("native_action_geometry",["body":NSStringFromRect(body)])
             try await ActionProbe.nativePageClick(page,x:body.width/2,y:body.height/2)
             await ActionProbe.pause(0.5)
             describeButtons("before-menu")
             try preview("native-action-before")
             let candidates=ActionProbe.axNodes().filter { node in
-                guard text(node,"AXRole")=="AXButton",let bounds=rect(node) else{return false}
+                guard ["AXButton","AXMenuButton","AXPopUpButton"].contains(text(node,"AXRole")),let bounds=rect(node) else{return false}
                 let label=text(node,"AXDescription")+" "+text(node,"AXTitle")
-                return label.trimmingCharacters(in:.whitespaces)=="Extensions" && bounds.midX>=body.minX && bounds.midX<=body.maxX && bounds.midY>=body.minY-70 && bounds.midY<body.minY
+                return label.trimmingCharacters(in:.whitespaces).hasPrefix("Extensions") && bounds.midX>=body.minX && bounds.midX<=body.maxX && bounds.midY>=body.minY-70 && bounds.midY<body.minY
             }
             guard candidates.count==1 else{throw StoreProbeError(message:"Expected one native Chromium Extensions button, found \(candidates.count)")}
             let menuResult=AXUIElementPerformAction(candidates[0],kAXPressAction as CFString)
