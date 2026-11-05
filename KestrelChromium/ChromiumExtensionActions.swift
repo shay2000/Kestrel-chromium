@@ -29,6 +29,7 @@ enum ChromiumExtensionActions {
         guard let page = chrome.nsWindow, let owner = page.parent,
               page.isVisible, owner.isVisible, owner.attachedSheet == nil, page.attachedSheet == nil,
               NSApp.modalWindow == nil, isCurrent() else { return }
+        chrome.browser.setAccessibilityEnabled(true)
         // Let Kestrel's command menu finish dismissing before Chromium opens a bubble.
         Task { @MainActor [weak chrome, weak page, weak owner] in
             try? await Task.sleep(nanoseconds: 80_000_000)
@@ -49,8 +50,13 @@ enum ChromiumExtensionActions {
                 if existing.count == 1 { _ = existing[0].accessibilityPerformPress(); return }
             }
             let existingSurfaces = Set(NSApp.windows.filter(\.isVisible).map(ObjectIdentifier.init))
-            guard let button = menuButton(in: chrome),
-                  button.accessibilityPerformPress() else { unavailable(owner: owner); return }
+            var button = menuButton(in: chrome)
+            for _ in 0..<12 where button == nil {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                guard isCurrent(), chrome.isWindowAlive else { return }
+                button = menuButton(in: chrome)
+            }
+            guard let button, button.accessibilityPerformPress() else { unavailable(owner: owner); return }
             guard let name else { return }
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard isCurrent(), chrome.isWindowAlive, page.parent === owner else { return }

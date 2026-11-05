@@ -15,8 +15,6 @@ final class ChromiumExtensionPopover {
     private var discovery: Task<Void, Never>?
     private var idleClose: Task<Void, Never>?
     private var adjusting = false
-    private var probeWindows = Set<Int>()
-    private var loggedNoAnchor = false
     private var hadVisibleWindow = false
     private var inputMonitor: Any?
     private var windows: [Int: WeakWindow] = [:]
@@ -65,16 +63,8 @@ final class ChromiumExtensionPopover {
         guard !adjusting else { return }
         guard isCurrent(), let page, let owner, page.parent === owner, page.isVisible else { stop(); return }
         guard owner.attachedSheet == nil, page.attachedSheet == nil, NSApp.modalWindow == nil else { return }
-        let header = page.contentView?.subviews.first { $0.accessibilityLabel() == "Kestrel browser controls" }
-        let roots: [Any] = [header, owner.contentView].compactMap { $0 }
-        let preferred = anchorLabel.flatMap { ChromiumExtensionActions.controlFrame(named: $0, in: roots) }
-        guard let anchor = preferred ?? ChromiumExtensionActions.controlFrame(named: "Show extensions", in: roots) else {
-            if !loggedNoAnchor { NSLog("KESTREL_POPOVER_PROBE no anchor roots=%ld header=%@", roots.count, header == nil ? "missing" : "present"); loggedNoAnchor = true }
-            return
-        }
-        for candidate in NSApp.windows where candidate.isVisible && !baseline.contains(candidate.windowNumber) && probeWindows.insert(candidate.windowNumber).inserted {
-            NSLog("KESTREL_POPOVER_PROBE id=%ld parent=%ld page=%ld owner=%ld key=%d titled=%d style=%lu frame=%@ anchor=%@", candidate.windowNumber, candidate.parent?.windowNumber ?? -1, page.windowNumber, owner.windowNumber, candidate.canBecomeKey, candidate.styleMask.contains(.titled), candidate.styleMask.rawValue, NSStringFromRect(candidate.frame), NSStringFromRect(anchor))
-        }
+        let preferred = anchorLabel.flatMap { ChromiumExtensionAnchors.frame(named: $0, in: [page, owner]) }
+        guard let anchor = preferred ?? ChromiumExtensionAnchors.frame(named: "Show extensions", in: [page, owner]) else { return }
         for window in NSApp.windows where window.isVisible && window !== page && window !== owner
             && !baseline.contains(window.windowNumber) && window.parent !== owner
             && window.canBecomeKey && !window.styleMask.contains(.titled)

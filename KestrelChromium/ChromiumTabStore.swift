@@ -705,6 +705,7 @@ final class TabStore: ObservableObject {
         options.initialBounds = CGRect(x: -4096, y: -4096, width: 800, height: 600)
         let initialURL = model.url ?? URL(string: "about:blank")!
         let chrome = CefChromeBrowser.create(url: initialURL, options: options, delegate: model)
+        chrome.browser.setAccessibilityEnabled(true)
         model.kestrelAttach(chrome.browser)
         let delegate = CefBrowserDelegateProxy(model: model, store: browser(for: id), tabs: self)
         chrome.browser.delegate = delegate

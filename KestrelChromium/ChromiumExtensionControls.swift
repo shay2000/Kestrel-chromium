@@ -28,6 +28,7 @@ struct ExtensionToolbarButton: View {
         .disabled(!tabs.canShowExtensionActions(for: tabID))
         .help("Open installed extensions and their site access controls")
         .accessibilityLabel("Show extensions")
+        .background(ExtensionControlAnchor(name: "Show extensions").allowsHitTesting(false))
     }
 }
 
@@ -47,6 +48,7 @@ struct PinnedToolbarExtensionActions: View {
             .buttonStyle(.plain)
             .help("Open \(item.name)")
             .accessibilityLabel("Open \(item.name) toolbar extension")
+            .background(ExtensionControlAnchor(name: "Open \(item.name) toolbar extension").allowsHitTesting(false))
             .disabled(!tabs.canShowExtensionActions(for: tabID))
         }
     }
@@ -73,6 +75,7 @@ struct SidebarExtensionActions: View {
                 .buttonStyle(.plain)
                 .help("Open \(item.name)")
                 .accessibilityLabel("Open \(item.name) extension")
+                .background(ExtensionControlAnchor(name: "Open \(item.name) extension").allowsHitTesting(false))
                 .disabled(!tabs.canShowExtensionActions(for: tabs.selectedID))
             }
             if chosen.count > visible.count || chosen.isEmpty {
