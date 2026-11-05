@@ -15,6 +15,8 @@ final class ChromiumExtensionPopover {
     private var discovery: Task<Void, Never>?
     private var idleClose: Task<Void, Never>?
     private var adjusting = false
+    private var hadVisibleWindow = false
+    private var inputMonitor: Any?
     private var windows: [Int: WeakWindow] = [:]
     private final class WeakWindow { weak var value: NSWindow?; init(_ value: NSWindow) { self.value = value } }
 
@@ -31,6 +33,13 @@ final class ChromiumExtensionPopover {
     }
 
     private func start() {
+        inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
+            guard let self else { return event }
+            if event.type == .keyDown ? event.keyCode == 53 : (event.window === self.page || event.window === self.owner) {
+                self.stop()
+            }
+            return event
+        }
         for name in [NSWindow.didMoveNotification, .didResizeNotification, .didBecomeKeyNotification, .didUpdateNotification] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.update() }
@@ -62,6 +71,10 @@ final class ChromiumExtensionPopover {
             && window.frame.height >= 40 && window.frame.width >= 80 {
             windows[window.windowNumber] = WeakWindow(window)
         }
+        let visible = windows.values.contains { $0.value?.isVisible == true }
+        if hadVisibleWindow && !visible { scheduleIdleClose() }
+        hadVisibleWindow = visible
+        guard !windows.values.contains(where: { $0.value?.attachedSheet != nil }) else { return }
         adjusting = true
         defer { adjusting = false }
         for value in windows.values {
@@ -91,6 +104,8 @@ final class ChromiumExtensionPopover {
 
     private func stop() {
         discovery?.cancel(); idleClose?.cancel()
+        if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
+        inputMonitor = nil
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []; windows = [:]
         if Self.active === self { Self.active = nil }
