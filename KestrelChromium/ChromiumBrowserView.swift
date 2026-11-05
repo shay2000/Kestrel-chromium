@@ -331,6 +331,11 @@ private final class PersistentChromeHostView: NSView {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
+        // This hosting view is an overlay in CEF's full-size content view.
+        // SwiftUI otherwise reserves the native titlebar's safe area a
+        // second time, moving the toolbar below its native hit-test region
+        // and covering the first rows of the webpage.
+        .ignoresSafeArea()
         .environment(\.browserViewportHeight, max(1, root.bounds.height - headerHeight))
         .environment(\.controlActiveState, BrowserWindowFocus.isActive(owner) ? .active : .inactive)
         .environment(\.colorScheme, owner.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light)
