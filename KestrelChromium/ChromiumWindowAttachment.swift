@@ -12,6 +12,7 @@ final class ChromiumWindowAttachment {
     var onFocus: (() -> Void)?
     var headerHeight: CGFloat = 0
     var isNativeControlPoint: ((CGPoint) -> Bool)?
+    var handleNativeControlEvent: ((NSEvent) -> Bool)?
 
     func attach(owner: NSWindow, page: NSWindow) {
         guard self.owner !== owner || self.page !== page else { return }
@@ -28,19 +29,28 @@ final class ChromiumWindowAttachment {
                 }
             })
         }
-        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [
+            .leftMouseDown, .leftMouseUp, .leftMouseDragged,
+            .rightMouseDown, .rightMouseUp, .rightMouseDragged,
+            .otherMouseDown, .otherMouseUp, .otherMouseDragged,
+            .mouseMoved, .scrollWheel,
+        ]) { [weak self] event in
             guard let self, let owner = self.owner, let page = self.page,
                   page.parent === owner, NSApp.isActive, owner.isVisible,
                   !owner.isMiniaturized, owner.attachedSheet == nil, page.attachedSheet == nil,
                   NSApp.modalWindow == nil else { return event }
             if event.window === page {
-                if !page.isKeyWindow { page.makeKey() }
-                owner.makeMain()
-                if !(self.isNativeControlPoint?(event.locationInWindow)
-                    ?? (event.locationInWindow.y >= page.frame.height - self.headerHeight)) {
-                    self.onFocus?()
+                if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
+                    if !page.isKeyWindow { page.makeKey() }
+                    owner.makeMain()
+                    if !(self.isNativeControlPoint?(event.locationInWindow)
+                        ?? (event.locationInWindow.y >= page.frame.height - self.headerHeight)) {
+                        self.onFocus?()
+                    }
                 }
-            } else if event.window === owner {
+                if self.handleNativeControlEvent?(event) == true { return nil }
+            } else if event.window === owner,
+                      [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
                 // Activate the target before AppKit makes its first-mouse
                 // decision. Deliver the same event once, without replaying it.
                 if !owner.isKeyWindow { owner.makeKey() }

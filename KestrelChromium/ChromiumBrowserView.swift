@@ -217,6 +217,9 @@ private final class PersistentChromeHostView: NSView {
             attachment.isNativeControlPoint = { [weak self] point in
                 self?.nativeHeader?.containsNativeControl(pointInWindow: point) ?? false
             }
+            attachment.handleNativeControlEvent = { [weak self] event in
+                self?.nativeHeader?.routeNativeControlEvent(event) ?? false
+            }
             // The native CEF window contains the toolbar and page together.
             // Its system corner clip now surrounds the complete card rather
             // than cutting a second curve below the toolbar.
@@ -384,6 +387,55 @@ private final class PersistentChromeHostView: NSView {
     private final class HeaderHostingView: NSHostingView<AnyView> {
         var headerHeight: CGFloat = 0
         var dropdownRegions: [CGRect] = []
+        private weak var leftTarget: NSView?
+        private weak var rightTarget: NSView?
+        private weak var otherTarget: NSView?
+
+        /// BridgedContentView returns itself for CEF Views' non-web areas,
+        /// before asking AppKit subviews to hit-test. Dispatch the original
+        /// event to our own native controls and consume it once. Keep a drag
+        /// bound to its initial target, including release outside the header.
+        /// Page gestures never acquire a toolbar target.
+        func routeNativeControlEvent(_ event: NSEvent) -> Bool {
+            switch event.type {
+            case .leftMouseDragged:
+                guard let target = leftTarget else { return false }
+                target.mouseDragged(with: event); return true
+            case .leftMouseUp:
+                guard let target = leftTarget else { return false }
+                leftTarget = nil; target.mouseUp(with: event); return true
+            case .rightMouseDragged:
+                guard let target = rightTarget else { return false }
+                target.rightMouseDragged(with: event); return true
+            case .rightMouseUp:
+                guard let target = rightTarget else { return false }
+                rightTarget = nil; target.rightMouseUp(with: event); return true
+            case .otherMouseDragged:
+                guard let target = otherTarget else { return false }
+                target.otherMouseDragged(with: event); return true
+            case .otherMouseUp:
+                guard let target = otherTarget else { return false }
+                otherTarget = nil; target.otherMouseUp(with: event); return true
+            case .leftMouseDown: leftTarget = nil
+            case .rightMouseDown: rightTarget = nil
+            case .otherMouseDown: otherTarget = nil
+            case .mouseMoved, .scrollWheel: break
+            default: return false
+            }
+            guard let superview,
+                  containsNativeControl(pointInWindow: event.locationInWindow),
+                  let target = hitTest(superview.convert(event.locationInWindow, from: nil)) else { return false }
+            switch event.type {
+            case .leftMouseDown: leftTarget = target; target.mouseDown(with: event)
+            case .rightMouseDown: rightTarget = target; target.rightMouseDown(with: event)
+            case .otherMouseDown: otherTarget = target; target.otherMouseDown(with: event)
+            case .mouseMoved: target.mouseMoved(with: event)
+            case .scrollWheel: target.scrollWheel(with: event)
+            default: return false
+            }
+            return true
+        }
+
         override func accessibilityFrame() -> NSRect {
             guard let window else { return .zero }
             let height = min(bounds.height, max(headerHeight, dropdownRegions.map(\.maxY).max() ?? 0))
