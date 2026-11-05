@@ -1,0 +1,30 @@
+<!doctype html><meta charset="utf-8"><title>Kestrel passkey QR audit</title>
+<style>body{font:18px system-ui;margin:32px}button{font:inherit;padding:12px;margin:8px}pre{white-space:pre-wrap}</style>
+<h1>Disposable passkey QR audit</h1>
+<p>No account or real credential is used. Cancel every request after recording the native UI.</p>
+<button id="known">Phone sign-in (random credential)</button>
+<button id="discoverable">Phone sign-in (discoverable)</button>
+<button id="create">Create on another device</button>
+<pre id="result">Ready</pre>
+<script>
+let controller;
+window.cancelAuditRequest=()=>controller?.abort();
+async function request(kind){
+  controller?.abort();controller=new AbortController();result.textContent='Native request pending: '+kind;
+  const bytes=n=>crypto.getRandomValues(new Uint8Array(n));
+  try{
+    if(kind==='create')await navigator.credentials.create({signal:controller.signal,publicKey:{
+      challenge:bytes(32),rp:{id:location.hostname,name:'Disposable Kestrel QR audit'},
+      user:{id:bytes(16),name:'disposable-audit',displayName:'Disposable audit'},
+      pubKeyCredParams:[{type:'public-key',alg:-7}],authenticatorSelection:{authenticatorAttachment:'cross-platform',residentKey:'preferred'},
+      hints:['hybrid'],timeout:60000,attestation:'none'
+    }});
+    else await navigator.credentials.get({signal:controller.signal,publicKey:{
+      challenge:bytes(32),rpId:location.hostname,hints:['hybrid'],timeout:60000,userVerification:'preferred',
+      allowCredentials:kind==='known'?[{type:'public-key',id:bytes(32),transports:['hybrid']}]:[]
+    }});
+    result.textContent='Unexpected completed ceremony; response discarded';
+  }catch(error){result.textContent='Native request ended: '+error.name;}
+}
+for(const id of ['known','discoverable','create'])document.getElementById(id).onclick=()=>request(id);
+</script>
