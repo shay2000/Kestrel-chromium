@@ -1,3 +1,29 @@
+diff --git a/Sources/CCef/include/CCef.h b/Sources/CCef/include/CCef.h
+index 347a2ef..d801d0d 100644
+--- a/Sources/CCef/include/CCef.h
++++ b/Sources/CCef/include/CCef.h
+@@ -74,6 +74,8 @@
+ #include "include/capi/cef_request_handler_capi.h"
+ #include "include/capi/cef_v8_capi.h"
+ #include "include/capi/cef_resource_handler_capi.h"
++#include "include/capi/cef_resource_bundle_capi.h"
++#include "include/cef_id_mappers.h"
+ #include "include/capi/cef_resource_request_handler_capi.h"
+ #include "include/capi/cef_response_capi.h"
+ #include "include/capi/cef_scheme_capi.h"
+diff --git a/Sources/CCef/include/ccef_symbols.h b/Sources/CCef/include/ccef_symbols.h
+index e032b3d..99c5874 100644
+--- a/Sources/CCef/include/ccef_symbols.h
++++ b/Sources/CCef/include/ccef_symbols.h
+@@ -105,6 +105,8 @@ CCEF_SYM(cef_request_context_t*, cef_request_context_create_context,
+          (settings, handler))
+ CCEF_SYM(cef_command_line_t*, cef_command_line_create, (void), ())
+ CCEF_SYM(cef_command_line_t*, cef_command_line_get_global, (void), ())
++CCEF_SYM(cef_resource_bundle_t*, cef_resource_bundle_get_global, (void), ())
++CCEF_SYM(int, cef_id_for_pack_string_name, (const char* name), (name))
+ 
+ // --- Tasks ---------------------------------------------------------------------
+ CCEF_SYM(int, cef_currently_on, (cef_thread_id_t threadId), (threadId))
 diff --git a/Sources/CefKit/BrowserClient.swift b/Sources/CefKit/BrowserClient.swift
 index 44a10e0..1053568 100644
 --- a/Sources/CefKit/BrowserClient.swift
@@ -755,7 +781,7 @@ index 9792836..2e076c4 100644
      public func browser(_ b: CefBrowser, decidePolicyForNavigation url: URL?, isRedirect: Bool, userGesture: Bool) -> CefNavigationDecision { .allow }
      public func browser(_ b: CefBrowser, didRequestNewTab url: URL?) -> Bool { false }
 diff --git a/Sources/CefKit/CefChromeBrowser.swift b/Sources/CefKit/CefChromeBrowser.swift
-index cce60bd..70933c2 100644
+index cce60bd..ad0062e 100644
 --- a/Sources/CefKit/CefChromeBrowser.swift
 +++ b/Sources/CefKit/CefChromeBrowser.swift
 @@ -16,6 +16,9 @@ public struct CefChromeBrowserOptions {
@@ -797,7 +823,23 @@ index cce60bd..70933c2 100644
          return chrome
      }
  
-@@ -251,6 +260,7 @@ public final class CefChromeBrowser {
+@@ -197,6 +206,15 @@ public final class CefChromeBrowser {
+         applyLayout()
+     }
+ 
++    /// Reads the current Chromium UI locale using public, version-safe CEF IDs.
++    public static func localizedChromeString(named name: String) -> String? {
++        guard let bundle = cef_resource_bundle_get_global() else { return nil }
++        defer { cefRelease(UnsafeMutableRawPointer(bundle)) }
++        let identifier = name.withCString { cef_id_for_pack_string_name($0) }
++        guard identifier >= 0 else { return nil }
++        return CefStringUtil.takingUserFree(bundle.pointee.get_localized_string?(bundle, identifier))
++    }
++
+     /// Applies a vertical `BoxLayout` to the window carrying the current
+     /// ``insets`` as `inside_border_insets`, then re-lays-out. The single child
+     /// (the browser view) gets the default flex (1) and stretches to fill the
+@@ -251,6 +269,7 @@ public final class CefChromeBrowser {
      }
  
      fileprivate func handleWindowDestroyed() {
@@ -805,7 +847,7 @@ index cce60bd..70933c2 100644
          if let rawWindow {
              cefRelease(UnsafeMutableRawPointer(rawWindow))
          }
-@@ -263,6 +273,8 @@ public final class CefChromeBrowser {
+@@ -263,6 +282,8 @@ public final class CefChromeBrowser {
          windowDelegate = nil
          onWindowDestroyed?()
          Self.liveInstances[ObjectIdentifier(self)] = nil
@@ -814,7 +856,7 @@ index cce60bd..70933c2 100644
      }
  
      // MARK: Helpers
-@@ -457,6 +469,12 @@ final class ChromeWindowDelegate {
+@@ -457,6 +478,12 @@ final class ChromeWindowDelegate {
              return MainActor.assumeIsolated { me.options.isFrameless ? 0 : 1 }
          }
  

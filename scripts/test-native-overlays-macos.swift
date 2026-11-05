@@ -43,6 +43,21 @@ struct NativeOverlayRegression {
         }
         precondition(released == nil, "native overlay registration must not retain removed views")
         precondition(root.hitTest(headerPoint) === root)
+        let live = NSWindow(contentRect: root.bounds, styleMask: .borderless, backing: .buffered, defer: false)
+        live.isReleasedWhenClosed = false
+        let nativeControls = NSView(frame: root.bounds)
+        live.contentView?.addSubview(nativeControls)
+        let originalClass = object_getClass(live)
+        precondition(ChromiumWindowAccessibility.update(window: live, header: nativeControls))
+        precondition(live.accessibilityChildren()?.contains { ($0 as AnyObject) === nativeControls } == true)
+        let newerRoot = NSView(frame: root.bounds)
+        live.contentView = newerRoot
+        newerRoot.addSubview(nativeControls)
+        precondition(ChromiumWindowAccessibility.update(window: live, header: nativeControls))
+        precondition(live.accessibilityChildren()?.contains { ($0 as AnyObject) === nativeControls } == true)
+        precondition(object_getClass(live) === originalClass, "CEF window classes must remain intact")
+        precondition(ChromiumWindowAccessibility.update(window: live, header: nil))
+        live.close()
         window.close()
         print("Native overlay hit testing: dispatch, page fallback, ownership, instance isolation, rebinding and weak lifetime passed")
     }

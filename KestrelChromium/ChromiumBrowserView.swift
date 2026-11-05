@@ -166,7 +166,6 @@ private final class PersistentChromeHostView: NSView {
     private var nativeOverlay: ClickThroughHostingView?
     private var nativeHeader: HeaderHostingView?
     private weak var headerAccessibilityWindow: NSWindow?
-    private var originalAccessibilityChildren: [Any]?
     private var insetHeight: CGFloat?
     private let attachment = ChromiumWindowAttachment()
     private var loggedWindowGeometry = false
@@ -362,20 +361,24 @@ private final class PersistentChromeHostView: NSView {
         // the window level so VoiceOver and normal AX clients can reach it.
         if let page = root.window, headerAccessibilityWindow !== page {
             headerAccessibilityWindow = page
-            originalAccessibilityChildren = page.accessibilityChildren()?.filter { ($0 as AnyObject) !== host }
             host.setAccessibilityElement(true)
             host.setAccessibilityRole(.group)
             host.setAccessibilityLabel("Kestrel browser controls")
             host.setAccessibilityParent(page)
-            page.setAccessibilityChildren((originalAccessibilityChildren ?? []) + [host])
+            for delay in [0.15, 0.5, 1.5] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak page, weak host] in
+                    guard let page, let host, host.window === page else { return }
+                    ChromiumWindowAccessibility.update(window: page, header: host)
+                }
+            }
         }
+        if let page = root.window { ChromiumWindowAccessibility.update(window: page, header: host) }
     }
 
     private func detachNativeHeader() {
         if let browser { CefBrowserRegistry.setChromeOverlayVisible(false, for: browser.browser) }
-        headerAccessibilityWindow?.setAccessibilityChildren(originalAccessibilityChildren)
+        if let window = headerAccessibilityWindow { ChromiumWindowAccessibility.update(window: window, header: nil) }
         headerAccessibilityWindow = nil
-        originalAccessibilityChildren = nil
         nativeHeader?.setAccessibilityParent(nil)
         nativeHeader?.removeFromSuperview()
         nativeHeader = nil

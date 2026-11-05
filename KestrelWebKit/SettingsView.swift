@@ -981,6 +981,9 @@ struct SettingsView: View {
             Divider()
             SettingsToggle("Show the Extensions command menu", isOn: $settings.extensions.menuBarVisible)
                 .help("Show or hide the Extensions menu in Kestrel's menu bar")
+            #if canImport(CefKit)
+            ExtensionPlacementSettings(settings: settings)
+            #endif
             SettingsToggle("Allow WebExtension imports", isOn: unpackedBinding)
                 .help("Enable importing unpacked folders, ZIP archives and Chromium CRX packages")
                 .disabled(!ExtensionSupport.supportsUnpackedWebExtensionDirectories)
@@ -1267,7 +1270,7 @@ private struct SettingsRow<Control: View>: View {
     }
 }
 
-private struct SettingsToggle: View {
+struct SettingsToggle: View {
     let title: String
     var detail: String? = nil
     @Binding var isOn: Bool
