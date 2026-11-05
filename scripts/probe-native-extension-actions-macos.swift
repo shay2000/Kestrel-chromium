@@ -57,7 +57,7 @@ struct NativeExtensionActionProbe {
             let candidates=ActionProbe.axNodes().filter { node in
                 guard ["AXButton","AXMenuButton","AXPopUpButton"].contains(text(node,"AXRole")),let bounds=rect(node) else{return false}
                 let label=text(node,"AXDescription")+" "+text(node,"AXTitle")
-                return label.trimmingCharacters(in:.whitespaces).hasPrefix("Extensions") && bounds.midX>=body.minX && bounds.midX<=body.maxX && bounds.midY>=body.minY-70 && bounds.midY<body.minY
+                return label.trimmingCharacters(in:.whitespaces).hasPrefix("Extensions") && bounds.midX>=body.minX && bounds.midX<=body.maxX && bounds.midY>=body.minY-70 && bounds.midY<body.minY+60
             }
             guard candidates.count==1 else{throw StoreProbeError(message:"Expected one native Chromium Extensions button, found \(candidates.count)")}
             let menuResult=AXUIElementPerformAction(candidates[0],kAXPressAction as CFString)
