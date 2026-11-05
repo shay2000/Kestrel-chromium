@@ -41,6 +41,42 @@ struct NativeExtensionActionProbe {
     static func key(_ code:CGKeyCode,_ flags:CGEventFlags=[]) {
         for down in [true,false] {let event=CGEvent(keyboardEventSource:nil,virtualKey:code,keyDown:down);event?.flags=flags;event?.post(tap:.cghidEventTap)}
     }
+    static func menuAction(_ title: String, item: String) async throws {
+        let app=AXUIElementCreateApplication(ActionProbe.testedPID!)
+        guard let raw=ActionProbe.ax(app,"AXMenuBar") else {throw StoreProbeError(message:"Missing Kestrel menu bar")}
+        let bar=unsafeBitCast(raw,to:AXUIElement.self)
+        guard let menu=(ActionProbe.ax(bar,"AXChildren") as? [AXUIElement])?.first(where:{text($0,"AXTitle")==title}) else {throw StoreProbeError(message:"Missing Kestrel \(title) menu")}
+        _=AXUIElementPerformAction(menu,kAXPressAction as CFString)
+        await ActionProbe.pause(0.3)
+        var pending=ActionProbe.ax(menu,"AXChildren") as? [AXUIElement] ?? []
+        var found:[AXUIElement]=[]
+        while !pending.isEmpty && found.count<10 {
+            let node=pending.removeFirst()
+            if text(node,"AXRole")=="AXMenuItem",text(node,"AXTitle")==item {found.append(node)}
+            pending += ActionProbe.ax(node,"AXChildren") as? [AXUIElement] ?? []
+        }
+        guard found.count==1 else {throw StoreProbeError(message:"Missing installed action in Kestrel's menu bar")}
+        _=AXUIElementPerformAction(found[0],kAXPressAction as CFString)
+        await ActionProbe.pause(1)
+    }
+    static func settingsSidebar(_ enabled: Bool) async throws {
+        key(43,.maskCommand);await ActionProbe.pause(0.8)
+        let rows=try ActionProbe.capture("native-settings-navigation")
+        guard let row=rows.filter({$0.text=="Extensions" && $0.box.maxY<0.94}).min(by:{$0.box.minX<$1.box.minX}) else {throw StoreProbeError(message:"No Extensions settings category")}
+        let screen=CGDisplayBounds(CGMainDisplayID())
+        let point=CGPoint(x:screen.width*row.box.midX,y:screen.height*(1-row.box.midY))
+        for kind in [CGEventType.mouseMoved,.leftMouseDown,.leftMouseUp] {CGEvent(mouseEventSource:nil,mouseType:kind,mouseCursorPosition:point,mouseButton:.left)?.post(tap:.cghidEventTap)}
+        await ActionProbe.pause(0.4)
+        try await click("Show extensions beside Chats",role:"AXCheckBox")
+        await ActionProbe.pause(0.3)
+        try preview(enabled ? "native-settings-sidebar-on" : "native-settings-sidebar-off")
+        let app=AXUIElementCreateApplication(ActionProbe.testedPID!)
+        guard let raw=ActionProbe.ax(app,"AXFocusedWindow"),let close=ActionProbe.ax(unsafeBitCast(raw,to:AXUIElement.self),"AXCloseButton") else {throw StoreProbeError(message:"Cannot close Kestrel Settings")}
+        _=AXUIElementPerformAction(unsafeBitCast(close,to:AXUIElement.self),kAXPressAction as CFString)
+        await ActionProbe.pause(0.4)
+        let visible=ActionProbe.axNodes().contains {text($0,"AXDescription")=="Open Google Translate extension"}
+        guard visible==enabled else {throw StoreProbeError(message:"Sidebar placement did not follow the visible Settings control")}
+    }
     static func main() async {
         defer {
             let access=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/com.shayprasad.Kestrel/CefSwift/native-action-access-probe.jsonl")
@@ -56,7 +92,7 @@ struct NativeExtensionActionProbe {
             ActionProbe.allowsNativeToolbarHeight=true
             ActionProbe.capturesNativeOutput=true
             let defaults=UserDefaults(suiteName:"com.shayprasad.Kestrel")!
-            defaults.set(try JSONSerialization.data(withJSONObject:["menuBarVisible":true,"allowsUnpackedImports":false,"toolbarActionsVisible":true,"sidebarActionsVisible":true]),forKey:"kestrel.extensions.settings.v1")
+            defaults.set(try JSONSerialization.data(withJSONObject:["menuBarVisible":true,"allowsUnpackedImports":false,"toolbarActionsVisible":true,"sidebarActionsVisible":true,"sidebarActionIDs":["aapbdbdomjkkjkaonfhkkikfgjllcleb"]]),forKey:"kestrel.extensions.settings.v1")
             defaults.synchronize()
             try await ActionProbe.launch();await ActionProbe.widenRunnerWindow()
             let item=ActionProbe.items[0]
@@ -161,6 +197,12 @@ struct NativeExtensionActionProbe {
             let coldOCR=try String(contentsOf:ActionProbe.output.appendingPathComponent("native-cold-extension-menu.ocr.txt"),encoding:.utf8)
             guard coldOCR.contains("Google Translate"),coldOCR.contains("Extensions") else {throw StoreProbeError(message:"The native action menu failed without forced accessibility or external AX inspection")}
             try await ActionProbe.inspectWindowSurfaces(stage:"cold-native-actions")
+            key(53);await ActionProbe.pause(0.3)
+            try await menuAction("Extensions",item:"Google Translate")
+            try preview("native-macos-menu-action")
+            key(53);await ActionProbe.pause(0.3)
+            try await settingsSidebar(false)
+            try await settingsSidebar(true)
             guard !ActionProbe.collectCrashReports() else {throw StoreProbeError(message:"The native action flow crashed")}
             try ActionProbe.save("result.json",["probeCompleted":true,"menuPress":menuResult.rawValue,"actionPress":actionResult.rawValue])
         } catch {
