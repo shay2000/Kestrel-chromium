@@ -78,6 +78,39 @@ def focused(label):
     return json.loads(command([str(AX_CLIENT), PID, "focused", label]))["focused"]
 
 
+def menu_rows(menu_name):
+    apple_menu = quote(menu_name)
+    body = f'''click menu bar item {apple_menu} of menu bar 1
+delay 0.15
+set encodedRows to ""
+repeat with oneItem in menu items of menu 1 of menu bar item {apple_menu} of menu bar 1
+    try
+        set itemTitle to (name of oneItem) as text
+        set itemEnabled to (enabled of oneItem) as text
+        set encodedRows to encodedRows & itemTitle & (ASCII character 31) & itemEnabled & (ASCII character 30)
+    end try
+end repeat
+key code 53
+encodedRows'''
+    raw = ui(body)
+    rows = []
+    for entry in raw.split("\x1e"):
+        if not entry:
+            continue
+        title, _, enabled_value = entry.partition("\x1f")
+        rows.append({"title": title, "enabled": enabled_value.lower() == "true"})
+    record("menu_opened", menu=menu_name, items=rows)
+    return rows
+
+
+def verify_menu_state(menu_name, expected):
+    rows = {row["title"]: row["enabled"] for row in menu_rows(menu_name)}
+    for title, value in expected.items():
+        observed = rows.get(title)
+        record("menu_state_assert", menu=menu_name, item=title, expected=value, actual=observed, passed=observed == value)
+        assert observed == value, f"{menu_name} menu item {title!r}: expected enabled={value}, got {observed}"
+
+
 def click(label):
     command([str(AX_CLIENT), PID, "click", label])
     record("click", control=label)
@@ -217,6 +250,7 @@ try:
         script('tell application "Kestrel" to quit')
         sys.exit(0)
     navigate("/?page=A&round=start")
+    verify_menu_state("Tabs", {"Separate Split View": False, "Equal Split Widths": False})
     snapshot("stress-start")
     notes = OUT / "stress-notes.txt"
     notes.write_text("Synthetic unsent attachment for visible draft preservation checks.")
@@ -230,6 +264,7 @@ try:
         wait(lambda: any(b in value for value in fields("Address bar")), "forward to B")
         invoke("Tabs", "Move Tab to Left Split")
         wait(lambda: count("Address bar") == 2, "two independent address controls")
+        verify_menu_state("Tabs", {"Separate Split View": True, "Equal Split Widths": True})
         invoke("Tabs", "Next Tab")
         if cycle == 0:
             (OUT / "split-after-next-tab.json").write_text(accessibility_dump())
@@ -244,6 +279,7 @@ try:
         invoke("Tabs", "Next Tab")
         invoke("Tabs", "Separate Split View")
         wait(lambda: count("Address bar") == 1, "split separated")
+        verify_menu_state("Tabs", {"Separate Split View": False, "Equal Split Widths": False})
         invoke("File", "Close Tab")
         wait(lambda: int(ui("return count windows")) > 0 and any(b in value for value in fields("Address bar")), "Cmd-W closes only the selected tab")
         invoke("File", "Reopen Closed Tab")
@@ -251,6 +287,7 @@ try:
         ui("set size of window 1 to {1200, 800}")
         invoke("Assistant", "Show Assistant")
         wait(lambda: count("Assistant message") == 1, "sidebar composer available")
+        assert "Hide Assistant" in [row["title"] for row in menu_rows("Assistant")]
         click("Assistant message")
         draft = f"Unsent stress draft {cycle}"
         key(draft)
@@ -274,6 +311,7 @@ try:
             wait(lambda: message_value() == draft, "attachment selection leaves draft unsent")
         invoke("Assistant", "Hide Assistant")
         wait(lambda: count("Assistant message") == 0, "sidebar hidden")
+        assert "Show Assistant" in [row["title"] for row in menu_rows("Assistant")]
         invoke("Assistant", "Show Assistant")
         wait(lambda: message_value() == draft, "draft survives sidebar replacement")
         invoke("Assistant", "Open Assistant Page")
