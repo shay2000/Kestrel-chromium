@@ -210,38 +210,15 @@ jobs:
           "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/after-url-open.png"
         shell: bash
 
-      - name: Build the current-source WebKit comparison app
-        id: current-webkit
-        if: always() && steps.launch-smoke.outcome == 'success'
-        run: |
-          DERIVED="$RUNNER_TEMP/kestrel-current-webkit-derived"
-          SOURCE_PACKAGES="$RUNNER_TEMP/kestrel-current-webkit-packages"
-          xcodebuild -resolvePackageDependencies \
-            -project KestrelWebKit.xcodeproj \
-            -scheme Kestrel \
-            -derivedDataPath "$DERIVED" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES"
-          xcodebuild \
-            -project KestrelWebKit.xcodeproj \
-            -scheme Kestrel \
-            -configuration Release \
-            -derivedDataPath "$DERIVED" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES" \
-            CODE_SIGN_IDENTITY=- \
-            OTHER_SWIFT_FLAGS='-Xfrontend -disable-sandbox' \
-            build
-          test -d "$DERIVED/Build/Products/Release/Kestrel.app"
-        shell: bash
-
       - name: Compare desktop menus and advanced workflows with WebKit
-        if: always() && steps.current-webkit.outcome == 'success'
+        if: always() && steps.webkit-release.outcome == 'success'
         timeout-minutes: 25
         shell: bash
         run: |
           set +e
           ROOT="$RUNNER_TEMP/kestrel-chromium-runtime-smoke/desktop-comparison"
           CHROMIUM_APP="$GITHUB_WORKSPACE/build/Kestrel.app"
-          WEBKIT_APP="$RUNNER_TEMP/kestrel-current-webkit-derived/Build/Products/Release/Kestrel.app"
+          WEBKIT_APP="$RUNNER_TEMP/kestrel-webkit-release/Kestrel.app"
           mkdir -p "$ROOT"
 
           pkill -TERM -x Kestrel 2>/dev/null || true
@@ -253,6 +230,7 @@ jobs:
           pkill -TERM -x Kestrel 2>/dev/null || true
           KESTREL_STRESS_APP="$CHROMIUM_APP" \
             KESTREL_STRESS_OUT="$ROOT/chromium-workflows" \
+            KESTREL_STRESS_ENGINE=chromium \
             KESTREL_STRESS_CYCLES=1 \
             KESTREL_STRESS_SKIP_CLOSE_TAB=1 \
             python3 scripts/macos-user-stress.py
@@ -267,6 +245,7 @@ jobs:
           pkill -TERM -x Kestrel 2>/dev/null || true
           KESTREL_STRESS_APP="$WEBKIT_APP" \
             KESTREL_STRESS_OUT="$ROOT/webkit-workflows" \
+            KESTREL_STRESS_ENGINE=webkit \
             KESTREL_STRESS_CYCLES=1 \
             KESTREL_STRESS_SKIP_CLOSE_TAB=1 \
             python3 scripts/macos-user-stress.py

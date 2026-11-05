@@ -21,6 +21,7 @@ import urllib.parse
 OUT = pathlib.Path(os.environ["KESTREL_STRESS_OUT"])
 APP = pathlib.Path(os.environ["KESTREL_STRESS_APP"])
 CYCLES = int(os.environ.get("KESTREL_STRESS_CYCLES", "12"))
+ENGINE = os.environ.get("KESTREL_STRESS_ENGINE", "unknown")
 assert 1 <= CYCLES <= 30
 OUT.mkdir(parents=True, exist_ok=True)
 events, hits = [], []
@@ -315,10 +316,18 @@ try:
         draft = f"Unsent stress draft {cycle}"
         key(draft)
         wait(lambda: message_value() == draft, "typed draft read back")
-        click("Agent mode")
-        wait(lambda: fields("Agent mode") == ["On"], "Agent mode On in the sidebar")
-        click("Agent mode")
-        wait(lambda: fields("Agent mode") == ["Off"], "Agent mode Off in the sidebar")
+        if ENGINE == "chromium":
+            click("Agent mode")
+            wait(lambda: fields("Agent mode") == ["On"], "Agent mode On in the sidebar")
+            click("Agent mode")
+            wait(lambda: fields("Agent mode") == ["Off"], "Agent mode Off in the sidebar")
+        elif ENGINE == "webkit":
+            # The archived 1.0.0 comparison uses a Browse composer control,
+            # while the Chromium build exposes Agent mode. Record the old
+            # surface without applying newer semantics to it.
+            browse_count = count("Browse")
+            record("webkit_baseline_composer_mode", control="Browse", visible=browse_count == 1,
+                   accessibility_count=browse_count)
         if cycle == 0:
             pointer_click("Attach files")
             wait(lambda: count("Open") == 1, "native file picker opened")
