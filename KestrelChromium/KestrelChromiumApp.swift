@@ -17,18 +17,10 @@ struct KestrelChromiumApp: CefSwiftApp {
         configuration.noSandbox = false
         configuration.windowlessRenderingEnabled = false
         configuration.defaultRuntimeStyle = .chrome
-        // Chromium's native Views controls require its platform accessibility
-        // objects even when no external accessibility client is connected.
-        // This is an app-local CEF setting, with no system permission grant.
-        configuration.extraCommandLineSwitches.updateValue(nil, forKey: "force-renderer-accessibility")
         // Match WebKit's page-first chrome without changing macOS scrollbar preferences.
         configuration.extraCommandLineSwitches.updateValue(nil, forKey: "hide-scrollbars")
         // Retain the pinned Chromium engine identity and matching client hints.
         configuration.extraCommandLineSwitches.merge(BrowserExtensionHost.commandLineSwitches()) { _, new in new }
-        NSLog("KESTREL_STARTUP_CONFIGURATION force=%d", configuration.extraCommandLineSwitches.keys.contains("force-renderer-accessibility"))
-        configuration.onBeforeCommandLineProcessing = { command in
-            NSLog("KESTREL_STARTUP_COMMAND force=%d", command.hasSwitch("force-renderer-accessibility"))
-        }
         return configuration
     }
 

@@ -91,6 +91,7 @@ struct NativeExtensionActionProbe {
             ActionProbe.additionalLaunchArguments=["--kestrel-extension-toolbar-probe"]
             ActionProbe.allowsNativeToolbarHeight=true
             ActionProbe.capturesNativeOutput=true
+            ActionProbe.forcesRendererAccessibility=false
             let defaults=UserDefaults(suiteName:"com.shayprasad.Kestrel")!
             defaults.set(try JSONSerialization.data(withJSONObject:["menuBarVisible":true,"allowsUnpackedImports":false,"toolbarActionsVisible":true,"sidebarActionsVisible":true,"sidebarActionIDs":["aapbdbdomjkkjkaonfhkkikfgjllcleb"]]),forKey:"kestrel.extensions.settings.v1")
             defaults.synchronize()

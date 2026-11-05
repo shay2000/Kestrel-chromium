@@ -29,7 +29,6 @@ enum ChromiumExtensionActions {
         guard let page = chrome.nsWindow, let owner = page.parent,
               page.isVisible, owner.isVisible, owner.attachedSheet == nil, page.attachedSheet == nil,
               NSApp.modalWindow == nil, isCurrent() else { return }
-        chrome.browser.setAccessibilityEnabled(true)
         // Let Kestrel's command menu finish dismissing before Chromium opens a bubble.
         Task { @MainActor [weak chrome, weak page, weak owner] in
             try? await Task.sleep(nanoseconds: 80_000_000)
