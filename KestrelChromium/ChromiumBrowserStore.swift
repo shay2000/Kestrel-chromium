@@ -327,21 +327,28 @@ final class BrowserStore: ObservableObject {
             updatePageDecorationsWithoutIdentity()
             return
         }
+        let decoratedURL = engine.url
         Task { @MainActor [weak self, weak engine] in
             guard let self, let engine else { return }
             let value = await CefScriptRunner.shared.evaluate(
                 "(() => { const icon = [...document.querySelectorAll('link[rel][href]')].find(e => e.rel.toLowerCase().split(/\\s+/).includes('icon')); return icon ? icon.href : (location.origin === 'null' ? '' : new URL('/favicon.ico', location.origin).href); })()",
                 in: engine, tabID: tabID
             ) as? String
+            guard self.engine === engine, engine.url == decoratedURL, !engine.isLoading else { return }
             if let value, let candidate = URL(string: value), let url = Self.validFaviconURL(candidate) {
                 self.faviconURL = url.absoluteString
             }
             let colors = await CefScriptRunner.shared.evaluate(
-                "(() => ({background: getComputedStyle(document.body || document.documentElement).backgroundColor, theme: document.querySelector('meta[name=theme-color]')?.content || ''}))()",
+                "(() => ({background: getComputedStyle(document.body || document.documentElement).backgroundColor, canvas: getComputedStyle(document.documentElement).backgroundColor, theme: document.querySelector('meta[name=theme-color]')?.content || ''}))()",
                 in: engine, tabID: tabID
             ) as? [String: String]
+            guard self.engine === engine, engine.url == decoratedURL, !engine.isLoading else { return }
             if let colors {
-                self.pageBackgroundColor = NSColor(cssColor: colors["background"] ?? "")
+                // HTML paints the canvas when it has an opaque background.
+                // A transparent body must not hide that colour from chrome.
+                self.pageBackgroundColor = ["canvas", "background"]
+                    .compactMap { NSColor(cssColor: colors[$0] ?? "") }
+                    .first { $0.alphaComponent >= 0.98 }
                 self.themeColor = NSColor(cssColor: colors["theme"] ?? "")
             }
         }

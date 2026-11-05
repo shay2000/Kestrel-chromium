@@ -140,6 +140,11 @@ struct WindowIntegrationAcceptance {
         let y = Int((frame.minY + 26 - display.minY) * CGFloat(bitmap.pixelsHigh) / display.height)
         guard let body = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { throw StoreProbeError(message: "No first-page-row pixel") }
         check(body.redComponent > 0.8 && body.blueComponent > 0.9, "native toolbar leaves the first webpage rows unobscured")
+        let toolbarX = Int((frame.minX + 2 - display.minX) * CGFloat(bitmap.pixelsWide) / display.width)
+        let toolbarY = Int((frame.minY - 20 - display.minY) * CGFloat(bitmap.pixelsHigh) / display.height)
+        guard let toolbar = bitmap.colorAt(x: toolbarX, y: toolbarY)?.usingColorSpace(.sRGB) else { throw StoreProbeError(message: "No toolbar canvas-colour pixel") }
+        check(toolbar.greenComponent > 0.6 && toolbar.redComponent < 0.3 && toolbar.blueComponent > 0.3 && toolbar.blueComponent < 0.7,
+              "toolbar follows the HTML canvas colour when the body is transparent")
     }
     static func main() async {
         defer { FocusProbe.collectLifecycleLog() }

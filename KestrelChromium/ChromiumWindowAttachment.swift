@@ -13,7 +13,6 @@ final class ChromiumWindowAttachment {
     var onFocus: (() -> Void)?
     var headerHeight: CGFloat = 0
     var isNativeControlPoint: ((CGPoint) -> Bool)?
-    var handleNativeControlEvent: ((NSEvent) -> Bool)?
 
     func attach(owner: NSWindow, page: NSWindow) {
         guard self.owner !== owner || self.page !== page else { return }
@@ -31,12 +30,7 @@ final class ChromiumWindowAttachment {
                 }
             })
         }
-        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [
-            .leftMouseDown, .leftMouseUp, .leftMouseDragged,
-            .rightMouseDown, .rightMouseUp, .rightMouseDragged,
-            .otherMouseDown, .otherMouseUp, .otherMouseDragged,
-            .mouseMoved, .scrollWheel,
-        ]) { [weak self] event in
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self, let owner = self.owner, let page = self.page,
                   page.parent === owner, NSApp.isActive, owner.isVisible,
                   !owner.isMiniaturized, owner.attachedSheet == nil, page.attachedSheet == nil,
@@ -58,7 +52,6 @@ final class ChromiumWindowAttachment {
                         self.onFocus?()
                     }
                 }
-                if self.handleNativeControlEvent?(event) == true { return nil }
             } else if event.window === owner,
                       [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
                 // Activate the target before AppKit makes its first-mouse
