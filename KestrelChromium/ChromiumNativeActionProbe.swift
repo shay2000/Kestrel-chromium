@@ -4,7 +4,6 @@ import AppKit
 @MainActor
 enum ChromiumNativeActionProbe {
     static func inspect(_ root: NSView) {
-        guard ProcessInfo.processInfo.arguments.contains("--kestrel-extension-toolbar-probe") else { return }
         Task { @MainActor [weak root] in
             for _ in 0..<12 {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
@@ -29,6 +28,9 @@ enum ChromiumNativeActionProbe {
                 if let data = try? JSONSerialization.data(withJSONObject: ["count":seen.count,"nodes":rows]), let string=String(data:data,encoding:.utf8) {
                     try? FileHandle.standardError.write(contentsOf:Data(("KESTREL_IN_PROCESS_ACTION_AX "+string+"\n").utf8))
                     NSLog("KESTREL_IN_PROCESS_ACTION_AX %@", string)
+                    let path = FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("com.shayprasad.Kestrel/CefSwift/native-action-access-probe.jsonl")
+                    if !FileManager.default.fileExists(atPath:path.path) { FileManager.default.createFile(atPath:path.path,contents:nil) }
+                    if let file=try? FileHandle(forWritingTo:path) { try? file.seekToEnd(); try? file.write(contentsOf:Data((string+"\n").utf8));try? file.close() }
                 }
             }
         }

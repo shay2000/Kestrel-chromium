@@ -755,7 +755,7 @@ index 9792836..2e076c4 100644
      public func browser(_ b: CefBrowser, decidePolicyForNavigation url: URL?, isRedirect: Bool, userGesture: Bool) -> CefNavigationDecision { .allow }
      public func browser(_ b: CefBrowser, didRequestNewTab url: URL?) -> Bool { false }
 diff --git a/Sources/CefKit/CefChromeBrowser.swift b/Sources/CefKit/CefChromeBrowser.swift
-index cce60bd..70933c2 100644
+index cce60bd..c67b5aa 100644
 --- a/Sources/CefKit/CefChromeBrowser.swift
 +++ b/Sources/CefKit/CefChromeBrowser.swift
 @@ -16,6 +16,9 @@ public struct CefChromeBrowserOptions {
@@ -797,7 +797,34 @@ index cce60bd..70933c2 100644
          return chrome
      }
  
-@@ -251,6 +260,7 @@ public final class CefChromeBrowser {
+@@ -197,6 +206,26 @@ public final class CefChromeBrowser {
+         applyLayout()
+     }
+ 
++    /// Positions the optional native Chrome toolbar without moving WebContents.
++    /// Hosts which draw their own chrome can retain genuine extension actions
++    /// in a reserved header while leaving the renderer below that header.
++    @discardableResult
++    public func setChromeToolbarBounds(_ bounds: CGRect) -> CGRect? {
++        guard bounds.origin.x.isFinite, bounds.origin.y.isFinite,
++              bounds.width.isFinite, bounds.height.isFinite,
++              abs(bounds.origin.x) <= 32768, abs(bounds.origin.y) <= 32768,
++              bounds.width >= 0, bounds.width <= 32768,
++              bounds.height >= 0, bounds.height <= 32768,
++              let rawBrowserView,
++              let toolbar = rawBrowserView.pointee.get_chrome_toolbar?(rawBrowserView) else { return nil }
++        defer { cefRelease(UnsafeMutableRawPointer(toolbar)) }
++        var value = cef_rect_t(x: Int32(bounds.minX.rounded()), y: Int32(bounds.minY.rounded()),
++                              width: Int32(bounds.width.rounded()), height: Int32(bounds.height.rounded()))
++        toolbar.pointee.set_bounds?(toolbar, &value)
++        guard let result = toolbar.pointee.get_bounds?(toolbar) else { return nil }
++        return CGRect(x: Int(result.x), y: Int(result.y), width: Int(result.width), height: Int(result.height))
++    }
++
+     /// Applies a vertical `BoxLayout` to the window carrying the current
+     /// ``insets`` as `inside_border_insets`, then re-lays-out. The single child
+     /// (the browser view) gets the default flex (1) and stretches to fill the
+@@ -251,6 +280,7 @@ public final class CefChromeBrowser {
      }
  
      fileprivate func handleWindowDestroyed() {
@@ -805,7 +832,7 @@ index cce60bd..70933c2 100644
          if let rawWindow {
              cefRelease(UnsafeMutableRawPointer(rawWindow))
          }
-@@ -263,6 +273,8 @@ public final class CefChromeBrowser {
+@@ -263,6 +293,8 @@ public final class CefChromeBrowser {
          windowDelegate = nil
          onWindowDestroyed?()
          Self.liveInstances[ObjectIdentifier(self)] = nil
@@ -814,7 +841,7 @@ index cce60bd..70933c2 100644
      }
  
      // MARK: Helpers
-@@ -457,6 +469,12 @@ final class ChromeWindowDelegate {
+@@ -457,6 +489,12 @@ final class ChromeWindowDelegate {
              return MainActor.assumeIsolated { me.options.isFrameless ? 0 : 1 }
          }
  

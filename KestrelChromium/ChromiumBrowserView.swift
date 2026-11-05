@@ -220,7 +220,7 @@ private final class PersistentChromeHostView: NSView {
             // Its system corner clip now surrounds the complete card rather
             // than cutting a second curve below the toolbar.
             if insetHeight != headerHeight {
-                browser?.setContentInsets(top: browser?.options.showsChromeToolbar == true ? 0 : Double(headerHeight))
+                browser?.setContentInsets(top: Double(headerHeight))
                 insetHeight = headerHeight
             }
             overlay.titlebarAppearsTransparent = true
@@ -238,6 +238,11 @@ private final class PersistentChromeHostView: NSView {
             let target = BrowserPageGeometry.coveringFrame(card, scale: window.backingScaleFactor)
             if overlay.frame != target { overlay.setFrame(target, display: true) }
             if let root = browser?.rootView {
+                if browser?.options.showsChromeToolbar == true {
+                    let rect = browser?.setChromeToolbarBounds(CGRect(x: 0, y: -headerHeight,
+                                                          width: root.bounds.width, height: headerHeight))
+                    NSLog("KESTREL_NATIVE_TOOLBAR_LAYOUT %@", rect.map(NSStringFromRect) ?? "unavailable")
+                }
                 if let browser { CefBrowserRegistry.setPageLayout(for: browser.browser, root: root, headerHeight: headerHeight) }
                 updateNativeOverlay()
                 updateNativeHeader(root: root, owner: window)

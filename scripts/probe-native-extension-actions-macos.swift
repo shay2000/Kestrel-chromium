@@ -31,6 +31,8 @@ struct NativeExtensionActionProbe {
     }
     static func main() async {
         defer {
+            let access=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/com.shayprasad.Kestrel/CefSwift/native-action-access-probe.jsonl")
+            if let data=try? String(contentsOf:access,encoding:.utf8) { print("KESTREL_NATIVE_ACTION_ACCESS_FILE "+String(data.suffix(24000))) }
             let log = Process(); log.executableURL = URL(fileURLWithPath: "/usr/bin/log")
             log.arguments = ["show", "--last", "10m", "--style", "compact", "--predicate", "eventMessage BEGINSWITH 'KESTREL_IN_PROCESS_ACTION_AX'"]
             try? log.run(); log.waitUntilExit()
