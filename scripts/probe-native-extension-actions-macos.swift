@@ -180,6 +180,14 @@ struct NativeExtensionActionProbe {
                     ActionProbe.record("own_extension_profile_metadata",metadata)
                 }
             }
+            _ = try await ActionProbe.open("https://example.com/")
+            await ActionProbe.pause(1)
+            key(53);await ActionProbe.pause(0.3)
+            try await menuAction("Extensions",item:"Google Translate")
+            try preview("native-macos-menu-action")
+            key(53);await ActionProbe.pause(0.3)
+            try await settingsSidebar(false)
+            try await settingsSidebar(true)
             NSRunningApplication(processIdentifier:ActionProbe.testedPID!)?.terminate()
             await ActionProbe.pause(2)
             ActionProbe.forcesRendererAccessibility=false
@@ -197,12 +205,6 @@ struct NativeExtensionActionProbe {
             let coldOCR=try String(contentsOf:ActionProbe.output.appendingPathComponent("native-cold-extension-menu.ocr.txt"),encoding:.utf8)
             guard coldOCR.contains("Google Translate"),coldOCR.contains("Extensions") else {throw StoreProbeError(message:"The native action menu failed without forced accessibility or external AX inspection")}
             try await ActionProbe.inspectWindowSurfaces(stage:"cold-native-actions")
-            key(53);await ActionProbe.pause(0.3)
-            try await menuAction("Extensions",item:"Google Translate")
-            try preview("native-macos-menu-action")
-            key(53);await ActionProbe.pause(0.3)
-            try await settingsSidebar(false)
-            try await settingsSidebar(true)
             guard !ActionProbe.collectCrashReports() else {throw StoreProbeError(message:"The native action flow crashed")}
             try ActionProbe.save("result.json",["probeCompleted":true,"menuPress":menuResult.rawValue,"actionPress":actionResult.rawValue])
         } catch {
