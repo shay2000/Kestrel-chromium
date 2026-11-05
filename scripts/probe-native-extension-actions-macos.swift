@@ -90,6 +90,17 @@ struct NativeExtensionActionProbe {
             try ActionProbe.dumpAX("native-action-popup.json")
             let targets=try await ActionProbe.targets()
             ActionProbe.record("native_popup_targets",["targets":targets.map{["id":$0["id"] ?? "","type":$0["type"] ?? "","url":$0["url"] ?? "","title":$0["title"] ?? ""]}])
+            guard let popup=targets.first(where:{ ($0["url"] as? String)?.hasSuffix("/popup.html") == true && ($0["type"] as? String)=="page" }) else { throw StoreProbeError(message:"Native action did not create its extension popup") }
+            for _ in 0..<15 {
+                let state=try await ActionProbe.evaluate(popup,"({ready:document.readyState,text:document.body?.innerText||'',runtime:chrome.runtime?.id||''})") as? [String:Any] ?? [:]
+                ActionProbe.record("genuine_popup_state",state)
+                if (state["text"] as? String)?.isEmpty == false { break }
+                await ActionProbe.pause(1)
+            }
+            let context=try await ActionProbe.cdp(popup,"Runtime.evaluate",["expression":"(async()=>({extensionID:chrome.runtime.id,tabs:(await chrome.tabs.query({active:true,currentWindow:true})).map(t=>({id:t.id,url:t.url})),text:document.body.innerText}))()","returnByValue":true,"awaitPromise":true])
+            ActionProbe.record("genuine_popup_context",context)
+            describeButtons("popup-settled");try preview("native-action-popup-settled")
+            try ActionProbe.dumpAX("native-action-popup-settled.json")
             try ActionProbe.save("result.json",["probeCompleted":true,"menuPress":menuResult.rawValue,"actionPress":actionResult.rawValue])
         } catch {
             try? preview("failure");try? ActionProbe.dumpAX("failure.json")
