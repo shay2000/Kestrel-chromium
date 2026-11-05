@@ -247,6 +247,7 @@ private final class PersistentChromeHostView: NSView {
                 }
                 if !loggedWindowGeometry {
                     loggedWindowGeometry = true
+                    ChromiumNativeActionProbe.inspect(root)
                     let diagnostic = "KESTREL_LIFECYCLE windowGeometry integratedHeader=\(headerHeight) root=\(type(of: root)) card=\(NSStringFromRect(root.bounds))"
                     try? FileHandle.standardError.write(contentsOf: Data((diagnostic + "\n").utf8))
                 }
