@@ -73,7 +73,7 @@ final class ChromiumExtensionPopover {
             NSLog("KESTREL_POPOVER_PROBE id=%ld parent=%ld page=%ld owner=%ld key=%d titled=%d style=%lu frame=%@ anchor=%@", candidate.windowNumber, candidate.parent?.windowNumber ?? -1, page.windowNumber, owner.windowNumber, candidate.canBecomeKey, candidate.styleMask.contains(.titled), candidate.styleMask.rawValue, NSStringFromRect(candidate.frame), NSStringFromRect(anchor))
         }
         for window in NSApp.windows where window.isVisible && window !== page && window !== owner
-            && !baseline.contains(window.windowNumber) && window.parent !== owner
+            && !baseline.contains(window.windowNumber) && window.parent === page
             && window.canBecomeKey && !window.styleMask.contains(.titled)
             && window.frame.height >= 40 && window.frame.width >= 80 {
             windows[window.windowNumber] = WeakWindow(window)

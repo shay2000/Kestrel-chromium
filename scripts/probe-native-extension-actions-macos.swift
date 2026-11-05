@@ -89,7 +89,7 @@ struct NativeExtensionActionProbe {
             ActionProbe.app=URL(fileURLWithPath:CommandLine.arguments[1]);ActionProbe.output=URL(fileURLWithPath:CommandLine.arguments[2])
             try FileManager.default.createDirectory(at:ActionProbe.output,withIntermediateDirectories:true)
             ActionProbe.additionalLaunchArguments=["--kestrel-extension-toolbar-probe"]
-            ActionProbe.allowsNativeToolbarHeight=true
+            ActionProbe.allowsNativeToolbarHeight=false
             ActionProbe.capturesNativeOutput=true
             ActionProbe.forcesRendererAccessibility=false
             let defaults=UserDefaults(suiteName:"com.shayprasad.Kestrel")!
@@ -97,7 +97,9 @@ struct NativeExtensionActionProbe {
             defaults.synchronize()
             try await ActionProbe.launch();await ActionProbe.widenRunnerWindow()
             let item=ActionProbe.items[0]
-            try await ActionProbe.install(id:item.id,slug:item.slug,name:item.name)
+            if try ActionProbe.installedManifest(id: item.id) == nil {
+                try await ActionProbe.install(id:item.id,slug:item.slug,name:item.name)
+            }
             let page=try await ActionProbe.open("https://example.com/")
             await ActionProbe.pause(2)
             let app=AXUIElementCreateApplication(ActionProbe.testedPID!)
@@ -130,7 +132,9 @@ struct NativeExtensionActionProbe {
             await ActionProbe.pause(1)
             describeButtons("menu-open");try preview("native-action-menu")
             try ActionProbe.dumpAX("native-action-menu.json")
-            try await click("Pin Google Translate")
+            if ActionProbe.axNodes().contains(where: { text($0, "AXDescription") == "Pin Google Translate" }) {
+                try await click("Pin Google Translate")
+            }
             await ActionProbe.pause(3)
             let pins=ActionProbe.axNodes().filter {text($0,"AXDescription")=="Open Google Translate toolbar extension"}
             guard !pins.isEmpty else {throw StoreProbeError(message:"Pinning did not expose the extension in Kestrel's own toolbar")}
@@ -185,6 +189,9 @@ struct NativeExtensionActionProbe {
             await ActionProbe.pause(1)
             key(53);await ActionProbe.pause(0.3)
             try await menuAction("Extensions",item:"Google Translate")
+            let menuPopup = try await ActionProbe.target(matching: "chrome-extension://\(item.id)/popup.html")
+            let menuContext = try await ActionProbe.evaluate(menuPopup, "chrome.runtime.id")
+            guard menuContext as? String == item.id else { throw StoreProbeError(message: "Kestrel's menu command did not open the real extension action") }
             try preview("native-macos-menu-action")
             key(53);await ActionProbe.pause(0.3)
             try await settingsSidebar(false)
@@ -205,6 +212,16 @@ struct NativeExtensionActionProbe {
             try preview("native-cold-extension-menu")
             let coldOCR=try String(contentsOf:ActionProbe.output.appendingPathComponent("native-cold-extension-menu.ocr.txt"),encoding:.utf8)
             guard coldOCR.contains("Google Translate"),coldOCR.contains("Extensions") else {throw StoreProbeError(message:"The native action menu failed without forced accessibility or external AX inspection")}
+            try await click("Google Translate")
+            await ActionProbe.pause(1)
+            let coldPopup = try await ActionProbe.target(matching: "chrome-extension://\(item.id)/popup.html")
+            let coldContext = try await ActionProbe.cdp(coldPopup, "Runtime.evaluate", ["expression":"(async()=>({extensionID:chrome.runtime.id,tabs:(await chrome.tabs.query({active:true,currentWindow:true})).map(t=>({url:t.url}))}))()", "returnByValue":true, "awaitPromise":true])
+            ActionProbe.record("genuine_cold_popup_context", coldContext)
+            guard let state = (coldContext["result"] as? [String:Any])?["value"] as? [String:Any],
+                  state["extensionID"] as? String == item.id,
+                  let tabs = state["tabs"] as? [[String:Any]], tabs.count == 1,
+                  tabs[0]["url"] as? String == "https://example.org/" else { throw StoreProbeError(message: "Cold extension action lost the selected Kestrel tab") }
+            try preview("native-cold-extension-popup")
             try await ActionProbe.inspectWindowSurfaces(stage:"cold-native-actions")
             guard !ActionProbe.collectCrashReports() else {throw StoreProbeError(message:"The native action flow crashed")}
             try ActionProbe.save("result.json",["probeCompleted":true,"menuPress":menuResult.rawValue,"actionPress":actionResult.rawValue])
