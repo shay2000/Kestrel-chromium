@@ -104,6 +104,8 @@ struct NativeExtensionActionProbe {
             try ActionProbe.save("result.json",["probeCompleted":true,"menuPress":menuResult.rawValue,"actionPress":actionResult.rawValue])
         } catch {
             try? preview("failure");try? ActionProbe.dumpAX("failure.json")
+            _ = ActionProbe.collectCrashReports()
+            ActionProbe.collectLifecycleLog()
             fputs("Native action probe failed: \(error.localizedDescription)\n",stderr);exit(1)
         }
     }
