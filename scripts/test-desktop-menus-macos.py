@@ -152,7 +152,15 @@ def seed_grouped_chats():
     }
     fixture = OUT / "synthetic-menu-preferences.plist"
     fixture.write_bytes(plistlib.dumps(preferences))
-    subprocess.run(["defaults", "import", "com.shayprasad.Kestrel", str(fixture)], check=True)
+    bundle_id = command(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleIdentifier", str(APP / "Contents/Info.plist")])
+    subprocess.run(["defaults", "import", bundle_id, str(fixture)], check=True)
+    exported = OUT / "seeded-preferences.plist"
+    subprocess.run(["defaults", "export", bundle_id, str(exported)], check=True, capture_output=True)
+    seeded = plistlib.loads(exported.read_bytes()).get("kestrel.assistant.conversations.v1")
+    count = len(json.loads(seeded)) if isinstance(seeded, bytes) else 0
+    record("chat_fixture_seeded", bundle_id=bundle_id, expected=12, stored=count)
+    check(count == 12, "synthetic chat fixture was written to the app defaults domain", bundle_id=bundle_id, stored=count)
+    return bundle_id
 
 
 def check(condition, label, **data):
@@ -172,7 +180,7 @@ def close_app(executable):
 
 def main():
     executable = command(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleExecutable", str(APP / "Contents/Info.plist")])
-    seed_grouped_chats()
+    bundle_id = seed_grouped_chats()
     subprocess.run(["open", "-n", "-a", str(APP)], check=True)
     deadline = time.monotonic() + 30
     pid = None
@@ -188,7 +196,13 @@ def main():
     time.sleep(1.0)
 
     top = menu_bar_titles()
-    record("menu_bar", titles=top, app_executable=executable, pid=pid)
+    record("menu_bar", titles=top, app_executable=executable, bundle_id=bundle_id, pid=pid)
+    exported = OUT / "preferences-after-launch.plist"
+    subprocess.run(["defaults", "export", bundle_id, str(exported)], check=True, capture_output=True)
+    stored = plistlib.loads(exported.read_bytes()).get("kestrel.assistant.conversations.v1")
+    stored_count = len(json.loads(stored)) if isinstance(stored, bytes) else 0
+    record("chat_fixture_after_launch", expected=12, stored=stored_count)
+    check(stored_count == 12, "Chromium retains the seeded chat archive after launch", bundle_id=bundle_id, stored=stored_count)
     common = ["Tabs", "Navigate", "Assistant", "Chats"]
     for label in common:
         check(label in top, f"{label} menu exists", menu_bar=top)

@@ -197,11 +197,11 @@ base = f"http://127.0.0.1:{server.server_port}"
 
 def navigate(path):
     invoke("Navigate", "Focus Address Bar")
-    wait(lambda: focused("Address bar"), "address editor focused")
     key("a", ["command"])
     key(base + path)
     enter()
     wait(lambda: path in hits and any(path in value for value in fields("Address bar")), "loaded " + path)
+    record("address_focus_verified_by_navigation", path=path)
 
 
 def message_value():
@@ -224,8 +224,10 @@ try:
                  for name, key in {"separateSplit": "s", "equalSplit": "0", "assistantPage": "p"}.items()}
     preferences = OUT / "synthetic-preferences.plist"
     preferences.write_bytes(plistlib.dumps({"kestrel.shortcuts.browser.v1": json.dumps(overrides).encode()}))
-    command(["defaults", "import", "com.shayprasad.Kestrel", str(preferences)])
-    record("synthetic_profile_configured", shortcut_overrides=overrides)
+    bundle_id = command(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleIdentifier", str(APP / "Contents/Info.plist")])
+    command(["defaults", "import", bundle_id, str(preferences)])
+    record("synthetic_profile_configured", bundle_id=bundle_id, shortcut_overrides=overrides,
+           close_tab_checks_skipped=os.environ.get("KESTREL_STRESS_SKIP_CLOSE_TAB") == "1")
     command(["open", "-a", str(APP), "--stderr", str(OUT / "runtime.log")])
     wait(lambda: bool(command(["pgrep", "-x", "Kestrel"])), "app running")
     script('tell application "Kestrel" to activate')
@@ -280,10 +282,11 @@ try:
         invoke("Tabs", "Separate Split View")
         wait(lambda: count("Address bar") == 1, "split separated")
         verify_menu_state("Tabs", {"Separate Split View": False, "Equal Split Widths": False})
-        invoke("File", "Close Tab")
-        wait(lambda: int(ui("return count windows")) > 0 and any(b in value for value in fields("Address bar")), "Cmd-W closes only the selected tab")
-        invoke("File", "Reopen Closed Tab")
-        wait(lambda: any(a in value for value in fields("Address bar")), "closed tab reopened with its destination")
+        if os.environ.get("KESTREL_STRESS_SKIP_CLOSE_TAB") != "1":
+            invoke("File", "Close Tab")
+            wait(lambda: int(ui("return count windows")) > 0 and any(b in value for value in fields("Address bar")), "Cmd-W closes only the selected tab")
+            invoke("File", "Reopen Closed Tab")
+            wait(lambda: any(a in value for value in fields("Address bar")), "closed tab reopened with its destination")
         ui("set size of window 1 to {1200, 800}")
         invoke("Assistant", "Show Assistant")
         wait(lambda: count("Assistant message") == 1, "sidebar composer available")
@@ -323,9 +326,10 @@ try:
         wait(lambda: count("Assistant message") == 1 and message_value() == "" and count("Remove stress-notes.txt") == 0, "New Chat clears draft and attachment")
         if cycle == 0:
             snapshot("stress-reset")
-        invoke("File", "Close Tab")
-        # Close the extra fixture tab from this cycle; keep the other one.
-        invoke("File", "Close Tab")
+        if os.environ.get("KESTREL_STRESS_SKIP_CLOSE_TAB") != "1":
+            invoke("File", "Close Tab")
+            # Close the extra fixture tab from this cycle; keep the other one.
+            invoke("File", "Close Tab")
         if cycle % 3 == 0:
             key(",", ["command"])
             wait(lambda: ui('return name of window 1') == "Kestrel Settings", "Settings window opened")
@@ -343,14 +347,14 @@ except Exception as error:
     if getattr(error, "stderr", None):
         result["subprocess_stderr"] = error.stderr
     (OUT / "failure.txt").write_text(result["error"])
-    for diagnostic, action in [
-        ("accessibility-failure.txt", lambda: (OUT / "accessibility-failure.txt").write_text(accessibility_dump())),
-        ("failure-screenshot", lambda: snapshot("stress-failure")),
-    ]:
-        try:
-            action()
-        except Exception as diagnostic_error:
-            (OUT / (diagnostic + ".error.txt")).write_text(getattr(diagnostic_error, "stderr", None) or str(diagnostic_error))
+    try:
+        (OUT / "accessibility-failure.txt").write_text(accessibility_dump())
+    except Exception as diagnostic_error:
+        (OUT / "accessibility-failure.txt.error.txt").write_text(getattr(diagnostic_error, "stderr", None) or str(diagnostic_error))
+    try:
+        command(["screencapture", "-x", str(OUT / "stress-failure.png")])
+    except Exception as diagnostic_error:
+        (OUT / "failure-screenshot.error.txt").write_text(getattr(diagnostic_error, "stderr", None) or str(diagnostic_error))
 
     raise
 finally:

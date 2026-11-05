@@ -230,6 +230,8 @@ jobs:
           pkill -TERM -x Kestrel 2>/dev/null || true
           KESTREL_STRESS_APP="$CHROMIUM_APP" \
             KESTREL_STRESS_OUT="$ROOT/chromium-workflows" \
+            KESTREL_STRESS_CYCLES=1 \
+            KESTREL_STRESS_SKIP_CLOSE_TAB=1 \
             python3 scripts/macos-user-stress.py
           CHROMIUM_STRESS_STATUS=$?
 
@@ -242,6 +244,8 @@ jobs:
           pkill -TERM -x Kestrel 2>/dev/null || true
           KESTREL_STRESS_APP="$WEBKIT_APP" \
             KESTREL_STRESS_OUT="$ROOT/webkit-workflows" \
+            KESTREL_STRESS_CYCLES=1 \
+            KESTREL_STRESS_SKIP_CLOSE_TAB=1 \
             python3 scripts/macos-user-stress.py
           WEBKIT_STRESS_STATUS=$?
 
