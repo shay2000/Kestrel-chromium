@@ -10,6 +10,7 @@ struct KestrelCommands: Commands {
     @ObservedObject var chat: AIChatStore
     @ObservedObject var settings: AppSettings
     @ObservedObject var updater: KestrelUpdater
+    @ObservedObject private var extensionCatalogue = ChromiumInstalledExtensions.shared
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
@@ -172,7 +173,15 @@ struct KestrelCommands: Commands {
 
         if settings.extensions.menuBarVisible {
             CommandMenu("Extensions") {
+                ForEach(extensionCatalogue.actions) { item in
+                    Button(item.name) { tabs.showExtensionAction(item.id) }
+                        .disabled(!tabs.canShowExtensionActions(for: tabs.selectedID))
+                }
+                if !extensionCatalogue.actions.isEmpty { Divider() }
+                Button("Show Extensions") { tabs.showExtensionMenu(for: tabs.selectedID) }
+                    .disabled(!tabs.canShowExtensionActions(for: tabs.selectedID))
                 Button("Manage Extensions…") { tabs.openChromiumExtensions() }
+                Button("Get Extensions…") { _ = tabs.newTab(urlString: "https://chromewebstore.google.com/category/extensions") }
                     .help("Open Chromium's extension manager")
                 Text("Import packages in Kestrel Settings → Extensions")
             }

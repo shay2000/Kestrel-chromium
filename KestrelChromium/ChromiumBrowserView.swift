@@ -166,7 +166,6 @@ private final class PersistentChromeHostView: NSView {
     private var nativeOverlay: ClickThroughHostingView?
     private var nativeHeader: HeaderHostingView?
     private weak var headerAccessibilityWindow: NSWindow?
-    private var originalAccessibilityChildren: [Any]?
     private var insetHeight: CGFloat?
     private let attachment = ChromiumWindowAttachment()
     private var loggedWindowGeometry = false
@@ -361,22 +360,20 @@ private final class PersistentChromeHostView: NSView {
         // BridgedContentView exposes Chromium's AX tree instead of ordinary
         // AppKit subviews. Preserve that tree and add our native toolbar at
         // the window level so VoiceOver and normal AX clients can reach it.
-        if let page = root.window, browser?.options.showsChromeToolbar != true, headerAccessibilityWindow !== page {
+        if let page = root.window, headerAccessibilityWindow !== page {
             headerAccessibilityWindow = page
-            originalAccessibilityChildren = page.accessibilityChildren()?.filter { ($0 as AnyObject) !== host }
             host.setAccessibilityElement(true)
             host.setAccessibilityRole(.group)
             host.setAccessibilityLabel("Kestrel browser controls")
             host.setAccessibilityParent(page)
-            page.setAccessibilityChildren((originalAccessibilityChildren ?? []) + [host])
+            ChromiumWindowAccessibility.update(window: page, header: host)
         }
     }
 
     private func detachNativeHeader() {
         if let browser { CefBrowserRegistry.setChromeOverlayVisible(false, for: browser.browser) }
-        headerAccessibilityWindow?.setAccessibilityChildren(originalAccessibilityChildren)
+        if let window = headerAccessibilityWindow { ChromiumWindowAccessibility.update(window: window, header: nil) }
         headerAccessibilityWindow = nil
-        originalAccessibilityChildren = nil
         nativeHeader?.setAccessibilityParent(nil)
         nativeHeader?.removeFromSuperview()
         nativeHeader = nil

@@ -31,7 +31,7 @@ jobs:
       - name: Verify native overlay hit testing and ownership
         shell: bash
         run: |
-          swiftc -swift-version 5 -parse-as-library KestrelChromium/ChromiumNativeOverlays.swift scripts/test-native-overlays-macos.swift -o "$RUNNER_TEMP/kestrel-native-overlays-test"
+          swiftc -swift-version 5 -parse-as-library KestrelChromium/ChromiumNativeOverlays.swift KestrelChromium/ChromiumWindowAccessibility.swift scripts/test-native-overlays-macos.swift -o "$RUNNER_TEMP/kestrel-native-overlays-test"
           "$RUNNER_TEMP/kestrel-native-overlays-test"
 
       - name: Verify CRX3 signatures and identity preservation

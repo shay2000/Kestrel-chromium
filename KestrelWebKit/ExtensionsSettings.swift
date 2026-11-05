@@ -14,6 +14,54 @@ struct ExtensionsSettings: Codable, Equatable, Sendable {
     /// capability stays available.
     var allowsUnpackedImports: Bool
 
+    /// Shortcuts for real runtime actions; independent of the macOS menu.
+    var toolbarActionsVisible: Bool = true
+    var sidebarActionsVisible: Bool = false
+    /// nil follows all available actions; an explicit list keeps the user's selection.
+    var sidebarActionIDs: [String]? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case menuBarVisible, allowsUnpackedImports, toolbarActionsVisible, sidebarActionsVisible, sidebarActionIDs
+    }
+
+    init(menuBarVisible: Bool, allowsUnpackedImports: Bool,
+         toolbarActionsVisible: Bool = true, sidebarActionsVisible: Bool = false,
+         sidebarActionIDs: [String]? = nil) {
+        self.menuBarVisible = menuBarVisible
+        self.allowsUnpackedImports = allowsUnpackedImports
+        self.toolbarActionsVisible = toolbarActionsVisible
+        self.sidebarActionsVisible = sidebarActionsVisible
+        self.sidebarActionIDs = sidebarActionIDs.map(Self.validActionIDs)
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(menuBarVisible: try values.decodeIfPresent(Bool.self, forKey: .menuBarVisible) ?? true,
+                  allowsUnpackedImports: try values.decodeIfPresent(Bool.self, forKey: .allowsUnpackedImports) ?? false,
+                  toolbarActionsVisible: try values.decodeIfPresent(Bool.self, forKey: .toolbarActionsVisible) ?? true,
+                  sidebarActionsVisible: try values.decodeIfPresent(Bool.self, forKey: .sidebarActionsVisible) ?? false,
+                  sidebarActionIDs: try values.decodeIfPresent([String].self, forKey: .sidebarActionIDs))
+    }
+
+    func showsSidebarAction(_ id: String) -> Bool {
+        sidebarActionIDs?.contains(id) ?? true
+    }
+
+    mutating func setSidebarAction(_ id: String, visible: Bool, availableIDs: [String]) {
+        guard Self.validActionIDs([id]) == [id] else { return }
+        var selected = sidebarActionIDs ?? Self.validActionIDs(availableIDs)
+        selected.removeAll { $0 == id }
+        if visible { selected.append(id) }
+        sidebarActionIDs = Self.validActionIDs(selected)
+    }
+
+    private static func validActionIDs(_ ids: [String]) -> [String] {
+        var seen = Set<String>()
+        return Array(ids.filter { id in
+            id.utf8.count == 32 && id.utf8.allSatisfy { (97...112).contains($0) } && seen.insert(id).inserted
+        }.prefix(256))
+    }
+
     static let `default` = ExtensionsSettings(menuBarVisible: true, allowsUnpackedImports: false)
 }
 

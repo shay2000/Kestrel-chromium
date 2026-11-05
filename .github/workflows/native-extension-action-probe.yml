@@ -24,7 +24,10 @@ jobs:
           restore-keys: |
             kestrel-actions-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift','patches/**') }}-
       - name: Build the Kestrel probe app
-        run: ./build.sh release
+        run: |
+          swiftc -swift-version 5 -parse-as-library KestrelChromium/ChromiumNativeOverlays.swift KestrelChromium/ChromiumWindowAccessibility.swift scripts/test-native-overlays-macos.swift -o "$RUNNER_TEMP/kestrel-native-overlays-test"
+          "$RUNNER_TEMP/kestrel-native-overlays-test"
+          ./build.sh release
       - name: Save successful build cache
         uses: actions/cache/save@v4
         with:

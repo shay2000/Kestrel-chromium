@@ -696,9 +696,11 @@ final class TabStore: ObservableObject {
               collection.tabs.contains(where: { $0.id == id }), pendingPageCloses[id] == nil else { return nil }
         let model = webView(for: id)
         var options = CefChromeBrowserOptions()
-        options.showsChromeToolbar = true // Native action probe branch only.
         options.isFrameless = true
         options.isResizable = false
+        // Keep Chromium's genuine extension actions in this existing page
+        // window, beneath Kestrel's native toolbar overlay.
+        options.showsChromeToolbar = true
         options.initialBounds = CGRect(x: -4096, y: -4096, width: 800, height: 600)
         let initialURL = model.url ?? URL(string: "about:blank")!
         let chrome = CefChromeBrowser.create(url: initialURL, options: options, delegate: model)
@@ -767,6 +769,33 @@ final class TabStore: ObservableObject {
     @discardableResult
     func openChromiumExtensions() {
         _ = openChromiumPage("chrome://extensions")
+    }
+
+    func canShowExtensionActions(for id: UUID) -> Bool {
+        guard !isAssistantTab(id), let chrome = chromeBrowsers[id], chrome.isWindowAlive,
+              let page = chrome.nsWindow else { return false }
+        return page.isVisible && page.parent != nil
+    }
+
+    func showExtensionMenu(for id: UUID) {
+        activateExtension(name: nil, for: id)
+    }
+
+    func showExtensionAction(_ id: String) {
+        guard let action = ChromiumInstalledExtensions.shared.actions.first(where: { $0.id == id }) else { return }
+        activateExtension(name: action.name, for: selectedID)
+    }
+
+    private func activateExtension(name: String?, for id: UUID) {
+        guard canShowExtensionActions(for: id), let chrome = chromeBrowsers[id] else { return }
+        select(id: id)
+        let address = browser(for: id).addressText
+        ChromiumExtensionActions.show(in: chrome, name: name) { [weak self, weak chrome] in
+            guard let self, let chrome else { return false }
+            return self.selectedID == id && self.chromeBrowsers[id] === chrome
+                && self.pendingPageCloses[id] == nil && self.browser(for: id).addressText == address
+                && CefRuntime.shared.isAcceptingBrowsers
+        }
     }
 
     @discardableResult

@@ -6,6 +6,12 @@ private class ViewsRoot: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { self }
 }
 
+@MainActor
+private class LiveAXWindow: NSWindow {
+    var engineChildren: [Any] = []
+    override func accessibilityChildren() -> [Any]? { engineChildren }
+}
+
 @main @MainActor
 struct NativeOverlayRegression {
     static func main() {
@@ -43,6 +49,19 @@ struct NativeOverlayRegression {
         }
         precondition(released == nil, "native overlay registration must not retain removed views")
         precondition(root.hitTest(headerPoint) === root)
+        let live = LiveAXWindow(contentRect: root.bounds, styleMask: .borderless, backing: .buffered, defer: false)
+        live.isReleasedWhenClosed = false
+        let nativeControls = NSView(frame: root.bounds)
+        live.contentView?.addSubview(nativeControls)
+        precondition(ChromiumWindowAccessibility.update(window: live, header: nativeControls))
+        precondition(live.accessibilityChildren()?.count == 1)
+        let lateEngineRoot = NSAccessibilityElement()
+        live.engineChildren = [lateEngineRoot]
+        precondition(live.accessibilityChildren()?.count == 2, "late CEF trees must remain accessible")
+        precondition((live.accessibilityChildren()?.first as AnyObject?) === lateEngineRoot)
+        precondition(ChromiumWindowAccessibility.update(window: live, header: nil))
+        precondition(live.accessibilityChildren()?.count == 1, "detach must leave the current engine tree")
+        live.close()
         window.close()
         print("Native overlay hit testing: dispatch, page fallback, ownership, instance isolation, rebinding and weak lifetime passed")
     }

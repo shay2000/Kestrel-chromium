@@ -1415,6 +1415,7 @@ struct TabStripView: View {
                 .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.primary.opacity(0.07))
                 .frame(height: 1)
 
+            HStack(spacing: 0) {
             Menu {
                 AssistantChatMenuItems(chat: chat, open: openAssistantChat)
             } label: {
@@ -1449,6 +1450,11 @@ struct TabStripView: View {
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: chatsRowIsHovered)
             .help("Open a saved assistant chat or start a new one")
             .accessibilityLabel("Chats")
+            if settings.extensions.sidebarActionsVisible {
+                SidebarExtensionActions(tabs: tabs, settings: settings, isCompact: isCompact)
+                    .padding(.trailing, 8)
+            }
+            }
         }
     }
 
@@ -2050,6 +2056,10 @@ private struct BrowserToolbar: View {
                 .buttonStyle(.plain)
                 .help(settings.isBookmarked(browser.addressText) ? "Remove bookmark" : "Add bookmark")
                 .accessibilityLabel(settings.isBookmarked(browser.addressText) ? "Remove bookmark" : "Add bookmark")
+            }
+
+            if settings.extensions.toolbarActionsVisible {
+                ExtensionToolbarButton(tabs: tabs, tabID: paneID ?? tabs.selectedID)
             }
 
             if isNarrowPane {

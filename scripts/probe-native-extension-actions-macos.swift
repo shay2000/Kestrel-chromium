@@ -62,10 +62,15 @@ struct NativeExtensionActionProbe {
             let candidates=ActionProbe.axNodes().filter { node in
                 guard ["AXButton","AXMenuButton","AXPopUpButton"].contains(text(node,"AXRole")),let bounds=rect(node) else{return false}
                 let label=text(node,"AXDescription")+" "+text(node,"AXTitle")
-                return label.trimmingCharacters(in:.whitespaces).hasPrefix("Extensions") && bounds.midX>=body.minX && bounds.midX<=body.maxX && bounds.midY>=body.minY-70 && bounds.midY<body.minY+60
+                return label.trimmingCharacters(in:.whitespaces).hasPrefix("Show extensions") && bounds.midX>=body.minX && bounds.midX<=body.maxX && bounds.midY>=body.minY-70 && bounds.midY<body.minY+60
             }
             guard candidates.count==1 else{throw StoreProbeError(message:"Expected one native Chromium Extensions button, found \(candidates.count)")}
-            let menuResult=AXUIElementPerformAction(candidates[0],kAXPressAction as CFString)
+            guard let button = rect(candidates[0]) else { throw StoreProbeError(message:"Missing Kestrel extension control bounds") }
+            for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+                CGEvent(mouseEventSource:nil, mouseType:kind, mouseCursorPosition:CGPoint(x:button.midX,y:button.midY),mouseButton:.left)?.post(tap:.cghidEventTap)
+                await ActionProbe.pause(0.04)
+            }
+            let menuResult=AXError.success
             ActionProbe.record("native_extensions_menu_pressed",["result":menuResult.rawValue])
             await ActionProbe.pause(1)
             describeButtons("menu-open");try preview("native-action-menu")
