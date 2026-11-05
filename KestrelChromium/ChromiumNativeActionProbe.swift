@@ -19,6 +19,7 @@ enum ChromiumNativeActionProbe {
                         rows.append(["unavailable": String(describing: type(of: next))]); continue
                     }
                     let role = element.accessibilityRole()?.rawValue ?? ""
+                    if role == "AXWebArea" { continue }
                     let label = element.accessibilityLabel() ?? ""
                     if role.contains("Button") || !label.isEmpty {
                         rows.append(["type":String(describing:type(of:next)),"role":role,"label":label])
@@ -27,6 +28,7 @@ enum ChromiumNativeActionProbe {
                 }
                 if let data = try? JSONSerialization.data(withJSONObject: ["count":seen.count,"nodes":rows]), let string=String(data:data,encoding:.utf8) {
                     try? FileHandle.standardError.write(contentsOf:Data(("KESTREL_IN_PROCESS_ACTION_AX "+string+"\n").utf8))
+                    NSLog("KESTREL_IN_PROCESS_ACTION_AX %@", string)
                 }
             }
         }

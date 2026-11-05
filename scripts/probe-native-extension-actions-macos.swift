@@ -30,6 +30,11 @@ struct NativeExtensionActionProbe {
         ActionProbe.record("native_action_nodes",["stage":stage,"nodes":rows,"roleCounts":Dictionary(grouping:all,by:{text($0,"AXRole")}).mapValues(\.count)])
     }
     static func main() async {
+        defer {
+            let log = Process(); log.executableURL = URL(fileURLWithPath: "/usr/bin/log")
+            log.arguments = ["show", "--last", "10m", "--style", "compact", "--predicate", "eventMessage BEGINSWITH 'KESTREL_IN_PROCESS_ACTION_AX'"]
+            try? log.run(); log.waitUntilExit()
+        }
         do {
             ActionProbe.app=URL(fileURLWithPath:CommandLine.arguments[1]);ActionProbe.output=URL(fileURLWithPath:CommandLine.arguments[2])
             try FileManager.default.createDirectory(at:ActionProbe.output,withIntermediateDirectories:true)
