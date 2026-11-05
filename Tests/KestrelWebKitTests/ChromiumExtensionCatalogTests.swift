@@ -45,6 +45,17 @@ final class ChromiumExtensionCatalogTests: XCTestCase {
         XCTAssertTrue(try ChromiumExtensionCatalog.read(profile: root).isEmpty)
     }
 
+    func testRuntimeLocalisedNameMatchesTheNativeActionMenu() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let id = String(repeating: "d", count: 32)
+        let directory = root.appendingPathComponent("Extensions/\(id)/1_0")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try write(["name":"English package name", "version":"1", "action":[:]], to: directory.appendingPathComponent("manifest.json"))
+        try write(["extensions":["settings":[id:["state":1,"path":"\(id)/1_0","manifest":["name":"Nom du moteur"]]]]], to: root.appendingPathComponent("Preferences"))
+        XCTAssertEqual(try ChromiumExtensionCatalog.read(profile: root, languages: ["en-GB"]).first?.name, "Nom du moteur")
+    }
+
     private func write(_ value: [String:Any], to file: URL) throws {
         try JSONSerialization.data(withJSONObject: value).write(to: file)
     }

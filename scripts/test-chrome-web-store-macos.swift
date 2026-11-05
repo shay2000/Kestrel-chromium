@@ -27,6 +27,7 @@ struct ChromeWebStoreAcceptance {
     static var additionalLaunchArguments: [String] = []
     static var allowsNativeToolbarHeight = false
     static var capturesNativeOutput = false
+    static var forcesRendererAccessibility = true
     static let items = [
         (id: "aapbdbdomjkkjkaonfhkkikfgjllcleb", slug: "google-translate", name: "Google Translate"),
         (id: "eimadpbcbfnmbkopoojfekhnkhdbieeh", slug: "dark-reader", name: "Dark Reader")
@@ -193,7 +194,8 @@ struct ChromeWebStoreAcceptance {
         }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
-        configuration.arguments = ["--remote-debugging-port=\(port)", "--force-renderer-accessibility"]
+        configuration.arguments = ["--remote-debugging-port=\(port)"]
+            + (forcesRendererAccessibility ? ["--force-renderer-accessibility"] : [])
             + additionalLaunchArguments
         let running: NSRunningApplication
         if capturesNativeOutput {

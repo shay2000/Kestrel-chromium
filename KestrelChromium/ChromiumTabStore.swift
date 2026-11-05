@@ -772,7 +772,8 @@ final class TabStore: ObservableObject {
     }
 
     func canShowExtensionActions(for id: UUID) -> Bool {
-        guard !isAssistantTab(id), let chrome = chromeBrowsers[id], chrome.isWindowAlive,
+        guard CefRuntime.shared.isAcceptingBrowsers, collection.tabs.contains(where: { $0.id == id }),
+              pendingPageCloses[id] == nil, !isAssistantTab(id), let chrome = chromeBrowsers[id], chrome.isWindowAlive,
               let page = chrome.nsWindow else { return false }
         return page.isVisible && page.parent != nil
     }
@@ -783,7 +784,8 @@ final class TabStore: ObservableObject {
 
     func showExtensionAction(_ id: String, for tabID: UUID? = nil) {
         guard let action = ChromiumInstalledExtensions.shared.actions.first(where: { $0.id == id }) else { return }
-        activateExtension(name: action.name, for: tabID ?? selectedID)
+        let names = ChromiumInstalledExtensions.shared.actions.filter { $0.name == action.name }
+        activateExtension(name: names.count == 1 ? action.name : nil, for: tabID ?? selectedID)
     }
 
     func pinnedExtensionActions(_ installed: [ChromiumExtensionDescriptor]) -> [String] {
@@ -796,7 +798,8 @@ final class TabStore: ObservableObject {
         select(id: id)
         let address = browser(for: id).addressText
         ChromiumExtensionActions.show(in: chrome, name: name) { [weak self, weak chrome] in
-            guard let self, let chrome else { return false }
+            guard let self, let chrome, CefRuntime.shared.isAcceptingBrowsers,
+                  self.collection.tabs.contains(where: { $0.id == id }) else { return false }
             return self.selectedID == id && self.chromeBrowsers[id] === chrome
                 && self.pendingPageCloses[id] == nil && self.browser(for: id).addressText == address
                 && CefRuntime.shared.isAcceptingBrowsers

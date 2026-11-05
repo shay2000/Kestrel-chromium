@@ -93,6 +93,10 @@ struct NativeExtensionActionProbe {
             await ActionProbe.pause(1)
             describeButtons("menu-open");try preview("native-action-menu")
             try ActionProbe.dumpAX("native-action-menu.json")
+            try await click("Pin Google Translate")
+            await ActionProbe.pause(3)
+            let pins=ActionProbe.axNodes().filter {text($0,"AXDescription")=="Open Google Translate toolbar extension"}
+            guard !pins.isEmpty else {throw StoreProbeError(message:"Pinning did not expose the extension in Kestrel's own toolbar")}
             let actionNodes=ActionProbe.axNodes().filter { node in
                 let label=text(node,"AXDescription")+" "+text(node,"AXTitle")
                 return text(node,"AXRole")=="AXButton" && label.localizedCaseInsensitiveContains("Google Translate") && !label.localizedCaseInsensitiveContains("pin") && !label.localizedCaseInsensitiveContains("more")
@@ -115,12 +119,19 @@ struct NativeExtensionActionProbe {
             }
             let context=try await ActionProbe.cdp(popup,"Runtime.evaluate",["expression":"(async()=>({extensionID:chrome.runtime.id,tabs:(await chrome.tabs.query({active:true,currentWindow:true})).map(t=>({id:t.id,url:t.url})),text:document.body.innerText}))()","returnByValue":true,"awaitPromise":true])
             ActionProbe.record("genuine_popup_context",context)
+            guard let popupState=(context["result"] as? [String:Any])?["value"] as? [String:Any],
+                  popupState["extensionID"] as? String == item.id,
+                  let activeTabs=popupState["tabs"] as? [[String:Any]],activeTabs.count==1,
+                  activeTabs[0]["url"] as? String == "https://example.com/" else {throw StoreProbeError(message:"The genuine popup did not retain the selected Kestrel tab")}
             describeButtons("popup-settled");try preview("native-action-popup-settled")
             try ActionProbe.dumpAX("native-action-popup-settled.json")
             key(53);await ActionProbe.pause(0.5)
             try await click("Open Google Translate extension")
             await ActionProbe.pause(2)
             describeButtons("sidebar-action");try preview("native-sidebar-action-popup")
+            try await click("Extension Options",role:"AXLink")
+            _ = try await ActionProbe.target(matching:"chrome-extension://\(item.id)/options.html")
+            try await ActionProbe.inspectWindowSurfaces(stage:"genuine-extension-options")
             let profile=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/com.shayprasad.Kestrel/CefSwift/Default")
             for filename in ["Preferences","Secure Preferences"] {
                 if let data=try? Data(contentsOf:profile.appendingPathComponent(filename)),
@@ -133,6 +144,24 @@ struct NativeExtensionActionProbe {
                     ActionProbe.record("own_extension_profile_metadata",metadata)
                 }
             }
+            NSRunningApplication(processIdentifier:ActionProbe.testedPID!)?.terminate()
+            await ActionProbe.pause(2)
+            ActionProbe.forcesRendererAccessibility=false
+            try await ActionProbe.launch()
+            let cold=try await ActionProbe.open("https://example.org/")
+            await ActionProbe.pause(1)
+            let coldBody=try await ActionProbe.nativePageBounds(cold)
+            let point=CGPoint(x:coldBody.maxX+button.midX-body.maxX,y:coldBody.minY+button.midY-body.minY)
+            for kind in [CGEventType.mouseMoved,.leftMouseDown,.leftMouseUp] {
+                let event=CGEvent(mouseEventSource:nil,mouseType:kind,mouseCursorPosition:point,mouseButton:.left)
+                event?.flags=[];event?.post(tap:.cghidEventTap);await ActionProbe.pause(0.04)
+            }
+            await ActionProbe.pause(1)
+            try preview("native-cold-extension-menu")
+            let coldOCR=try String(contentsOf:ActionProbe.output.appendingPathComponent("native-cold-extension-menu.ocr.txt"),encoding:.utf8)
+            guard coldOCR.contains("Google Translate"),coldOCR.contains("Extensions") else {throw StoreProbeError(message:"The native action menu failed without forced accessibility or external AX inspection")}
+            try await ActionProbe.inspectWindowSurfaces(stage:"cold-native-actions")
+            guard !ActionProbe.collectCrashReports() else {throw StoreProbeError(message:"The native action flow crashed")}
             try ActionProbe.save("result.json",["probeCompleted":true,"menuPress":menuResult.rawValue,"actionPress":actionResult.rawValue])
         } catch {
             try? preview("failure");try? ActionProbe.dumpAX("failure.json")

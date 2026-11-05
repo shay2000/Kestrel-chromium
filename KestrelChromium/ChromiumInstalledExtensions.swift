@@ -36,11 +36,11 @@ final class ChromiumInstalledExtensions: ObservableObject {
         switch result {
         case .success(let values):
             if installed != values { installed = values }
-            readFailed = false
+            if readFailed { readFailed = false }
         case .failure:
             // A partially written preference file must not leave stale actions live.
-            installed = []
-            readFailed = true
+            if !installed.isEmpty { installed = [] }
+            if !readFailed { readFailed = true }
         }
         let pinned = nativePinnedActions(actions)
         if pinnedActionIDs != pinned { pinnedActionIDs = pinned }
