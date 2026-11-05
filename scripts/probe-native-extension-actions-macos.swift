@@ -86,7 +86,10 @@ struct NativeExtensionActionProbe {
         guard let row=rows.filter({($0.text=="Extensions" || $0.text.hasSuffix(" Extensions")) && $0.box.maxY<0.94}).min(by:{$0.box.minX<$1.box.minX}) else {throw StoreProbeError(message:"No Extensions settings category")}
         let screen=CGDisplayBounds(CGMainDisplayID())
         let point=CGPoint(x:screen.width*row.box.midX,y:screen.height*(1-row.box.midY))
-        for kind in [CGEventType.mouseMoved,.leftMouseDown,.leftMouseUp] {CGEvent(mouseEventSource:nil,mouseType:kind,mouseCursorPosition:point,mouseButton:.left)?.post(tap:.cghidEventTap)}
+        for kind in [CGEventType.mouseMoved,.leftMouseDown,.leftMouseUp] {
+            let event=CGEvent(mouseEventSource:nil,mouseType:kind,mouseCursorPosition:point,mouseButton:.left)
+            event?.flags=[];event?.post(tap:.cghidEventTap)
+        }
         await ActionProbe.pause(0.4)
         describeButtons("placement-settings")
         try await click("Show extensions beside Chats",role:"AXCheckBox")
