@@ -40,7 +40,8 @@ final class ChromiumExtensionPopover {
             }
             return event
         }
-        for name in [NSWindow.didMoveNotification, .didResizeNotification, .didBecomeKeyNotification, .didUpdateNotification] {
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification,
+                     NSWindow.didBecomeKeyNotification, NSWindow.didUpdateNotification] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.update() }
             })
