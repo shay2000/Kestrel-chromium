@@ -50,6 +50,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .build
+          restore-keys: kestrel-build-${{ runner.os }}-${{ runner.arch }}-
           key: kestrel-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift', 'KestrelChromium/**/*.swift', 'KestrelWebKit/**/*.swift', 'build.sh', 'patches/**') }}
 
       - name: Build and bundle the macOS app

@@ -209,7 +209,7 @@ final class AppSettings: ObservableObject {
     private static let assistantConversationsKey = "kestrel.assistant.conversations.v1"
     private static let recentSearchesLimit = 50
 
-    init(defaults: UserDefaults = KestrelPreferences.app) {
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.personalProfile = Self.load(PersonalProfile.self, key: Self.personalProfileKey, from: defaults)?.normalised ?? .init()
         self.searchEngine = Self.load(SearchEngine.self, key: Self.searchEngineKey, from: defaults) ?? .default

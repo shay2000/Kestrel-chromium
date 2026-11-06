@@ -180,6 +180,7 @@ def close_app(executable):
 
 def main():
     executable = command(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleExecutable", str(APP / "Contents/Info.plist")])
+    close_app(executable)
     bundle_id = seed_grouped_chats()
     subprocess.run(["open", "-n", "-a", str(APP), "--stderr", str(OUT / "runtime.log"), "--args", "--kestrel-desktop-audit"], check=True)
     deadline = time.monotonic() + 30

@@ -25,7 +25,9 @@ final class AddressTextFieldTests: XCTestCase {
 
     func testHostedToolbarFocusSelectsURLAndSurvivesViewUpdates() async throws {
         _ = NSApplication.shared
+        NSApp.setActivationPolicy(.regular)
         let state = HostedState()
+        state.focused = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 60),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -35,7 +37,17 @@ final class AddressTextFieldTests: XCTestCase {
         window.contentView = NSHostingView(rootView: HostedField(state: state))
         window.contentView?.layoutSubtreeIfNeeded()
         defer { window.makeFirstResponder(nil); window.close() }
-        try await Task.sleep(nanoseconds: 100_000_000)
+        for _ in 0..<20 where !NSApp.isActive || !window.isKeyWindow {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        state.focused = true
+        for _ in 0..<20 where !(window.firstResponder is NSTextView) {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
         let editor = try XCTUnwrap(window.firstResponder as? NSTextView)
         XCTAssertTrue(state.focused)
         XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: state.text.utf16.count))

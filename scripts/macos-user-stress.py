@@ -254,6 +254,8 @@ if os.environ.get("KESTREL_UI_PROBE"):
     result["kind"] = "diagnostic only; not stress acceptance"
 try:
     command(["swiftc", str(pathlib.Path(__file__).with_name("macos-accessibility.swift")), "-o", str(AX_CLIENT)], timeout=120)
+    subprocess.run(["pkill", "-TERM", "-x", "Kestrel"], capture_output=True)
+    wait(lambda: subprocess.run(["pgrep", "-x", "Kestrel"], capture_output=True).returncode != 0, "previous app exited before seeding preferences")
     # Only this disposable runner's synthetic app profile is replaced. The
     # three otherwise unbound commands receive ordinary configurable bindings.
     overrides = {name: {"key": key, "modifiers": ["command", "control", "option"]}
