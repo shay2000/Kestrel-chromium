@@ -87,10 +87,17 @@ if arguments[2] == "menu_select" {
         if text(node, "AXRole") == "AXMenuItem", text(node, "AXTitle") == titles[1] { items.append(node) }
         pending += attribute(node, "AXChildren") as? [AXUIElement] ?? []
     }
-    guard items.count == 1, text(items[0], "AXEnabled") == "1",
-          AXUIElementPerformAction(items[0], kAXPressAction as CFString) == .success else { fail("Cannot select menu item: \(titles[1])") }
+    guard items.count == 1, text(items[0], "AXEnabled") == "1", let bounds = frame(items[0]) else { fail("Cannot select menu item: \(titles[1])") }
+    let point = CGPoint(x: bounds.midX, y: bounds.midY)
+    guard bounds.width > 0, bounds.height > 0, CGDisplayBounds(CGMainDisplayID()).contains(point) else { fail("Menu item is outside the runner display") }
+    for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+        guard let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: point, mouseButton: .left) else { fail("Cannot create menu pointer event") }
+        event.flags = []
+        event.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.04)
+    }
     Thread.sleep(forTimeInterval: 0.35)
-    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: ["menu": titles[0], "item": titles[1]]))
+    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: ["menu": titles[0], "item": titles[1], "method": "native pointer"]))
     exit(0)
 }
 // Handle only this known runner prompt, by a real pointer click. Denying LAN

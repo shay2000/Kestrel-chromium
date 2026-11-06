@@ -108,9 +108,18 @@ struct AddressTextField: NSViewRepresentable {
         }
         func focusForCommand() -> Bool {
             guard let window else { return false }
-            onFocusRequest?()
             if !window.isKeyWindow { window.makeKey() }
+            // The editor, rather than the NSTextField, is first responder
+            // during editing. Replacing it with its field ends the session
+            // and lets the end-editing callback clear the focus binding.
+            if let editor = currentEditor() as? NSTextView, window.firstResponder === editor {
+                onFocusRequest?()
+                editor.selectAll(nil)
+                return true
+            }
+            onFocusRequest?()
             guard window.makeFirstResponder(self), let editor = currentEditor() as? NSTextView else { return false }
+            onFocusRequest?()
             editor.selectAll(nil)
             return true
         }

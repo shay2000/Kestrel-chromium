@@ -69,11 +69,20 @@ final class AddressTextFieldTests: XCTestCase {
         let editor = try XCTUnwrap(window.firstResponder as? NSTextView)
         XCTAssertTrue(state.focused)
         XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: state.text.utf16.count))
+        XCTAssertTrue(AddressTextField.focus(.toolbar, in: window))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(state.focused, "Refocusing an active editor must not end editing")
+        XCTAssertTrue(window.firstResponder === editor)
         editor.insertText("redd", replacementRange: editor.selectedRange())
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(state.focused)
         XCTAssertEqual(state.text, "redd")
         XCTAssertTrue(window.firstResponder === editor)
+        XCTAssertTrue(AddressTextField.focus(.toolbar, in: window))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(state.focused)
+        XCTAssertTrue(window.firstResponder === editor)
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 4))
     }
 
     private final class State {
