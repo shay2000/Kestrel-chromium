@@ -90,8 +90,14 @@ struct AddressTextField: NSViewRepresentable {
                         editor.setSelectedRange(NSRange(location: 0, length: editor.string.utf16.count))
                     }
                 }
-            } else if !coordinator.parent.isFocused, field.currentEditor() != nil {
-                window.makeFirstResponder(nil)
+            } else if !coordinator.parent.isFocused, let editor = field.currentEditor(), window.firstResponder === editor {
+                // Restore the document's responder chain after Escape. A nil
+                // responder leaves SwiftUI commands without their hosting view.
+                if let root = window.contentView, root.acceptsFirstResponder {
+                    window.makeFirstResponder(root)
+                } else {
+                    window.makeFirstResponder(nil)
+                }
             }
             coordinator.applyCompletion(in: field)
         }

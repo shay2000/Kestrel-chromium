@@ -40,6 +40,7 @@ jobs:
         run: |
           set -o pipefail
           ./build.sh release 2>&1 | tee "$RUNNER_TEMP/kestrel-desktop-build.log"
+          codesign --display --entitlements - build/Kestrel.app
 
       - name: Download the shipped WebKit comparison app
         shell: bash
@@ -50,6 +51,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/kestrel-webkit-release"
           ditto -x -k "$RUNNER_TEMP/Kestrel-Browser.zip" "$RUNNER_TEMP/kestrel-webkit-release"
           test -d "$RUNNER_TEMP/kestrel-webkit-release/Kestrel.app"
+          codesign --display --entitlements - "$RUNNER_TEMP/kestrel-webkit-release/Kestrel.app"
 
       - name: Operate menus and advanced workflows in both apps
         shell: bash

@@ -83,6 +83,15 @@ final class AddressTextFieldTests: XCTestCase {
         XCTAssertTrue(state.focused)
         XCTAssertTrue(window.firstResponder === editor)
         XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 4))
+        state.focused = false
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertFalse(state.focused)
+        XCTAssertFalse(window.firstResponder === editor)
+        if let root = window.contentView, root.acceptsFirstResponder {
+            XCTAssertTrue(window.firstResponder === root)
+        }
+        XCTAssertTrue(AddressTextField.focus(.toolbar, in: window), "The field must refocus after returning to the document")
+        XCTAssertTrue(state.focused)
     }
 
     private final class State {

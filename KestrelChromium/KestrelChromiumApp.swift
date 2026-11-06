@@ -77,6 +77,19 @@ struct KestrelChromiumApp: CefSwiftApp {
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                     let focus = "KESTREL_DESKTOP focus active=\(NSApp.isActive) key=\(NSApp.keyWindow?.windowNumber ?? -1) main=\(NSApp.mainWindow?.windowNumber ?? -1) owner=\(BrowserWindowFocus.keyboardOwner?.windowNumber ?? -1) parent=\(NSApp.keyWindow?.parent?.windowNumber ?? -1) modal=\(NSApp.modalWindow != nil) fields=\(AddressTextField.Field.fields.allObjects.count) editors=\(AddressTextField.Field.fields.allObjects.filter { $0.currentEditor() != nil }.count) accepting=\(CefRuntime.shared.isAcceptingBrowsers)\n"
                     try? FileHandle.standardError.write(contentsOf: Data(focus.utf8))
+                    if delay == 5.0 {
+                        let owner = BrowserWindowFocus.keyboardOwner
+                        let root = owner?.contentView
+                        let description = "KESTREL_DESKTOP root class=\(root.map { String(describing: type(of: $0)) } ?? "nil") accepts=\(root?.acceptsFirstResponder ?? false)\n"
+                        try? FileHandle.standardError.write(contentsOf: Data(description.utf8))
+                        for name in ["Chromium", "Tabs"] {
+                            let items = NSApp.mainMenu?.items.first(where: { $0.title == name || $0.submenu?.title == name })?.submenu?.items ?? []
+                            for item in items where ["Site Permissions & Browser Settings…", "Browsing History…", "Downloads…", "Move Tab to Right Split"].contains(item.title) {
+                                let trace = "KESTREL_DESKTOP menu group=\(name) title=\(item.title) enabled=\(item.isEnabled) action=\(item.action.map(NSStringFromSelector) ?? "nil") target=\(item.target.map { String(describing: type(of: $0)) } ?? "nil")\n"
+                                try? FileHandle.standardError.write(contentsOf: Data(trace.utf8))
+                            }
+                        }
+                    }
                 }
             }
         }
