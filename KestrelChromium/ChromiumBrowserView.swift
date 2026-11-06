@@ -138,9 +138,20 @@ private struct PersistentChromeHost: NSViewRepresentable {
 
 @MainActor
 private final class PersistentChromeHostView: NSView {
+    // A tab's CEF window survives SwiftUI's single-page/split transitions.
+    // Claim it when a host is created/rebound, never during layout: outgoing
+    // animated hosts must not hide or strip the incoming host's page.
+    private static let hosts = NSMapTable<CefChromeBrowser, PersistentChromeHostView>(keyOptions: .weakMemory, valueOptions: .weakMemory)
     var browser: CefChromeBrowser? {
+        willSet { if browser !== newValue { parkBrowser() } }
         didSet {
-            if browser !== oldValue { insetHeight = nil; rebindWindowObservers() }
+            if let browser, browser !== oldValue {
+                let previous = Self.hosts.object(forKey: browser)
+                Self.hosts.setObject(self, forKey: browser)
+                previous?.parkBrowser()
+                insetHeight = nil
+                rebindWindowObservers()
+            }
             updateOverlay()
         }
     }
@@ -199,8 +210,9 @@ private final class PersistentChromeHostView: NSView {
     }
 
     func updateOverlay() {
+        guard let browser, Self.hosts.object(forKey: browser) === self else { return }
         updateNativeOverlay()
-        guard let overlay = browser?.nsWindow else { return }
+        guard let overlay = browser.nsWindow else { return }
         let visible = isVisible && window != nil && !isHiddenOrHasHiddenAncestor
             && (window?.isVisible ?? false) && !(window?.isMiniaturized ?? true)
             && bounds.width > 1 && bounds.height > 1
@@ -220,7 +232,7 @@ private final class PersistentChromeHostView: NSView {
             // Its system corner clip now surrounds the complete card rather
             // than cutting a second curve below the toolbar.
             if insetHeight != headerHeight {
-                browser?.setContentInsets(top: Double(headerHeight))
+                browser.setContentInsets(top: Double(headerHeight))
                 insetHeight = headerHeight
             }
             overlay.titlebarAppearsTransparent = true
@@ -237,8 +249,8 @@ private final class PersistentChromeHostView: NSView {
             card.size.height += headerHeight
             let target = BrowserPageGeometry.coveringFrame(card, scale: window.backingScaleFactor)
             if overlay.frame != target { overlay.setFrame(target, display: true) }
-            if let root = browser?.rootView {
-                if let browser { CefBrowserRegistry.setPageLayout(for: browser.browser, root: root, headerHeight: headerHeight) }
+            if let root = browser.rootView {
+                CefBrowserRegistry.setPageLayout(for: browser.browser, root: root, headerHeight: headerHeight)
                 updateNativeOverlay()
                 updateNativeHeader(root: root, owner: window)
                 for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
@@ -262,21 +274,25 @@ private final class PersistentChromeHostView: NSView {
 
     /// Detaches the child window but leaves its CEF browser and page running.
     func parkBrowser() {
-        attachment.detach()
+        let ownsPage = browser.map { Self.hosts.object(forKey: $0) === self } ?? false
+        attachment.detach(restoringDocumentFocus: ownsPage)
         for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
         windowObservers = []
         // The persistent CEF root outlives this SwiftUI host. Remove this
         // host's overlay so old spinners/banners cannot remain on the page.
         nativeOverlay?.removeFromSuperview()
         nativeOverlay = nil
-        detachNativeHeader()
-        guard let overlay = browser?.nsWindow else { return }
+        detachNativeHeader(updatingPage: ownsPage)
+        guard ownsPage, let browser else { return }
+        Self.hosts.removeObject(forKey: browser)
+        guard let overlay = browser.nsWindow else { return }
         overlay.parent?.removeChildWindow(overlay)
         overlay.orderOut(nil)
     }
 
     private func updateNativeOverlay() {
-        guard isOverlayVisible, let pageOverlay, let root = browser?.rootView else {
+        guard let browser, Self.hosts.object(forKey: browser) === self else { return }
+        guard isOverlayVisible, let pageOverlay, let root = browser.rootView else {
             nativeOverlay?.removeFromSuperview()
             nativeOverlay = nil
             return
@@ -377,9 +393,9 @@ private final class PersistentChromeHostView: NSView {
         if let page = root.window { ChromiumWindowAccessibility.update(window: page, header: host) }
     }
 
-    private func detachNativeHeader() {
-        if let browser { CefBrowserRegistry.setChromeOverlayVisible(false, for: browser.browser) }
-        if let window = headerAccessibilityWindow { ChromiumWindowAccessibility.update(window: window, header: nil) }
+    private func detachNativeHeader(updatingPage: Bool = true) {
+        if updatingPage, let browser { CefBrowserRegistry.setChromeOverlayVisible(false, for: browser.browser) }
+        if updatingPage, let window = headerAccessibilityWindow { ChromiumWindowAccessibility.update(window: window, header: nil) }
         headerAccessibilityWindow = nil
         nativeHeader?.setAccessibilityParent(nil)
         nativeHeader?.removeFromSuperview()

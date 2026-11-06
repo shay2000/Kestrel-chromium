@@ -67,6 +67,14 @@ struct NativeOverlayRegression {
         popup.isReleasedWhenClosed = false
         live.addChildWindow(popup, ordered: .above)
         precondition(ChromiumWindowAttachment.shouldOrderPageFront(owner: window, page: live, keyWindow: popup))
+        let attachment = ChromiumWindowAttachment()
+        var pageFocusCount = 0
+        attachment.onFocus = { pageFocusCount += 1 }
+        attachment.attach(owner: window, page: live)
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: live)
+        NotificationCenter.default.post(name: NSWindow.didBecomeMainNotification, object: live)
+        precondition(pageFocusCount == 0, "native address-editor activation must not clear address focus")
+        attachment.detach(restoringDocumentFocus: false)
         live.removeChildWindow(popup)
         popup.close()
         settings.close()

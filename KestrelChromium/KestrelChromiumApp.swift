@@ -54,6 +54,13 @@ struct KestrelChromiumApp: CefSwiftApp {
             settings?.assistantConversations = conversations
         }
         chat.loadSavedConversations()
+        if CommandLine.arguments.contains("--kestrel-desktop-audit") {
+            let domain = Bundle.main.bundleIdentifier ?? "com.shayprasad.Kestrel"
+            let data = UserDefaults.standard.persistentDomain(forName: domain)?["kestrel.assistant.conversations.v1"] as? Data
+            let decoded = data.flatMap { try? JSONDecoder().decode([AssistantConversation].self, from: $0) }
+            let line = "KESTREL_DESKTOP archive settings=\(settings.assistantConversations.count) chat=\(chat.savedConversations.count) domain=\(decoded?.count ?? -1) bytes=\(data?.count ?? 0)\n"
+            try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
+        }
         chat.localTitleGenerator = { prompt, answer in
             await AppleLocalModelProvider.generateConversationTitle(prompt: prompt, answer: answer)
         }

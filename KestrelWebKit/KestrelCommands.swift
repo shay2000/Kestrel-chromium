@@ -190,13 +190,7 @@ struct KestrelCommands: Commands {
 
     private func splitAction(on side: BrowserSplitSide) {
         withAnimation(.snappy(duration: 0.24)) {
-            let query = tabs.newTabSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-            if tabs.isNewTabSearchPresented, !query.isEmpty {
-                settings.recordSearch(query)
-                _ = tabs.openSearchInSplit(query, on: side)
-            } else {
-                tabs.placeSelectedTab(on: side)
-            }
+            tabs.performSplitCommand(on: side, settings: settings)
         }
     }
 }

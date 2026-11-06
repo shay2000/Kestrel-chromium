@@ -23,7 +23,9 @@ final class ChromiumWindowAttachment {
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: page, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.onFocus?()
+                    // Becoming key also happens when our address field asks
+                    // for its native editor. Only a page-content click may
+                    // clear address editing; activation must not undo it.
                     // Native activation is still unwinding. Do not fight it
                     // reentrantly or take the page's keyboard responder away.
                     DispatchQueue.main.async { [weak self] in self?.restoreDocumentMainWindow() }
@@ -78,8 +80,8 @@ final class ChromiumWindowAttachment {
         if !owner.isMainWindow { owner.makeMain() }
     }
 
-    func detach() {
-        if let owner, let page, page.isKeyWindow, page.parent === owner,
+    func detach(restoringDocumentFocus: Bool = true) {
+        if restoringDocumentFocus, let owner, let page, page.isKeyWindow, page.parent === owner,
            NSApp.isActive, owner.isVisible, !owner.isMiniaturized,
            owner.attachedSheet == nil, page.attachedSheet == nil, NSApp.modalWindow == nil {
             owner.makeKey()

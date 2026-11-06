@@ -112,6 +112,18 @@ extension AppSettings {
     }
 }
 
+extension TabStore {
+    func performSplitCommand(on side: BrowserSplitSide, settings: AppSettings) {
+        let query = newTabSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isNewTabSearchPresented, !query.isEmpty {
+            settings.recordSearch(query)
+            _ = openSearchInSplit(query, on: side)
+        } else {
+            placeSelectedTab(on: side)
+        }
+    }
+}
+
 private struct BrowserWindowFocusKey: FocusedValueKey {
     typealias Value = Bool
 }
@@ -183,21 +195,21 @@ struct BrowserCloseShortcut: NSViewRepresentable {
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, let window = self.window,
                       BrowserWindowFocus.keyboardOwner === window, window.attachedSheet == nil,
-                      !self.settings.isCapturingShortcut,
-                      let shortcut = self.settings.shortcut(for: .closeTab),
-                      event.charactersIgnoringModifiers?.lowercased() == shortcut.key.lowercased() else { return event }
-                var expected: NSEvent.ModifierFlags = []
-                for modifier in shortcut.modifiers {
-                    switch modifier {
-                    case "command": expected.insert(.command)
-                    case "option": expected.insert(.option)
-                    case "control": expected.insert(.control)
-                    case "shift": expected.insert(.shift)
-                    default: return event
-                    }
+                      !self.settings.isCapturingShortcut else { return event }
+                // CEF's Chrome runtime consumes Command-arrow as history
+                // navigation before SwiftUI's menu equivalent can see it.
+                // Route these Kestrel commands at the same boundary as Close.
+                let commands: [BrowserCommand] = [.closeTab, .splitLeft, .splitRight]
+                guard let command = commands.first(where: { command in
+                    guard let shortcut = self.settings.shortcut(for: command) else { return false }
+                    return shortcut.matches(event: event)
+                }) else { return event }
+                switch command {
+                case .closeTab: self.tabs.closeSelectedTab()
+                case .splitLeft: self.tabs.performSplitCommand(on: .left, settings: self.settings)
+                case .splitRight: self.tabs.performSplitCommand(on: .right, settings: self.settings)
+                default: return event
                 }
-                guard event.modifierFlags.intersection([.command, .option, .control, .shift]) == expected else { return event }
-                self.tabs.closeSelectedTab()
                 return nil
             }
         }
@@ -206,6 +218,29 @@ struct BrowserCloseShortcut: NSViewRepresentable {
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
         }
+    }
+}
+
+extension AssistantSidebarShortcut {
+    func matches(event: NSEvent) -> Bool {
+        let actualKey: String
+        switch event.keyCode {
+        case 123: actualKey = "\u{f702}"
+        case 124: actualKey = "\u{f703}"
+        default: actualKey = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        }
+        guard actualKey == key.lowercased() else { return false }
+        var expected: NSEvent.ModifierFlags = []
+        for modifier in modifiers {
+            switch modifier {
+            case "command": expected.insert(.command)
+            case "option": expected.insert(.option)
+            case "control": expected.insert(.control)
+            case "shift": expected.insert(.shift)
+            default: return false
+            }
+        }
+        return event.modifierFlags.intersection([.command, .option, .control, .shift]) == expected
     }
 }
 #endif

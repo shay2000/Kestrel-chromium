@@ -29,6 +29,9 @@ final class AddressTextFieldTests: XCTestCase {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 60),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        BrowserWindowFocus.register(window)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
         window.contentView = NSHostingView(rootView: HostedField(state: state))
         window.contentView?.layoutSubtreeIfNeeded()
         defer { window.makeFirstResponder(nil); window.close() }

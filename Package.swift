@@ -24,6 +24,7 @@ let appDependencies: [Target.Dependency] = []
 
 let package = Package(
     name: "KestrelChromium",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14)
     ],
@@ -40,6 +41,8 @@ let package = Package(
             dependencies: appDependencies,
             path: ".",
             exclude: [
+                ".build", ".cef", "build", ".github", "Tests", "scripts", "archive", "docs",
+                "resources", "historic-icons", "KestrelWebKit.xcodeproj",
                 "KestrelWebKit/KestrelWebKitApp.swift",
                 "KestrelWebKit/BrowserOperator.swift",
                 "KestrelWebKit/BrowserStore.swift",
