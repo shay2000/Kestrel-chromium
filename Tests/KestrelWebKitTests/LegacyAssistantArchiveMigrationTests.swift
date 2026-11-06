@@ -18,7 +18,7 @@ final class LegacyAssistantArchiveMigrationTests: XCTestCase {
     private func archive() throws -> Data {
         try JSONEncoder().encode([AssistantConversation(title: "Legacy saved chat", messages: [
             AIMessage(role: .user, text: "Synthetic archive migration entry.")
-        ], updatedAt: Date(timeIntervalSinceReferenceDate: 123456)))
+        ], updatedAt: Date(timeIntervalSinceReferenceDate: 123456))])
     }
 
     private func write(_ archive: Data, to url: URL) throws {

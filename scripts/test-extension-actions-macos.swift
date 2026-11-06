@@ -82,7 +82,11 @@ struct NativeExtensionActionAcceptance {
             pending += ActionProbe.ax(node,"AXChildren") as? [AXUIElement] ?? []
         }
         guard found.count==1 else {throw StoreProbeError(message:"Missing installed action in Kestrel's menu bar")}
-        _=AXUIElementPerformAction(found[0],kAXPressAction as CFString)
+        var rawActions: CFArray?
+        guard AXUIElementCopyActionNames(found[0], &rawActions) == .success else { throw StoreProbeError(message:"Cannot inspect the installed menu action") }
+        let actions = rawActions as? [String] ?? []
+        let action = actions.contains("AXPick") ? "AXPick" : "AXPress"
+        guard AXUIElementPerformAction(found[0], action as CFString) == .success else { throw StoreProbeError(message:"Cannot choose the installed menu action") }
         await ActionProbe.pause(1)
     }
     static func settingsSidebar(_ enabled: Bool) async throws {
@@ -249,6 +253,27 @@ struct NativeExtensionActionAcceptance {
                   tabs[0]["url"] as? String == "https://example.org/" else { throw StoreProbeError(message: "Cold extension action lost the selected Kestrel tab") }
             _ = try await extensionOptionsPoint()
             try preview("native-cold-extension-popup")
+            key(53)
+            var popupClosed = false
+            for _ in 0..<30 {
+                let targets = try await ActionProbe.targets()
+                if !targets.contains(where: { ($0["url"] as? String) == "chrome-extension://\(item.id)/popup.html" }) {
+                    popupClosed = true
+                    break
+                }
+                await ActionProbe.pause(0.1)
+            }
+            guard popupClosed else { throw StoreProbeError(message: "Escape did not close the genuine extension popup") }
+            try await menuAction("Extensions", item: "Google Translate")
+            let coldMenuPopup = try await ActionProbe.target(matching: "chrome-extension://\(item.id)/popup.html")
+            let coldMenuContext = try await ActionProbe.cdp(coldMenuPopup, "Runtime.evaluate", ["expression":"(async()=>({extensionID:chrome.runtime.id,tabs:(await chrome.tabs.query({active:true,currentWindow:true})).map(t=>({url:t.url}))}))()", "returnByValue":true, "awaitPromise":true])
+            ActionProbe.record("genuine_cold_macos_menu_context", coldMenuContext)
+            guard let menuState = (coldMenuContext["result"] as? [String:Any])?["value"] as? [String:Any],
+                  menuState["extensionID"] as? String == item.id,
+                  let menuTabs = menuState["tabs"] as? [[String:Any]], menuTabs.count == 1,
+                  menuTabs[0]["url"] as? String == "https://example.org/" else { throw StoreProbeError(message: "The macOS menu did not open a fresh popup with the selected Kestrel tab") }
+            _ = try await extensionOptionsPoint()
+            try preview("native-cold-macos-menu-popup")
             try await ActionProbe.inspectWindowSurfaces(stage:"cold-native-actions")
             guard let running = NSRunningApplication(processIdentifier: ActionProbe.testedPID!) else {
                 throw StoreProbeError(message: "Could not quit Kestrel with the extension popup open")

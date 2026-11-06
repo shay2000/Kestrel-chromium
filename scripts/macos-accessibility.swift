@@ -100,7 +100,7 @@ if arguments[2] == "menu_select" {
     var rawActions: CFArray?
     guard AXUIElementCopyActionNames(items[0], &rawActions) == .success else { fail("Cannot inspect menu item actions") }
     let actions = rawActions as? [String] ?? []
-    guard let action = ["AXPress", "AXPick", "AXConfirm"].first(where: { actions.contains($0) }) else { fail("No supported menu selection action: \(actions)") }
+    guard let action = ["AXPick", "AXPress", "AXConfirm"].first(where: { actions.contains($0) }) else { fail("No supported menu selection action: \(actions)") }
     let status = AXUIElementPerformAction(items[0], action as CFString)
     guard status == .success else { fail("Cannot perform menu selection: \(status.rawValue)") }
     Thread.sleep(forTimeInterval: 0.35)

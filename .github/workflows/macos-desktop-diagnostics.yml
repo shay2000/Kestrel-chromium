@@ -42,6 +42,12 @@ jobs:
           ./build.sh release 2>&1 | tee "$RUNNER_TEMP/kestrel-desktop-build.log"
           codesign --display --entitlements - build/Kestrel.app
 
+      - name: Verify saved-chat migration regressions
+        shell: bash
+        run: |
+          set -o pipefail
+          swift test --filter LegacyAssistantArchiveMigrationTests 2>&1 | tee "$RUNNER_TEMP/kestrel-migration-tests.log"
+
       - name: Download the shipped WebKit comparison app
         shell: bash
         run: |
@@ -89,4 +95,5 @@ jobs:
           path: |
             ${{ runner.temp }}/kestrel-desktop
             ${{ runner.temp }}/kestrel-desktop-build.log
+            ${{ runner.temp }}/kestrel-migration-tests.log
           retention-days: 30
