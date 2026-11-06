@@ -1,0 +1,90 @@
+name: macOS desktop diagnostics
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kestrel-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode and report the runner
+        shell: bash
+        run: |
+          XCODE="$(find /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort | tail -1)"
+          test -n "$XCODE"
+          sudo xcode-select -s "$XCODE"
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Restore pinned build dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: .build
+          restore-keys: kestrel-build-${{ runner.os }}-${{ runner.arch }}-
+          key: kestrel-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift', 'KestrelChromium/**/*.swift', 'KestrelWebKit/**/*.swift', 'build.sh', 'patches/**') }}
+
+      - name: Build the actual bundled Chromium app
+        shell: bash
+        run: |
+          set -o pipefail
+          ./build.sh release 2>&1 | tee "$RUNNER_TEMP/kestrel-desktop-build.log"
+
+      - name: Download the shipped WebKit comparison app
+        shell: bash
+        run: |
+          curl -fL --retry 3 \
+            https://github.com/shay2000/Kestrel-Browser/releases/download/v1.0.0/Kestrel-Browser.zip \
+            -o "$RUNNER_TEMP/Kestrel-Browser.zip"
+          mkdir -p "$RUNNER_TEMP/kestrel-webkit-release"
+          ditto -x -k "$RUNNER_TEMP/Kestrel-Browser.zip" "$RUNNER_TEMP/kestrel-webkit-release"
+          test -d "$RUNNER_TEMP/kestrel-webkit-release/Kestrel.app"
+
+      - name: Operate menus and advanced workflows in both apps
+        shell: bash
+        run: |
+          set +e
+          KESTREL_DIAGNOSTIC_STATUS=0
+          for KESTREL_DIAGNOSTIC_ENGINE in chromium webkit; do
+            if [[ "$KESTREL_DIAGNOSTIC_ENGINE" == chromium ]]; then
+              KESTREL_DIAGNOSTIC_APP="$GITHUB_WORKSPACE/build/Kestrel.app"
+              KESTREL_DIAGNOSTIC_SKIP_CLOSE=0
+            else
+              KESTREL_DIAGNOSTIC_APP="$RUNNER_TEMP/kestrel-webkit-release/Kestrel.app"
+              KESTREL_DIAGNOSTIC_SKIP_CLOSE=1
+            fi
+            KESTREL_MENU_TEST_APP="$KESTREL_DIAGNOSTIC_APP" \
+              KESTREL_MENU_TEST_OUT="$RUNNER_TEMP/kestrel-desktop/$KESTREL_DIAGNOSTIC_ENGINE-menu" \
+              KESTREL_MENU_TEST_ENGINE="$KESTREL_DIAGNOSTIC_ENGINE" \
+              python3 scripts/test-desktop-menus-macos.py
+            if [[ "$?" -ne 0 ]]; then KESTREL_DIAGNOSTIC_STATUS=1; fi
+            KESTREL_STRESS_APP="$KESTREL_DIAGNOSTIC_APP" \
+              KESTREL_STRESS_OUT="$RUNNER_TEMP/kestrel-desktop/$KESTREL_DIAGNOSTIC_ENGINE-workflows" \
+              KESTREL_STRESS_ENGINE="$KESTREL_DIAGNOSTIC_ENGINE" \
+              KESTREL_STRESS_CYCLES=1 \
+              KESTREL_STRESS_SKIP_CLOSE_TAB="$KESTREL_DIAGNOSTIC_SKIP_CLOSE" \
+              python3 scripts/macos-user-stress.py
+            if [[ "$?" -ne 0 ]]; then KESTREL_DIAGNOSTIC_STATUS=1; fi
+          done
+          exit "$KESTREL_DIAGNOSTIC_STATUS"
+
+      - name: Retain desktop evidence and build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-desktop-diagnostics
+          path: |
+            ${{ runner.temp }}/kestrel-desktop
+            ${{ runner.temp }}/kestrel-desktop-build.log
+          retention-days: 30

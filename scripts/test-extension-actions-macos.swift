@@ -250,9 +250,10 @@ struct NativeExtensionActionAcceptance {
             _ = try await extensionOptionsPoint()
             try preview("native-cold-extension-popup")
             try await ActionProbe.inspectWindowSurfaces(stage:"cold-native-actions")
-            guard let running = NSRunningApplication(processIdentifier: ActionProbe.testedPID!), running.terminate() else {
+            guard let running = NSRunningApplication(processIdentifier: ActionProbe.testedPID!) else {
                 throw StoreProbeError(message: "Could not quit Kestrel with the extension popup open")
             }
+            key(12, .maskCommand)
             for _ in 0..<30 where !running.isTerminated { await ActionProbe.pause(0.2) }
             guard running.isTerminated else { throw StoreProbeError(message: "Kestrel did not finish quitting with the popup open") }
             await ActionProbe.pause(2)

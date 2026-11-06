@@ -193,9 +193,18 @@ struct BrowserCloseShortcut: NSViewRepresentable {
             removeMonitor()
             guard window != nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, let window = self.window,
-                      BrowserWindowFocus.keyboardOwner === window, window.attachedSheet == nil,
-                      !self.settings.isCapturingShortcut else { return event }
+                guard let self, let window = self.window, !self.settings.isCapturingShortcut else { return event }
+                // Quit belongs to the application, including extension
+                // popups. Chrome's renderer can otherwise consume Command-Q
+                // without entering CEFApplication's normal termination flow.
+                if NSApp.isActive, NSApp.modalWindow == nil,
+                   NSApp.keyWindow?.sheetParent == nil, NSApp.keyWindow?.attachedSheet == nil,
+                   event.modifierFlags.intersection([.command, .option, .control, .shift]) == .command,
+                   event.charactersIgnoringModifiers?.lowercased() == "q" {
+                    NSApp.terminate(nil)
+                    return nil
+                }
+                guard BrowserWindowFocus.keyboardOwner === window, window.attachedSheet == nil else { return event }
                 // CEF's Chrome runtime consumes Command-arrow as history
                 // navigation before SwiftUI's menu equivalent can see it.
                 // Route these Kestrel commands at the same boundary as Close.

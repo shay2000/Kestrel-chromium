@@ -73,10 +73,7 @@ if ["native-key", "native-keycode"].contains(arguments[2]) {
 if arguments[2] == "menu_select" {
     guard arguments.count == 4 else { fail("A menu and item title are required") }
     let titles = arguments[3].split(separator: "|", maxSplits: 1).map(String.init)
-    guard titles.count == 2, let rawBar = attribute(app, "AXMenuBar") else { fail("No menu bar") }
-    let bar = unsafeBitCast(rawBar, to: AXUIElement.self)
-    let groups = (attribute(bar, "AXChildren") as? [AXUIElement] ?? []).filter { text($0, "AXTitle") == titles[0] }
-    guard groups.count == 1 else { fail("Expected one menu: \(titles[0])") }
+    guard titles.count == 2 else { fail("Invalid menu selection") }
     NSRunningApplication(processIdentifier: pid)?.activate(options: [])
     Thread.sleep(forTimeInterval: 0.15)
     for down in [true, false] {
@@ -85,16 +82,10 @@ if arguments[2] == "menu_select" {
         escape?.post(tap: .cghidEventTap)
     }
     Thread.sleep(forTimeInterval: 0.1)
-    guard let groupBounds = frame(groups[0]) else { fail("No menu bar bounds") }
-    // Start and finish native menu tracking with pointer events. AXPress can
-    // expose a menu tree without committing the subsequent selected action.
-    let barPoint = CGPoint(x: groupBounds.midX, y: groupBounds.midY)
-    for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
-        guard let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: barPoint, mouseButton: .left) else { fail("Cannot open the menu bar item") }
-        event.flags = []
-        event.post(tap: .cghidEventTap)
-        Thread.sleep(forTimeInterval: 0.04)
-    }
+    guard let rawBar = attribute(app, "AXMenuBar") else { fail("No menu bar") }
+    let bar = unsafeBitCast(rawBar, to: AXUIElement.self)
+    let groups = (attribute(bar, "AXChildren") as? [AXUIElement] ?? []).filter { text($0, "AXTitle") == titles[0] }
+    guard groups.count == 1, AXUIElementPerformAction(groups[0], kAXPressAction as CFString) == .success else { fail("Cannot open menu: \(titles[0])") }
     Thread.sleep(forTimeInterval: 0.2)
     var pending = attribute(groups[0], "AXChildren") as? [AXUIElement] ?? []
     var items: [AXUIElement] = []
@@ -105,17 +96,25 @@ if arguments[2] == "menu_select" {
         if text(node, "AXRole") == "AXMenuItem", text(node, "AXTitle") == titles[1] { items.append(node) }
         pending += attribute(node, "AXChildren") as? [AXUIElement] ?? []
     }
-    guard items.count == 1, text(items[0], "AXEnabled") == "1", let bounds = frame(items[0]) else { fail("Cannot select menu item: \(titles[1])") }
-    let point = CGPoint(x: bounds.midX, y: bounds.midY)
-    guard bounds.width > 0, bounds.height > 0, CGDisplayBounds(CGMainDisplayID()).contains(point) else { fail("Menu item is outside the runner display") }
-    for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
-        guard let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: point, mouseButton: .left) else { fail("Cannot create menu pointer event") }
-        event.flags = []
-        event.post(tap: .cghidEventTap)
-        Thread.sleep(forTimeInterval: 0.04)
+    guard items.count == 1, text(items[0], "AXEnabled") == "1", let rawParent = attribute(items[0], "AXParent") else { fail("Cannot select menu item: \(titles[1])") }
+    let parent = unsafeBitCast(rawParent, to: AXUIElement.self)
+    let siblings = (attribute(parent, "AXChildren") as? [AXUIElement] ?? []).filter { text($0, "AXRole") == "AXMenuItem" && text($0, "AXEnabled") == "1" }
+    guard let index = siblings.firstIndex(where: { CFEqual($0, items[0]) }) else { fail("Menu item has no enabled position") }
+    let selected = attribute(parent, "AXSelectedChildren") as? [AXUIElement] ?? []
+    let current = siblings.firstIndex { node in text(node, "AXSelected") == "1" || selected.contains(where: { CFEqual($0, node) }) }
+    let moves = current.map { (index - $0 + siblings.count) % siblings.count } ?? (index + 1)
+    // Commit through ordinary menu keyboard tracking. Merely exposing an AX
+    // item or clicking stale hosted-runner coordinates is not acceptance.
+    for code in Array(repeating: CGKeyCode(125), count: moves) + [36] {
+        for down in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { fail("Cannot create native menu key event") }
+            event.flags = []
+            event.post(tap: .cghidEventTap)
+        }
+        Thread.sleep(forTimeInterval: 0.08)
     }
     Thread.sleep(forTimeInterval: 0.35)
-    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: ["menu": titles[0], "item": titles[1], "method": "native pointer"]))
+    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: ["menu": titles[0], "item": titles[1], "method": "native keys"]))
     exit(0)
 }
 // Handle only this known runner prompt, by a real pointer click. Denying LAN
