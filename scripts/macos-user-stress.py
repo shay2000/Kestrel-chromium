@@ -92,7 +92,7 @@ def resize_window(width, height):
     target = json.loads(command([str(AX_CLIENT), PID, "resize", f"{width},{height}"]))
     def resized():
         frame = json.loads(command([str(AX_CLIENT), PID, "window_frame"]))
-        return all(abs(frame[dimension] - target[dimension]) < 2 for dimension in ("width", "height"))
+        return all(abs(frame[dimension] - target[dimension]) < 2 for dimension in ("x", "y", "width", "height"))
     wait(resized, "main document resized")
     record("document_resized", requested_width=width, requested_height=height, **target)
 

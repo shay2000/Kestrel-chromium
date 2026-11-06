@@ -232,7 +232,13 @@ case "resize":
     var size = CGSize(width: min(CGFloat(dimensions[0]), screen.width - 80), height: min(CGFloat(dimensions[1]), screen.height - 100))
     guard let value = AXValueCreate(.cgSize, &size),
           AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, value) == .success else { fail("Cannot resize the main document") }
-    output = ["width": size.width, "height": size.height]
+    // The default CEF document can begin wider than the runner's display.
+    // Resizing preserves its negative origin, clipping the sidebar/traffic
+    // lights from the screenshot. Position the actual document on screen too.
+    var position = CGPoint(x: screen.minX + 20, y: screen.minY + 40)
+    guard let origin = AXValueCreate(.cgPoint, &position),
+          AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, origin) == .success else { fail("Cannot position the main document") }
+    output = ["x": position.x, "y": position.y, "width": size.width, "height": size.height]
 case "window_frame":
     guard let rect = frame(window) else { fail("No main document frame") }
     output = ["x": rect.minX, "y": rect.minY, "width": rect.width, "height": rect.height]
