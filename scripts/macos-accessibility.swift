@@ -96,25 +96,15 @@ if arguments[2] == "menu_select" {
         if text(node, "AXRole") == "AXMenuItem", text(node, "AXTitle") == titles[1] { items.append(node) }
         pending += attribute(node, "AXChildren") as? [AXUIElement] ?? []
     }
-    guard items.count == 1, text(items[0], "AXEnabled") == "1", let rawParent = attribute(items[0], "AXParent") else { fail("Cannot select menu item: \(titles[1])") }
-    let parent = unsafeBitCast(rawParent, to: AXUIElement.self)
-    let siblings = (attribute(parent, "AXChildren") as? [AXUIElement] ?? []).filter { text($0, "AXRole") == "AXMenuItem" && text($0, "AXEnabled") == "1" }
-    guard let index = siblings.firstIndex(where: { CFEqual($0, items[0]) }) else { fail("Menu item has no enabled position") }
-    let selected = attribute(parent, "AXSelectedChildren") as? [AXUIElement] ?? []
-    let current = siblings.firstIndex { node in text(node, "AXSelected") == "1" || selected.contains(where: { CFEqual($0, node) }) }
-    let moves = current.map { (index - $0 + siblings.count) % siblings.count } ?? (index + 1)
-    // Commit through ordinary menu keyboard tracking. Merely exposing an AX
-    // item or clicking stale hosted-runner coordinates is not acceptance.
-    for code in Array(repeating: CGKeyCode(125), count: moves) + [36] {
-        for down in [true, false] {
-            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { fail("Cannot create native menu key event") }
-            event.flags = []
-            event.post(tap: .cghidEventTap)
-        }
-        Thread.sleep(forTimeInterval: 0.08)
-    }
+    guard items.count == 1, text(items[0], "AXEnabled") == "1" else { fail("Cannot select menu item: \(titles[1])") }
+    var rawActions: CFArray?
+    guard AXUIElementCopyActionNames(items[0], &rawActions) == .success else { fail("Cannot inspect menu item actions") }
+    let actions = rawActions as? [String] ?? []
+    guard let action = ["AXPress", "AXPick", "AXConfirm"].first(where: { actions.contains($0) }) else { fail("No supported menu selection action: \(actions)") }
+    let status = AXUIElementPerformAction(items[0], action as CFString)
+    guard status == .success else { fail("Cannot perform menu selection: \(status.rawValue)") }
     Thread.sleep(forTimeInterval: 0.35)
-    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: ["menu": titles[0], "item": titles[1], "method": "native keys"]))
+    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: ["menu": titles[0], "item": titles[1], "method": action, "supportedActions": actions]))
     exit(0)
 }
 // Handle only this known runner prompt, by a real pointer click. Denying LAN

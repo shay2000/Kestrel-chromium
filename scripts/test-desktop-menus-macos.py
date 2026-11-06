@@ -100,7 +100,8 @@ encodedRows'''
 
 def click_menu_command(menu_name, command_name):
     ui('set frontmost to true')
-    command([str(OUT / "macos-accessibility"), str(PID), "menu_select", menu_name + "|" + command_name])
+    result = json.loads(command([str(OUT / "macos-accessibility"), str(PID), "menu_select", menu_name + "|" + command_name]))
+    record("native_menu_selection", **result)
 
 
 def address_values(pid):
@@ -294,6 +295,7 @@ def main():
             record("engine_menu_open_failed", menu=label, error=str(error))
 
     if ENGINE == "chromium" and "Chromium" in top:
+        failed_internal_pages = 0
         for title, prefix in [
             ("Site Permissions & Browser Settings…", "chrome://settings/content"),
             ("Browsing History…", "chrome://history"),
@@ -305,8 +307,20 @@ def main():
                 check(True, f"{title} opens its in-app page", address=values)
                 record("internal_page_opened_from_menu", command=title, address=values)
             except Exception as error:
+                failed_internal_pages += 1
                 errors.append(f"{title} did not open its in-app page")
                 record("internal_page_failed", command=title, error=str(error))
+        if failed_internal_pages:
+            # Diagnostic only. A direct AppKit menu invocation can identify a
+            # tracking/automation failure; it never clears the failed checks.
+            helper = str(OUT / "macos-accessibility")
+            command([helper, str(pid), "native-keycode", "53"])
+            command([helper, str(pid), "native-keycode", "90", "command,control,option"])
+            try:
+                values = wait_for_address(pid, "chrome://settings/content")
+                record("native_menu_probe", diagnostic_only=True, opened=True, address=values)
+            except Exception as error:
+                record("native_menu_probe", diagnostic_only=True, opened=False, error=str(error))
         check(subprocess.run(["pgrep", "-x", executable], capture_output=True).returncode == 0,
               "Kestrel remains running after internal settings, history and downloads pages")
     else:

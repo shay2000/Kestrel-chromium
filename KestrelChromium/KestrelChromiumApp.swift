@@ -2,6 +2,7 @@
 
 import CefSwiftUI
 import SwiftUI
+import ObjectiveC
 
 @main
 struct KestrelChromiumApp: CefSwiftApp {
@@ -66,6 +67,21 @@ struct KestrelChromiumApp: CefSwiftApp {
             try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
             var eventCount = 0
             _ = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown]) { event in
+                if event.type == .keyDown, event.keyCode == 90,
+                   event.modifierFlags.intersection([.command, .control, .option, .shift]) == [.command, .control, .option] {
+                    // Failure-only CI probe: invoke the real bound AppKit
+                    // menu item. The harness retains the failed user attempt.
+                    RunLoop.main.perform(inModes: [.default]) {
+                        MainActor.assumeIsolated {
+                            let menu = NSApp.mainMenu?.items.first(where: { $0.title == "Chromium" || $0.submenu?.title == "Chromium" })?.submenu
+                            if let menu, let index = menu.items.firstIndex(where: { $0.title == "Site Permissions & Browser Settings…" }) {
+                                try? FileHandle.standardError.write(contentsOf: Data("KESTREL_DESKTOP nativeMenuProbe invoking\n".utf8))
+                                menu.performActionForItem(at: index)
+                            }
+                        }
+                    }
+                    return nil
+                }
                 let chord = event.type == .keyDown && !event.modifierFlags.intersection([.command, .option, .control]).isEmpty
                 if eventCount < 160 && (chord || event.type == .leftMouseDown) {
                     eventCount += 1
@@ -89,7 +105,12 @@ struct KestrelChromiumApp: CefSwiftApp {
                         for name in ["Chromium", "Tabs"] {
                             let items = NSApp.mainMenu?.items.first(where: { $0.title == name || $0.submenu?.title == name })?.submenu?.items ?? []
                             for item in items where ["Site Permissions & Browser Settings…", "Browsing History…", "Downloads…", "Move Tab to Right Split"].contains(item.title) {
-                                let trace = "KESTREL_DESKTOP menu group=\(name) title=\(item.title) enabled=\(item.isEnabled) action=\(item.action.map(NSStringFromSelector) ?? "nil") target=\(item.target.map { String(describing: type(of: $0)) } ?? "nil")\n"
+                                let target = item.target.map { object -> String in
+                                    let targetClass: AnyClass = Swift.type(of: object)
+                                    let origin = class_getImageName(targetClass).map { String(cString: $0) } ?? "nil"
+                                    return "\(NSStringFromClass(targetClass))@\(origin)"
+                                } ?? "nil"
+                                let trace = "KESTREL_DESKTOP menu group=\(name) title=\(item.title) enabled=\(item.isEnabled) action=\(item.action.map(NSStringFromSelector) ?? "nil") target=\(target)\n"
                                 try? FileHandle.standardError.write(contentsOf: Data(trace.utf8))
                             }
                         }

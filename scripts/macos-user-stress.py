@@ -132,8 +132,8 @@ def verify_menu_state(menu_name, expected):
 
 def select_menu_item(menu_name, item_name):
     ui('set frontmost to true')
-    command([str(AX_CLIENT), PID, "menu_select", menu_name + "|" + item_name])
-    record("menu_command", menu=menu_name, item=item_name)
+    result = json.loads(command([str(AX_CLIENT), PID, "menu_select", menu_name + "|" + item_name]))
+    record("menu_command", **result)
 
 
 def click(label):
