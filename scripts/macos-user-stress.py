@@ -163,20 +163,19 @@ def invoke(group, item):
     }
     if item in ("Next Tab", "Previous Tab", "Move Tab to Left Split"):
         code = 124 if item == "Next Tab" else 123
-        modifiers = "command down" if item == "Move Tab to Left Split" else "command down, control down, option down"
-        ui(f"key code {code} using {{{modifiers}}}")
+        modifiers = ["command"] if item == "Move Tab to Left Split" else ["command", "control", "option"]
+        command([str(AX_CLIENT), PID, "native-keycode", str(code), ",".join(modifiers)])
     else:
         key(*shortcuts[item])
     record("keyboard_command", group=group, item=item)
 
 
 def key(text, modifiers=None):
-    suffix = " using {" + ", ".join(x + " down" for x in modifiers) + "}" if modifiers else ""
-    ui("set frontmost to true\nkeystroke " + quote(text) + suffix)
+    command([str(AX_CLIENT), PID, "native-key", str(text), ",".join(modifiers or [])])
 
 
 def enter():
-    ui("key code 36")
+    command([str(AX_CLIENT), PID, "native-keycode", "36"])
 
 
 def snapshot(name):

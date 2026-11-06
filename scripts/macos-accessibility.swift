@@ -25,6 +25,48 @@ func text(_ node: AXUIElement, _ name: String) -> String {
     guard let value = attribute(node, name) else { return "" }
     return String(describing: value)
 }
+if ["native-key", "native-keycode"].contains(arguments[2]) {
+    guard (4...5).contains(arguments.count), arguments[3].utf16.count <= 2048 else { fail("Invalid native key command") }
+    let modifiers = arguments.count == 5 ? arguments[4].split(separator: ",").map(String.init) : []
+    let masks: [String: CGEventFlags] = ["command": .maskCommand, "control": .maskControl, "option": .maskAlternate, "shift": .maskShift]
+    guard modifiers.allSatisfy({ masks[$0] != nil }) else { fail("Invalid key modifiers") }
+    let flags = modifiers.reduce(CGEventFlags()) { $0.union(masks[$1]!) }
+    NSRunningApplication(processIdentifier: pid)?.activate(options: [])
+    Thread.sleep(forTimeInterval: 0.1)
+    // System Events can leave modifier state behind after a shortcut. Each
+    // native sequence explicitly releases it and supplies its own event flags.
+    for code in [CGKeyCode(55), 59, 58, 56] {
+        let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)
+        event?.flags = []
+        event?.post(tap: .cghidEventTap)
+    }
+    func send(_ code: CGKeyCode, unicode: [UniChar] = []) {
+        for down in [true, false] {
+            let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)
+            event?.flags = flags
+            if !unicode.isEmpty { unicode.withUnsafeBufferPointer { event?.keyboardSetUnicodeString(stringLength: unicode.count, unicodeString: $0.baseAddress!) } }
+            event?.post(tap: .cghidEventTap)
+        }
+        Thread.sleep(forTimeInterval: 0.003)
+    }
+    if arguments[2] == "native-keycode" {
+        guard let code = UInt16(arguments[3]), code < 128 else { fail("Invalid native key code") }
+        send(code)
+    } else if !modifiers.isEmpty {
+        let codes: [String: CGKeyCode] = ["a": 0, "s": 1, "g": 5, "q": 12, "w": 13, "e": 14, "t": 17, "0": 29, "]": 30, "[": 33, "p": 35, "l": 37, ",": 43]
+        guard let code = codes[arguments[3].lowercased()] else { fail("Unsupported native shortcut") }
+        send(code)
+    } else {
+        for character in arguments[3] { send(0, unicode: Array(String(character).utf16)) }
+    }
+    for code in [CGKeyCode(55), 59, 58, 56] {
+        let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)
+        event?.flags = []
+        event?.post(tap: .cghidEventTap)
+    }
+    FileHandle.standardOutput.write(Data("{\"native\":true}".utf8))
+    exit(0)
+}
 if arguments[2] == "menu_select" {
     guard arguments.count == 4 else { fail("A menu and item title are required") }
     let titles = arguments[3].split(separator: "|", maxSplits: 1).map(String.init)
@@ -184,6 +226,7 @@ case "pointer":
     guard point.x.isFinite, point.y.isFinite, windowRect.contains(point) else { fail("Pointer target outside window") }
     for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
         guard let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: point, mouseButton: .left) else { fail("Cannot create pointer event") }
+        event.flags = []
         event.post(tap: .cghidEventTap)
         Thread.sleep(forTimeInterval: 0.04)
     }
