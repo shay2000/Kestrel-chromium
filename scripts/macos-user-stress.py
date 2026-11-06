@@ -21,9 +21,11 @@ import urllib.parse
 OUT = pathlib.Path(os.environ["KESTREL_STRESS_OUT"])
 APP = pathlib.Path(os.environ["KESTREL_STRESS_APP"])
 CYCLES = int(os.environ.get("KESTREL_STRESS_CYCLES", "12"))
+ENGINE = os.environ.get("KESTREL_STRESS_ENGINE", "unknown")
 assert 1 <= CYCLES <= 30
 OUT.mkdir(parents=True, exist_ok=True)
 events, hits = [], []
+observed_mismatches = []
 started = time.monotonic()
 AX_CLIENT = OUT / "macos-accessibility"
 PID = None
@@ -42,7 +44,8 @@ def quote(value):
 
 
 def ui(body):
-    return script('tell application "System Events" to tell process "Kestrel"\n' + body + "\nend tell")
+    assert PID is not None
+    return script(f'tell application "System Events" to tell (first application process whose unix id is {PID})\n' + body + "\nend tell")
 
 
 def record(action, **data):
@@ -55,6 +58,7 @@ def record(action, **data):
 def wait(check, description, timeout=12):
     end = time.monotonic() + timeout
     last = None
+    prompt_check = time.monotonic() + 1
     while time.monotonic() < end:
         try:
             if check():
@@ -62,6 +66,12 @@ def wait(check, description, timeout=12):
                 return
         except (subprocess.SubprocessError, ValueError) as error:
             last = getattr(error, "stderr", None) or str(error)
+        if PID and time.monotonic() >= prompt_check:
+            prompt = json.loads(command([str(AX_CLIENT), PID, "dismiss-local-network", str(OUT / "local-network-prompt.png")]))
+            if prompt["dismissed"]:
+                record("local_network_prompt", **prompt)
+                ui('set frontmost to true')
+            prompt_check = time.monotonic() + 3
         time.sleep(0.15)
     raise AssertionError(f"State not reached: {description}; last error: {last}")
 
@@ -76,6 +86,55 @@ def count(label):
 
 def focused(label):
     return json.loads(command([str(AX_CLIENT), PID, "focused", label]))["focused"]
+
+
+def resize_window(width, height):
+    target = json.loads(command([str(AX_CLIENT), PID, "resize", f"{width},{height}"]))
+    def resized():
+        frame = json.loads(command([str(AX_CLIENT), PID, "window_frame"]))
+        return all(abs(frame[dimension] - target[dimension]) < 2 for dimension in ("x", "y", "width", "height"))
+    wait(resized, "main document resized")
+    record("document_resized", requested_width=width, requested_height=height, **target)
+
+
+def menu_rows(menu_name):
+    apple_menu = quote(menu_name)
+    body = f'''click menu bar item {apple_menu} of menu bar 1
+delay 0.15
+set encodedRows to ""
+repeat with oneItem in menu items of menu 1 of menu bar item {apple_menu} of menu bar 1
+    try
+        set itemTitle to (name of oneItem) as text
+        set itemEnabled to (enabled of oneItem) as text
+        set encodedRows to encodedRows & itemTitle & (ASCII character 31) & itemEnabled & (ASCII character 30)
+    end try
+end repeat
+key code 53
+encodedRows'''
+    raw = ui(body)
+    command([str(AX_CLIENT), PID, "menu_cancel"])
+    rows = []
+    for entry in raw.split("\x1e"):
+        if not entry:
+            continue
+        title, _, enabled_value = entry.partition("\x1f")
+        rows.append({"title": title, "enabled": enabled_value.lower() == "true"})
+    record("menu_opened", menu=menu_name, items=rows)
+    return rows
+
+
+def verify_menu_state(menu_name, expected):
+    rows = {row["title"]: row["enabled"] for row in menu_rows(menu_name)}
+    for title, value in expected.items():
+        observed = rows.get(title)
+        record("menu_state_assert", menu=menu_name, item=title, expected=value, actual=observed, passed=observed == value)
+        assert observed == value, f"{menu_name} menu item {title!r}: expected enabled={value}, got {observed}"
+
+
+def select_menu_item(menu_name, item_name):
+    ui('set frontmost to true')
+    result = json.loads(command([str(AX_CLIENT), PID, "menu_select", menu_name + "|" + item_name]))
+    record("menu_command", **result)
 
 
 def click(label):
@@ -105,20 +164,19 @@ def invoke(group, item):
     }
     if item in ("Next Tab", "Previous Tab", "Move Tab to Left Split"):
         code = 124 if item == "Next Tab" else 123
-        modifiers = "command down" if item == "Move Tab to Left Split" else "command down, control down, option down"
-        ui(f"key code {code} using {{{modifiers}}}")
+        modifiers = ["command"] if item == "Move Tab to Left Split" else ["command", "control", "option"]
+        command([str(AX_CLIENT), PID, "native-keycode", str(code), ",".join(modifiers)])
     else:
         key(*shortcuts[item])
     record("keyboard_command", group=group, item=item)
 
 
 def key(text, modifiers=None):
-    suffix = " using {" + ", ".join(x + " down" for x in modifiers) + "}" if modifiers else ""
-    ui("keystroke " + quote(text) + suffix)
+    command([str(AX_CLIENT), PID, "native-key", str(text), ",".join(modifiers or [])])
 
 
 def enter():
-    ui("key code 36")
+    command([str(AX_CLIENT), PID, "native-keycode", "36"])
 
 
 def snapshot(name):
@@ -164,11 +222,48 @@ base = f"http://127.0.0.1:{server.server_port}"
 
 def navigate(path):
     invoke("Navigate", "Focus Address Bar")
-    wait(lambda: focused("Address bar"), "address editor focused")
     key("a", ["command"])
-    key(base + path)
+    target = base + path
+    key(target)
+    try:
+        # Wait for the edit itself, not only the eventual page load. This
+        # preserves evidence when the focus shortcut opens suggestions but
+        # the following keystrokes do not replace the address.
+        wait(lambda: any(path in value for value in fields("Address bar")),
+             "address field accepted " + path, timeout=2)
+    except AssertionError:
+        values = fields("Address bar")
+        mismatch = f"Focus Address Bar followed by typing did not place {path!r} in the address field; values: {values}"
+        observed_mismatches.append(mismatch)
+        record("address_shortcut_input_mismatch", path=path, address_values=values)
+        snapshot("address-shortcut-input-mismatch")
+        # Retry with a real pointer click only when the layout exposes one
+        # address control. The original keyboard attempt remains a reported
+        # mismatch even if this diagnostic retry succeeds.
+        if count("Address bar") != 1:
+            raise AssertionError(mismatch)
+        pointer_click("Address bar")
+        key("a", ["command"])
+        key(target)
+        wait(lambda: any(path in value for value in fields("Address bar")),
+             "address field accepted " + path + " after pointer focus")
     enter()
     wait(lambda: path in hits and any(path in value for value in fields("Address bar")), "loaded " + path)
+    record("address_focus_verified_by_navigation", path=path)
+
+
+def verify_chromium_pages(paths, label):
+    if ENGINE != "chromium":
+        return
+    expected = {base + path for path in paths}
+    def matches():
+        pages = json.loads(command([str(OUT / "read-desktop-pages"), "9333", base], timeout=15))
+        record("renderer_page_readback", state=label, pages=pages)
+        return {page.get("url") for page in pages} == expected and all(
+            page.get("ready") == "complete" and page.get("heading") ==
+            "Kestrel stress fixture " + urllib.parse.parse_qs(urllib.parse.urlsplit(page["url"]).query)["page"][0]
+            for page in pages)
+    wait(matches, label)
 
 
 def message_value():
@@ -185,24 +280,38 @@ if os.environ.get("KESTREL_UI_PROBE"):
     result["kind"] = "diagnostic only; not stress acceptance"
 try:
     command(["swiftc", str(pathlib.Path(__file__).with_name("macos-accessibility.swift")), "-o", str(AX_CLIENT)], timeout=120)
+    if ENGINE == "chromium":
+        command(["swiftc", "-parse-as-library", str(pathlib.Path(__file__).with_name("read-desktop-pages-macos.swift")), "-o", str(OUT / "read-desktop-pages")], timeout=120)
+    subprocess.run(["pkill", "-TERM", "-x", "Kestrel"], capture_output=True)
+    wait(lambda: subprocess.run(["pgrep", "-x", "Kestrel"], capture_output=True).returncode != 0, "previous app exited before seeding preferences")
     # Only this disposable runner's synthetic app profile is replaced. The
     # three otherwise unbound commands receive ordinary configurable bindings.
     overrides = {name: {"key": key, "modifiers": ["command", "control", "option"]}
                  for name, key in {"separateSplit": "s", "equalSplit": "0", "assistantPage": "p"}.items()}
     preferences = OUT / "synthetic-preferences.plist"
     preferences.write_bytes(plistlib.dumps({"kestrel.shortcuts.browser.v1": json.dumps(overrides).encode()}))
-    command(["defaults", "import", "com.shayprasad.Kestrel", str(preferences)])
-    record("synthetic_profile_configured", shortcut_overrides=overrides)
-    command(["open", "-a", str(APP), "--stderr", str(OUT / "runtime.log")])
+    bundle_id = command(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleIdentifier", str(APP / "Contents/Info.plist")])
+    if ENGINE == "chromium":
+        command(["swift", str(pathlib.Path(__file__).with_name("seed-macos-preferences.swift")), bundle_id, str(preferences)])
+    else:
+        command(["defaults", "import", bundle_id, str(preferences)])
+    record("synthetic_profile_configured", bundle_id=bundle_id, shortcut_overrides=overrides,
+           close_tab_checks_skipped=os.environ.get("KESTREL_STRESS_SKIP_CLOSE_TAB") == "1")
+    arguments = ["open", "-a", str(APP), "--stderr", str(OUT / "runtime.log"), "--args", "--kestrel-desktop-audit"]
+    if ENGINE == "chromium":
+        arguments.append("--remote-debugging-port=9333")  # Enables CEF close/quit lifecycle diagnostics.
+    command(arguments)
     wait(lambda: bool(command(["pgrep", "-x", "Kestrel"])), "app running")
-    script('tell application "Kestrel" to activate')
-    wait(lambda: int(ui("return count windows")) > 0, "browser window")
     pid = command(["pgrep", "-x", "Kestrel"]).splitlines()[0]
     PID = pid
+    ui('set frontmost to true')
+    wait(lambda: int(ui("return count windows")) > 0, "browser window")
+    active_pid = script('tell application "System Events" to get unix id of first application process whose frontmost is true')
+    assert active_pid == PID, f"Expected frontmost PID {PID}, got {active_pid}"
     executable = command(["ps", "-o", "command=", "-p", pid])
     assert str(APP / "Contents/MacOS/Kestrel") in executable, executable
     record("verified_executable", path=executable)
-    ui("set size of window 1 to {1200, 800}")
+    resize_window(1200, 800)
     if os.environ.get("KESTREL_UI_PROBE") == "1":
         invoke("Navigate", "Focus Address Bar")
         wait(lambda: focused("Address bar"), "probe address editor focused")
@@ -214,9 +323,10 @@ try:
         record("probe_address_values", values=fields("Address bar"))
         snapshot("accessibility-probe")
         result.update(kind="diagnostic only; not stress acceptance", diagnostic_completed=True)
-        script('tell application "Kestrel" to quit')
+        key("q", ["command"])
         sys.exit(0)
     navigate("/?page=A&round=start")
+    verify_menu_state("Tabs", {"Separate Split View": False, "Equal Split Widths": False})
     snapshot("stress-start")
     notes = OUT / "stress-notes.txt"
     notes.write_text("Synthetic unsent attachment for visible draft preservation checks.")
@@ -229,36 +339,60 @@ try:
         invoke("Navigate", "Go Forward")
         wait(lambda: any(b in value for value in fields("Address bar")), "forward to B")
         invoke("Tabs", "Move Tab to Left Split")
-        wait(lambda: count("Address bar") == 2, "two independent address controls")
+        try:
+            wait(lambda: count("Address bar") == 2, "two independent address controls", timeout=3)
+        except AssertionError:
+            values = fields("Address bar")
+            mismatch = f"Move Tab to Left Split shortcut did not create two address controls; visible address values: {values}"
+            observed_mismatches.append(mismatch)
+            record("shortcut_mismatch", item="Move Tab to Left Split", address_values=values)
+            select_menu_item("Tabs", "Move Tab to Left Split")
+            wait(lambda: count("Address bar") == 2, "two independent address controls after using the Tabs menu")
+        verify_menu_state("Tabs", {"Separate Split View": True, "Equal Split Widths": True})
         invoke("Tabs", "Next Tab")
         if cycle == 0:
             (OUT / "split-after-next-tab.json").write_text(accessibility_dump())
         wait(lambda: json.loads(command([str(AX_CLIENT), PID, "selected", "Right pane: New Tab"]))["selected"], "right split pane selected")
         navigate(a)
         wait(lambda: any(a in value for value in fields("Address bar")) and any(b in value for value in fields("Address bar")), "both split destinations retained")
-        ui("set size of window 1 to {780, 620}")
+        verify_chromium_pages([a, b], "both split renderer documents retained")
+        resize_window(780, 620)
         invoke("Tabs", "Equal Split Widths")
         if cycle == 0:
             snapshot("stress-narrow-split")
+            time.sleep(0.6)
+            snapshot("stress-narrow-split-settled")
+            verify_chromium_pages([a, b], "narrow split renderer documents retained")
         invoke("Tabs", "Previous Tab")
         invoke("Tabs", "Next Tab")
         invoke("Tabs", "Separate Split View")
         wait(lambda: count("Address bar") == 1, "split separated")
-        invoke("File", "Close Tab")
-        wait(lambda: int(ui("return count windows")) > 0 and any(b in value for value in fields("Address bar")), "Cmd-W closes only the selected tab")
-        invoke("File", "Reopen Closed Tab")
-        wait(lambda: any(a in value for value in fields("Address bar")), "closed tab reopened with its destination")
-        ui("set size of window 1 to {1200, 800}")
+        verify_menu_state("Tabs", {"Separate Split View": False, "Equal Split Widths": False})
+        if os.environ.get("KESTREL_STRESS_SKIP_CLOSE_TAB") != "1":
+            invoke("File", "Close Tab")
+            wait(lambda: int(ui("return count windows")) > 0 and any(b in value for value in fields("Address bar")), "Cmd-W closes only the selected tab")
+            invoke("File", "Reopen Closed Tab")
+            wait(lambda: any(a in value for value in fields("Address bar")), "closed tab reopened with its destination")
+        resize_window(1200, 800)
         invoke("Assistant", "Show Assistant")
         wait(lambda: count("Assistant message") == 1, "sidebar composer available")
+        assert "Hide Assistant" in [row["title"] for row in menu_rows("Assistant")]
         click("Assistant message")
         draft = f"Unsent stress draft {cycle}"
         key(draft)
         wait(lambda: message_value() == draft, "typed draft read back")
-        click("Agent mode")
-        wait(lambda: fields("Agent mode") == ["On"], "Agent mode On")
-        click("Agent mode")
-        wait(lambda: fields("Agent mode") == ["Off"], "Agent mode Off")
+        if ENGINE == "chromium":
+            click("Agent mode")
+            wait(lambda: fields("Agent mode") == ["On"], "Agent mode On in the sidebar")
+            click("Agent mode")
+            wait(lambda: fields("Agent mode") == ["Off"], "Agent mode Off in the sidebar")
+        elif ENGINE == "webkit":
+            # The archived 1.0.0 comparison uses a Browse composer control,
+            # while the Chromium build exposes Agent mode. Record the old
+            # surface without applying newer semantics to it.
+            browse_count = count("Browse")
+            record("webkit_baseline_composer_mode", control="Browse", visible=browse_count == 1,
+                   accessibility_count=browse_count)
         if cycle == 0:
             pointer_click("Attach files")
             wait(lambda: count("Open") == 1, "native file picker opened")
@@ -274,6 +408,7 @@ try:
             wait(lambda: message_value() == draft, "attachment selection leaves draft unsent")
         invoke("Assistant", "Hide Assistant")
         wait(lambda: count("Assistant message") == 0, "sidebar hidden")
+        assert "Show Assistant" in [row["title"] for row in menu_rows("Assistant")]
         invoke("Assistant", "Show Assistant")
         wait(lambda: message_value() == draft, "draft survives sidebar replacement")
         invoke("Assistant", "Open Assistant Page")
@@ -285,9 +420,16 @@ try:
         wait(lambda: count("Assistant message") == 1 and message_value() == "" and count("Remove stress-notes.txt") == 0, "New Chat clears draft and attachment")
         if cycle == 0:
             snapshot("stress-reset")
-        invoke("File", "Close Tab")
-        # Close the extra fixture tab from this cycle; keep the other one.
-        invoke("File", "Close Tab")
+        if os.environ.get("KESTREL_STRESS_SKIP_CLOSE_TAB") != "1":
+            invoke("File", "Close Tab")
+            # Close the extra fixture tab from this cycle; keep the other one.
+            invoke("File", "Close Tab")
+        if ENGINE == "chromium" and cycle == 0:
+            select_menu_item("Tabs", "Move Tab to Right Split")
+            wait(lambda: count("Address bar") == 2, "native menu creates both split cards")
+            snapshot("stress-menu-split")
+            select_menu_item("Tabs", "Separate Split View")
+            wait(lambda: count("Address bar") == 1, "native menu separates both split cards")
         if cycle % 3 == 0:
             key(",", ["command"])
             wait(lambda: ui('return name of window 1') == "Kestrel Settings", "Settings window opened")
@@ -297,22 +439,27 @@ try:
         rss = int(command(["ps", "-o", "rss=", "-p", pid]))
         record("cycle_completed", cycle=cycle + 1, app_rss_kib=rss)
     snapshot("stress-complete")
-    script('tell application "Kestrel" to quit')
+    record("before_quit", expected_pid=PID, running_pids=command(["pgrep", "-x", "Kestrel"]).splitlines())
+    key("q", ["command"])
     wait(lambda: subprocess.run(["pgrep", "-x", "Kestrel"], capture_output=True).returncode != 0, "app exited after stress", timeout=10)
-    result.update(passed=True, cycles_completed=CYCLES, elapsed_seconds=round(time.monotonic() - started, 2))
+    result.update(passed=not observed_mismatches, cycles_completed=CYCLES,
+                  observed_mismatches=observed_mismatches,
+                  elapsed_seconds=round(time.monotonic() - started, 2))
+    if observed_mismatches:
+        raise AssertionError("; ".join(observed_mismatches))
 except Exception as error:
     result.update(passed=False, error=traceback.format_exc(), elapsed_seconds=round(time.monotonic() - started, 2))
     if getattr(error, "stderr", None):
         result["subprocess_stderr"] = error.stderr
     (OUT / "failure.txt").write_text(result["error"])
-    for diagnostic, action in [
-        ("accessibility-failure.txt", lambda: (OUT / "accessibility-failure.txt").write_text(accessibility_dump())),
-        ("failure-screenshot", lambda: snapshot("stress-failure")),
-    ]:
-        try:
-            action()
-        except Exception as diagnostic_error:
-            (OUT / (diagnostic + ".error.txt")).write_text(getattr(diagnostic_error, "stderr", None) or str(diagnostic_error))
+    try:
+        (OUT / "accessibility-failure.txt").write_text(accessibility_dump())
+    except Exception as diagnostic_error:
+        (OUT / "accessibility-failure.txt.error.txt").write_text(getattr(diagnostic_error, "stderr", None) or str(diagnostic_error))
+    try:
+        command(["screencapture", "-x", str(OUT / "stress-failure.png")])
+    except Exception as diagnostic_error:
+        (OUT / "failure-screenshot.error.txt").write_text(getattr(diagnostic_error, "stderr", None) or str(diagnostic_error))
 
     raise
 finally:

@@ -2,18 +2,11 @@ import XCTest
 
 @testable import KestrelWebKit
 
-/// These tests lock in the honesty and the platform-neutral decisions of
-/// Kestrel's extension support. They never import WebKit, so they run on Linux
-/// as well as macOS. The WebKit-backed `BrowserExtensionHost` is availability
-/// gated and is not exercised here.
+/// Platform-neutral decisions for the active CEF extension importer.
 final class ExtensionsSupportTests: XCTestCase {
-
-    /// Mirrors the boundary `ExtensionSupport` reports, so these tests stay
-    /// honest on Linux and on macOS 14 without importing WebKit.
-    private var hasPublicWebKitExtensionAPI: Bool {
-        #if canImport(WebKit)
-        if #available(macOS 15.4, *) { return true }
-        return false
+    private var hasChromiumRuntime: Bool {
+        #if canImport(CefKit)
+        return true
         #else
         return false
         #endif
@@ -21,19 +14,19 @@ final class ExtensionsSupportTests: XCTestCase {
 
     // MARK: - Capability reporting
 
-    func testChromiumCRXImportIsNeverClaimed() {
-        XCTAssertFalse(ExtensionSupport.supportsChromiumCRXImport)
+    func testSignedCRXImportTracksTheChromiumRuntime() {
+        XCTAssertEqual(ExtensionSupport.supportsChromiumCRXImport, hasChromiumRuntime)
     }
 
-    func testUnpackedDirectoryCapabilityTracksThePublicAPI() {
+    func testUnpackedDirectoryCapabilityTracksTheChromiumRuntime() {
         XCTAssertEqual(
             ExtensionSupport.supportsUnpackedWebExtensionDirectories,
-            hasPublicWebKitExtensionAPI
+            hasChromiumRuntime
         )
     }
 
-    func testZIPArchiveCapabilityTracksThePublicAPI() {
-        XCTAssertEqual(ExtensionSupport.supportsZIPArchiveImport, hasPublicWebKitExtensionAPI)
+    func testZIPArchiveCapabilityTracksTheChromiumRuntime() {
+        XCTAssertEqual(ExtensionSupport.supportsZIPArchiveImport, hasChromiumRuntime)
     }
 
     func testPermissionsAreNeverGrantedOnImport() {
@@ -45,8 +38,8 @@ final class ExtensionsSupportTests: XCTestCase {
         XCTAssertFalse(ExtensionSupport.grantsPermissionsOnImport)
     }
 
-    func testSupportLevelIsAvailableOnlyWithThePublicAPI() {
-        if hasPublicWebKitExtensionAPI {
+    func testSupportLevelIsAvailableOnlyWithTheChromiumRuntime() {
+        if hasChromiumRuntime {
             XCTAssertEqual(ExtensionSupport.supportLevel(), .available)
         } else {
             XCTAssertNotEqual(ExtensionSupport.supportLevel(), .available)
@@ -61,13 +54,14 @@ final class ExtensionsSupportTests: XCTestCase {
         XCTAssertFalse(description.lowercased().contains("full chromium"))
     }
 
-    func testAvailableDescriptionNeverPromisesChromiumCRX() {
+    func testAvailableDescriptionExplainsVerifiedCRX3AndRestart() {
         XCTAssertFalse(ExtensionSupportLevel.available.description.lowercased().contains("crx package is supported"))
-        XCTAssertTrue(ExtensionSupportLevel.available.description.lowercased().contains("crx"))
+        XCTAssertTrue(ExtensionSupportLevel.available.description.contains("signature-verified CRX3"))
+        XCTAssertTrue(ExtensionSupportLevel.available.description.contains("when Kestrel starts"))
     }
 
-    func testMinimumVersionRecordsThePublicAPIRelease() {
-        XCTAssertEqual(ExtensionSupport.minimumMacOSVersion, "15.4")
+    func testMinimumVersionRecordsTheChromiumRuntimeRelease() {
+        XCTAssertEqual(ExtensionSupport.minimumMacOSVersion, "14.0")
     }
 
     func testDefaultSettingsDoNotEnableUnpackedImports() {
@@ -91,10 +85,10 @@ final class ExtensionsSupportTests: XCTestCase {
         XCTAssertEqual(ExtensionPackageClassifier.kind(for: url, isDirectory: false), .zipArchive)
     }
 
-    func testChromiumCRXKindIsRecognisedButNotLoadable() {
+    func testChromiumCRXKindIsRecognisedAndRequiresValidation() {
         let url = URL(fileURLWithPath: "/tmp/example-extension.crx")
         XCTAssertEqual(ExtensionPackageClassifier.kind(for: url, isDirectory: false), .chromiumCRX)
-        XCTAssertFalse(ExtensionPackageDecision.forKind(.chromiumCRX).isLoadable)
+        XCTAssertTrue(ExtensionPackageDecision.forKind(.chromiumCRX).isLoadable)
     }
 
     func testUnknownFormatsAreNotLoadable() {
@@ -112,7 +106,7 @@ final class ExtensionsSupportTests: XCTestCase {
     }
 
     func testRejectionsCarryAReason() {
-        for kind in [ExtensionPackageKind.chromiumCRX, .unsupported] {
+        for kind in [ExtensionPackageKind.unsupported] {
             let decision = ExtensionPackageDecision.forKind(kind)
             XCTAssertFalse(decision.isLoadable)
             XCTAssertEqual(decision.rejectionReason?.isEmpty, false)

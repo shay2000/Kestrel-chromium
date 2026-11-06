@@ -1,14 +1,11 @@
-#if canImport(SwiftUI) && canImport(WebKit)
+#if canImport(SwiftUI) && canImport(CefSwiftUI)
 
 import AppKit
+import CefSwiftUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-private enum BrowserAddressFocus: Hashable {
-    case toolbar
-    case pane(UUID)
-    case newTab
-}
+private typealias BrowserAddressFocus = AddressFieldTarget
 
 /// Keep the composer anchored while typing; the results scroll below it.
 enum NewTabPageLayout {
@@ -30,11 +27,17 @@ private struct BrowserViewportHeightKey: EnvironmentKey {
     static let defaultValue: CGFloat = 900
 }
 
-private extension EnvironmentValues {
+extension EnvironmentValues {
     var browserViewportHeight: CGFloat {
         get { self[BrowserViewportHeightKey.self] }
         set { self[BrowserViewportHeightKey.self] = newValue }
     }
+}
+
+/// Rectangles in a native header host's SwiftUI coordinate space.
+struct BrowserHeaderHitRegions: PreferenceKey {
+    static var defaultValue: [CGRect] = []
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) { value += nextValue() }
 }
 
 enum BrowserChromeLayout {
@@ -78,38 +81,23 @@ struct KestrelChromeBackground: View {
 /// chrome. macOS may replace them with opaque fills when Reduce Transparency is
 /// enabled, so visual tests check that accessibility setting explicitly.
 private struct KestrelNativeChromeMaterial: NSViewRepresentable {
+    @Environment(\.controlActiveState) private var activeState
     func makeNSView(context: Context) -> NSView {
-        if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView()
-            glass.style = .regular
-            // The window owns the outer corners. This single backdrop must
-            // remain square at every internal sidebar/page boundary.
-            glass.cornerRadius = 0
-            let clearContent = NSView()
-            clearContent.autoresizingMask = [.width, .height]
-            clearContent.wantsLayer = true
-            clearContent.layer?.backgroundColor = NSColor.clear.cgColor
-            clearContent.layer?.isOpaque = false
-            glass.contentView = clearContent
-            return glass
-        }
-
+        // The document and its CEF page share one active appearance; a real
+        // background document or another application still becomes inactive.
         let view = NSVisualEffectView()
         view.material = .sidebar
         view.blendingMode = .behindWindow
-        view.state = .active
+        view.state = activeState == .inactive ? .inactive : .active
         view.autoresizingMask = [.width, .height]
         return view
     }
 
     func updateNSView(_ view: NSView, context: Context) {
-        if #available(macOS 26.0, *), let glass = view as? NSGlassEffectView {
-            glass.style = .regular
-            glass.cornerRadius = 0
-        } else if let effect = view as? NSVisualEffectView {
+        if let effect = view as? NSVisualEffectView {
             effect.material = .sidebar
             effect.blendingMode = .behindWindow
-            effect.state = .active
+            effect.state = activeState == .inactive ? .inactive : .active
         }
     }
 }
@@ -126,6 +114,7 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var assistantComposerHandoff
     @State private var assistantSidebarNewTabID: UUID?
+    @State private var isBrowserWindowActive = false
     @State private var activeAddressField: BrowserAddressFocus?
     @FocusState private var findFieldFocused: Bool
     @State private var isFindBarPresented = false
@@ -223,27 +212,13 @@ struct ContentView: View {
                         )
                         .zIndex(3)
                     } else if tabs.split == nil {
-                        BrowserToolbar(
-                            tabs: tabs,
-                            browser: tabs.selectedBrowser,
-                            chat: chat,
-                            settings: settings,
-                            searchEngine: settings.searchEngine,
-                            activeAddressField: $activeAddressField,
-                            assistantShortcut: settings.assistantSidebarShortcut,
-                            tabStripIsVisible: tabs.isSidebarVisible,
-                            isCompact: isCompact,
-                            trafficLightsInset: max(8, 90 - tabRailWidth)
-                        ) {
-                            withAnimation(.snappy(duration: 0.22)) {
-                                tabs.isSidebarVisible.toggle()
-                            }
-                        } presentNewTabSearch: {
-                            spawnNewTabSearchBar()
-                            DispatchQueue.main.async { activeAddressField = .newTab }
+                        if needsNativeHeader(tabs.selectedID) {
+                            Color.clear.frame(height: BrowserChromeLayout.toolbarHeight)
+                        } else {
+                            pageToolbar(tabID: tabs.selectedID, side: nil, compact: isCompact,
+                                        trafficLightsInset: max(8, 90 - tabRailWidth))
+                                .zIndex(3)
                         }
-                        // The enclosing panel owns the shared clip and inset.
-                        .zIndex(3)
                     }
 
                     ZStack(alignment: .top) {
@@ -264,7 +239,8 @@ struct ContentView: View {
                             }
                             .transition(.opacity)
                         } else {
-                            browserPage(tabID: tabs.selectedID, side: nil)
+                            browserPage(tabID: tabs.selectedID, side: nil, compact: isCompact,
+                                        trafficLightsInset: max(8, 90 - tabRailWidth))
                                 .transition(.opacity)
                         }
 
@@ -466,8 +442,11 @@ struct ContentView: View {
         }
         .background(Color.clear)
         .focusedSceneValue(\.isBrowserWindow, true)
+        // Activity belongs to this document and its hosted page, rather than
+        // making every Kestrel window look active whenever the app is frontmost.
+        .environment(\.controlActiveState, isBrowserWindowActive ? .active : .inactive)
         .background(BrowserCloseShortcut(tabs: tabs, settings: settings).frame(width: 0, height: 0).allowsHitTesting(false))
-        .background(WindowChromeAccessor().frame(width: 0, height: 0).allowsHitTesting(false))
+        .background(WindowChromeAccessor(onActivityChanged: { isBrowserWindowActive = $0 }).frame(width: 0, height: 0).allowsHitTesting(false))
         .onChange(of: tabs.selectedID) { _, id in
             chat.browserTabChanged(to: id)
         }
@@ -652,11 +631,39 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func browserPage(tabID: UUID, side: BrowserSplitSide?) -> some View {
+    private func browserPage(tabID: UUID, side: BrowserSplitSide?, paneWidth: CGFloat = 1000,
+                             compact: Bool = true, trafficLightsInset: CGFloat = 8) -> some View {
         if tabs.isAssistantTab(tabID) {
             assistantPage(composerNamespace: side == nil ? assistantComposerHandoff : nil)
         } else {
-            webPage(tabID: tabID, side: side)
+            webPage(tabID: tabID, side: side, paneWidth: paneWidth, compact: compact, trafficLightsInset: trafficLightsInset)
+        }
+    }
+
+    private func needsNativeHeader(_ id: UUID) -> Bool {
+        !tabs.isAssistantTab(id) && !tabs.browser(for: id).addressText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    @ViewBuilder
+    private func pageToolbar(tabID: UUID, side: BrowserSplitSide?, paneWidth: CGFloat = 1000,
+                             compact: Bool = true, trafficLightsInset: CGFloat = 8) -> some View {
+        if let side {
+            BrowserToolbar(tabs: tabs, browser: tabs.browser(for: tabID), chat: chat,
+                settings: settings, searchEngine: settings.searchEngine,
+                activeAddressField: $activeAddressField, assistantShortcut: settings.assistantSidebarShortcut,
+                tabStripIsVisible: tabs.isSidebarVisible, isCompact: true,
+                trafficLightsInset: side == .left && !tabs.isSidebarVisible ? 84 : 6,
+                paneID: tabID, showsTabStripToggle: side == .left, isNarrowPane: paneWidth < 380,
+                toggleTabStrip: { withAnimation(.snappy(duration: 0.22)) { tabs.isSidebarVisible.toggle() } },
+                presentNewTabSearch: { tabs.focusSplitPane(side); spawnNewTabSearchBar() })
+        } else {
+            BrowserToolbar(tabs: tabs, browser: tabs.browser(for: tabID), chat: chat,
+                settings: settings, searchEngine: settings.searchEngine,
+                activeAddressField: $activeAddressField, assistantShortcut: settings.assistantSidebarShortcut,
+                tabStripIsVisible: tabs.isSidebarVisible, isCompact: compact,
+                trafficLightsInset: trafficLightsInset,
+                toggleTabStrip: { withAnimation(.snappy(duration: 0.22)) { tabs.isSidebarVisible.toggle() } },
+                presentNewTabSearch: { spawnNewTabSearchBar(); DispatchQueue.main.async { activeAddressField = .newTab } })
         }
     }
 
@@ -672,32 +679,12 @@ struct ContentView: View {
                     onNewChat: { chat.clearConversation() },
                     onClose: { tabs.closeTab(id: tabID) }
                 )
+            } else if needsNativeHeader(tabID) {
+                Color.clear.frame(height: BrowserChromeLayout.toolbarHeight)
             } else {
-                BrowserToolbar(
-                    tabs: tabs,
-                    browser: tabs.browser(for: tabID),
-                    chat: chat,
-                    settings: settings,
-                    searchEngine: settings.searchEngine,
-                    activeAddressField: $activeAddressField,
-                    assistantShortcut: settings.assistantSidebarShortcut,
-                    tabStripIsVisible: tabs.isSidebarVisible,
-                    isCompact: true,
-                    trafficLightsInset: side == .left && !tabs.isSidebarVisible ? 84 : 6,
-                    paneID: tabID,
-                    showsTabStripToggle: side == .left,
-                    isNarrowPane: width < 380,
-                    toggleTabStrip: {
-                        withAnimation(.snappy(duration: 0.22)) { tabs.isSidebarVisible.toggle() }
-                    },
-                    presentNewTabSearch: {
-                        tabs.focusSplitPane(side)
-                        spawnNewTabSearchBar()
-                    }
-                )
-                .zIndex(2)
+                pageToolbar(tabID: tabID, side: side, paneWidth: width).zIndex(2)
             }
-            browserPage(tabID: tabID, side: side)
+            browserPage(tabID: tabID, side: side, paneWidth: width)
                 .zIndex(1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -731,44 +718,50 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func webPage(tabID: UUID, side: BrowserSplitSide?) -> some View {
-        let browser = tabs.browser(for: tabID)
-        let webView = tabs.webView(for: tabID)
+    private func webPage(tabID: UUID, side: BrowserSplitSide?, paneWidth: CGFloat, compact: Bool, trafficLightsInset: CGFloat) -> some View {
+        ObservedBrowserPage(browser: tabs.browser(for: tabID)) { browser in
+            observedWebPage(tabID: tabID, side: side, browser: browser, paneWidth: paneWidth,
+                            compact: compact, trafficLightsInset: trafficLightsInset)
+        }
+    }
+
+    @ViewBuilder
+    private func observedWebPage(tabID: UUID, side: BrowserSplitSide?, browser: BrowserStore, paneWidth: CGFloat,
+                                 compact: Bool, trafficLightsInset: CGFloat) -> some View {
         let isActive = tabs.selectedID == tabID
+        let isDisplayed = tabs.split.map { $0.side(containing: tabID) != nil } ?? isActive
         let isSearching = chat.isSearchingWeb && isActive
-        // A tab with no page has nothing for WebKit to draw, and an empty web
-        // view is not empty — it paints a background of its own. See
-        // `BrowserView.isHidden`.
+        let hasInteractivePageBanner = isActive && (
+            browser.navigationFailure != nil
+                || browser.passkeyHandoffNeeded
+                || browser.browserHandoffError != nil
+        )
+        let isAgentCursorVisible = chat.agentTaskTabID == tabID
+            && chat.isPageControlArmed
+            && (chat.isBusy || chat.pendingProposal != nil)
+        let showsPageOverlay = browser.isLoading || hasInteractivePageBanner || isSearching || isAgentCursorVisible
+        // A blank page has no content to show. The persistent CEF browser is
+        // parked until the tab gets an address.
         let hasNoPage = browser.addressText
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty
         let pageShape = Rectangle()
-        let focusAction: (() -> Void)? = side.map { targetSide in
-            { [weak tabs] in tabs?.focusSplitPane(targetSide) }
+        let focusAction: () -> Void = { [weak tabs] in
+            activeAddressField = nil
+            if let side { tabs?.focusSplitPane(side) }
         }
-
-        ZStack {
-            BrowserView(webView: webView, onFocus: focusAction, isHidden: hasNoPage)
-                .clipShape(pageShape)
-                .overlay {
-                    AgentCursorOverlay(browser: browser,
-                        isActive: chat.agentTaskTabID == tabID && chat.isPageControlArmed && (chat.isBusy || chat.pendingProposal != nil),
-                        stop: chat.cancel)
-                }
-                .overlay {
-                    pageShape.strokeBorder(
-                        isSearching
-                            ? Color.purple.opacity(0.32)
-                            : Color.clear,
-                        lineWidth: isSearching ? 1.35 : 0
-                    )
-                }
+        let pageOverlay = AnyView(ZStack {
+            AgentCursorOverlay(browser: browser,
+                isActive: isAgentCursorVisible,
+                stop: chat.cancel)
+                .allowsHitTesting(false)
 
             if browser.isLoading {
                 ProgressView()
                     .controlSize(.small)
                     .padding(.top, 5)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(false)
             }
 
             if isActive {
@@ -781,6 +774,27 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(.top, 12)
             }
+
+            Rectangle()
+                .strokeBorder(isSearching ? Color.purple.opacity(0.32) : Color.clear,
+                              lineWidth: isSearching ? 1.35 : 0)
+                .allowsHitTesting(false)
+        })
+
+        ZStack {
+            BrowserView(browserID: tabID, browserGeneration: tabs.pageGeneration(for: tabID),
+                        makeChromeBrowser: { tabs.chromeBrowser(for: tabID) },
+                        pageOverlay: pageOverlay,
+                        header: hasNoPage ? nil : AnyView(pageToolbar(tabID: tabID, side: side, paneWidth: paneWidth,
+                            compact: compact, trafficLightsInset: trafficLightsInset)),
+                        headerHeight: hasNoPage ? 0 : BrowserChromeLayout.toolbarHeight,
+                        showsWindowControls: !tabs.isSidebarVisible && (side == nil || side == .left),
+                        isSelectedPane: side == nil ? nil : isActive,
+                        isOverlayVisible: showsPageOverlay,
+                        interactiveOverlayHeight: hasInteractivePageBanner ? 176 : 0,
+                        onFocus: focusAction,
+                        isHidden: hasNoPage, isVisible: isDisplayed)
+                .clipShape(pageShape)
         }
         // The enclosing page card owns rounding and spacing in both layouts.
         // A second inset here creates a framed page inside the split card.
@@ -921,7 +935,7 @@ struct ChromeEdgeReflection: View {
 
 /// Shows where an approved assistant action is aimed inside the page. The
 /// indicator is app-rendered feedback; page actions remain the fixed,
-/// allow-listed WebKit operations in `BrowserOperator`.
+/// allow-listed browser operations in `BrowserOperator`.
 private struct AgentCursorOverlay: View {
     @ObservedObject var browser: BrowserStore
     let isActive: Bool
@@ -1005,11 +1019,15 @@ private struct AgentPageGlow: View {
 /// Lets the native traffic lights stay in place while the browser toolbar draws
 /// in the title-bar region, like other modern macOS browsers.
 private struct WindowChromeAccessor: NSViewRepresentable {
+    let onActivityChanged: (Bool) -> Void
     func makeNSView(context: Context) -> WindowChromeProbe {
-        WindowChromeProbe()
+        let view = WindowChromeProbe()
+        view.onActivityChanged = onActivityChanged
+        return view
     }
 
     func updateNSView(_ view: WindowChromeProbe, context: Context) {
+        view.onActivityChanged = onActivityChanged
         view.configureWindowChrome()
     }
 }
@@ -1017,6 +1035,7 @@ private struct WindowChromeAccessor: NSViewRepresentable {
 @MainActor
 private final class WindowChromeProbe: NSView {
     private var windowObservers: [NSObjectProtocol] = []
+    var onActivityChanged: ((Bool) -> Void)?
 
     deinit { windowObservers.forEach(NotificationCenter.default.removeObserver) }
 
@@ -1025,6 +1044,14 @@ private final class WindowChromeProbe: NSView {
         windowObservers.forEach(NotificationCenter.default.removeObserver)
         windowObservers.removeAll()
         if let window {
+            BrowserWindowFocus.register(window)
+            for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                         NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
+                         NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
+                windowObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    DispatchQueue.main.async { self?.reportActivity() }
+                })
+            }
             for name in [NSWindow.didResizeNotification, NSWindow.didExitFullScreenNotification,
                          NSWindow.didBecomeKeyNotification, NSWindow.didEndSheetNotification] {
                 windowObservers.append(NotificationCenter.default.addObserver(
@@ -1049,10 +1076,16 @@ private final class WindowChromeProbe: NSView {
             }
         }
         configureWindowChrome()
+        DispatchQueue.main.async { [weak self] in self?.reportActivity() }
         DispatchQueue.main.async { [weak self] in self?.configureWindowChrome() }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    private func reportActivity() {
+        guard let window else { onActivityChanged?(false); return }
+        onActivityChanged?(BrowserWindowFocus.isActive(window))
+    }
 
     func configureWindowChrome() {
         guard let window, let contentView = window.contentView else { return }
@@ -1378,6 +1411,7 @@ struct TabStripView: View {
                 .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.primary.opacity(0.07))
                 .frame(height: 1)
 
+            HStack(spacing: 0) {
             Menu {
                 AssistantChatMenuItems(chat: chat, open: openAssistantChat)
             } label: {
@@ -1412,6 +1446,11 @@ struct TabStripView: View {
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: chatsRowIsHovered)
             .help("Open a saved assistant chat or start a new one")
             .accessibilityLabel("Chats")
+            if settings.extensions.sidebarActionsVisible {
+                SidebarExtensionActions(tabs: tabs, settings: settings, isCompact: isCompact)
+                    .padding(.trailing, 8)
+            }
+            }
         }
     }
 
@@ -2015,6 +2054,12 @@ private struct BrowserToolbar: View {
                 .accessibilityLabel(settings.isBookmarked(browser.addressText) ? "Remove bookmark" : "Add bookmark")
             }
 
+            if settings.extensions.toolbarActionsVisible {
+                PinnedToolbarExtensionActions(tabs: tabs, tabID: paneID ?? tabs.selectedID,
+                                              limit: isNarrowPane ? 0 : (isCompact ? 1 : 2))
+                ExtensionToolbarButton(tabs: tabs, tabID: paneID ?? tabs.selectedID)
+            }
+
             if isNarrowPane {
                 Menu {
                     Button("Go back") { focusPane(); browser.goBack() }
@@ -2094,7 +2139,19 @@ private struct BrowserToolbar: View {
         .padding(.leading, trafficLightsInset)
         .padding(.trailing, 7)
         .frame(height: BrowserChromeLayout.toolbarHeight)
-        .background(toolbarColour)
+        .background {
+            ZStack {
+                toolbarColour
+                // A native drag view across the whole background wins
+                // AppKit hit testing over SwiftUI-drawn buttons. Only the
+                // explicit, empty toolbar margins should receive it.
+                HStack(spacing: 0) {
+                    NativeDocumentDragArea().frame(width: trafficLightsInset)
+                    Spacer(minLength: 0).allowsHitTesting(false)
+                    NativeDocumentDragArea().frame(width: 7)
+                }
+            }
+        }
         .environment(\.colorScheme, toolbarScheme)
         .onAppear { addressDraft = browser.addressText }
         .onChange(of: browser.addressText) { _, address in
@@ -2119,16 +2176,25 @@ private struct BrowserToolbar: View {
     }
 
     private var toolbarColour: Color {
-        if browser.pageTitle != "New Tab", let colour = browser.pageBackgroundColor {
+        if let colour = opaquePageBackground {
             return Color(nsColor: colour)
         }
         return colourScheme == .dark ? kestrelNewTabCanvas : Color(nsColor: .windowBackgroundColor)
     }
 
     private var toolbarScheme: ColorScheme {
-        guard browser.pageTitle != "New Tab",
-              let rgb = browser.pageBackgroundColor?.usingColorSpace(.sRGB) else { return colourScheme }
+        guard let rgb = opaquePageBackground?.usingColorSpace(.sRGB) else { return colourScheme }
         return rgb.redComponent * 0.2126 + rgb.greenComponent * 0.7152 + rgb.blueComponent * 0.0722 < 0.5 ? .dark : .light
+    }
+
+    /// A transparent CSS body background is not a page colour. Treating its
+    /// transparent black components as an opaque black toolbar made the
+    /// toolbar clear with white controls on pages that use the browser canvas.
+    private var opaquePageBackground: NSColor? {
+        guard browser.pageTitle != "New Tab",
+              let colour = browser.pageBackgroundColor?.usingColorSpace(.sRGB),
+              colour.alphaComponent >= 0.98 else { return nil }
+        return colour
     }
 
     /// A question typed into the address bar and sent to the assistant.
@@ -2862,36 +2928,8 @@ private struct AddressEntry: View {
     }
 
     var body: some View {
-        HStack(spacing: 9) {
-            if style == .toolbar && !fieldIsFocused {
-                Button {
-                    activateAddressField()
-                } label: {
-                    HStack(spacing: 7) {
-                        if let label = AddressBarPresentation.label(for: text) {
-                            Text(label.primary)
-                                .foregroundStyle(.primary)
-                            if let detail = label.detail {
-                                Text("/").foregroundStyle(.tertiary)
-                                Text(detail).foregroundStyle(.secondary)
-                            }
-                        } else {
-                            Text(text.isEmpty ? "Search or enter address" : text)
-                                .foregroundStyle(text.isEmpty ? .secondary : .primary)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .font(KestrelTypography.chromeLabel)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, minHeight: style.height, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Edit the address or search the web")
-                .accessibilityLabel("Address bar, \(text)")
-                .accessibilityAction { activateAddressField() }
-            } else {
+        ZStack(alignment: .leading) {
+            HStack(spacing: 9) {
                 if style.isFloating || fieldIsFocused {
                     Image(systemName: addressSymbol)
                         .font(.system(size: style.isFloating ? 17 : 11, weight: .medium))
@@ -2928,11 +2966,15 @@ private struct AddressEntry: View {
                         return InlineAddressCompletion.complete(prefix, recentSearches: recentSearches,
                             bookmarks: bookmarks, openTabs: openTabs, suggestions: suggestions)
                     },
-                    onSubmit: {
-                        if isSuggestionPanelVisible { chooseSuggestion(at: highlightedSuggestion) }
-                        else { submitAddress() }
+                    onSubmit: { value in
+                        text = value
+                        if isSuggestionPanelVisible { chooseSuggestion(at: highlightedSuggestion, submittedText: value) }
+                        else { submitAddress(value) }
                     },
-                    onAssistant: searchWithAssistant,
+                    onAssistant: { value in
+                        text = value
+                        searchWithAssistant(value)
+                    },
                     onMove: { direction in
                         guard isSuggestionPanelVisible else { return false }
                         let lastIndex = visibleLocalSuggestionCount + visibleSuggestions.count + routeRowCount - 1
@@ -2963,7 +3005,9 @@ private struct AddressEntry: View {
                         guard activeShortcut != nil else { return false }
                         activeShortcut = nil
                         return true
-                    }
+                    },
+                    focusTarget: focusTarget,
+                    isAccessible: style.isFloating || fieldIsFocused
                 )
                 .help(assistantOnly
                       ? "Ask the assistant about the attached sources. Enter sends this only to the assistant."
@@ -2979,6 +3023,38 @@ private struct AddressEntry: View {
                 .buttonStyle(.plain)
                 .help("Go to address or search with \(searchEngine.displayName)")
                 .accessibilityLabel("Go to address or search with \(searchEngine.displayName)")
+            }
+            .opacity(style == .toolbar && !fieldIsFocused ? 0 : 1)
+            .allowsHitTesting(style != .toolbar || fieldIsFocused)
+            .accessibilityHidden(style == .toolbar && !fieldIsFocused)
+            if style == .toolbar && !fieldIsFocused {
+                Button {
+                    activateAddressField()
+                } label: {
+                    HStack(spacing: 7) {
+                        if let label = AddressBarPresentation.label(for: text) {
+                            Text(label.primary)
+                                .foregroundStyle(.primary)
+                            if let detail = label.detail {
+                                Text("/").foregroundStyle(.tertiary)
+                                Text(detail).foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Text(text.isEmpty ? "Search or enter address" : text)
+                                .foregroundStyle(text.isEmpty ? .secondary : .primary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .font(KestrelTypography.chromeLabel)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, minHeight: style.height, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Edit the address or search the web")
+                .accessibilityLabel("Address bar, \(text)")
+                .accessibilityAction { activateAddressField() }
             }
         }
         .padding(.leading, style.horizontalInset)
@@ -3004,6 +3080,11 @@ private struct AddressEntry: View {
                         .frame(width: geometry.size.width)
                         .fixedSize(horizontal: false, vertical: true)
                         .offset(y: style.suggestionOffset)
+                        .background {
+                            GeometryReader { panel in
+                                Color.clear.preference(key: BrowserHeaderHitRegions.self, value: [panel.frame(in: .global)])
+                            }
+                        }
                         .transition(suggestionPanelTransition)
                         .onHover { hovering in
                             isHoveringSuggestions = hovering
@@ -3376,19 +3457,19 @@ private struct AddressEntry: View {
         return Text(matchedQuery) + Text(completion).fontWeight(.semibold)
     }
 
-    private func chooseSuggestion(at index: Int) {
+    private func chooseSuggestion(at index: Int, submittedText: String? = nil) {
         if assistantOnly, index == 0 {
-            searchWithAssistant()
+            searchWithAssistant(submittedText ?? text)
             return
         }
         if index == 0 {
-            submitAddress()
+            submitAddress(submittedText ?? text)
             return
         }
         // The assistant route is only drawn while no shortcut is committed, so
         // with one active index 1 means the first local row instead.
         if index == 1, activeShortcut == nil {
-            searchWithAssistant()
+            searchWithAssistant(submittedText ?? text)
             return
         }
         // Indexed against the same rows the panel drew, not against every
@@ -3435,25 +3516,33 @@ private struct AddressEntry: View {
     }
 
     private func submitAddress() {
+        submitAddress(text)
+    }
+
+    private func submitAddress(_ value: String) {
         if assistantOnly {
-            searchWithAssistant()
+            searchWithAssistant(value)
             return
         }
-        guard let query = preparedQuery() else { return }
+        guard let query = preparedQuery(value) else { return }
         suggestions = []
         activeAddressField = nil
         onSubmit(query)
     }
 
     private func searchWithAssistant() {
-        guard let query = preparedQuery() else { return }
+        searchWithAssistant(text)
+    }
+
+    private func searchWithAssistant(_ value: String) {
+        guard let query = preparedQuery(value) else { return }
         suggestions = []
         activeAddressField = nil
         onAssistantSearch(query)
     }
 
-    private func preparedQuery() -> String? {
-        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func preparedQuery(_ value: String) -> String? {
+        let query = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return assistantOnly ? "" : nil }
         let prepared = activeShortcut.map { "!\($0.rawValue) \(query)" } ?? query
         activeShortcut = nil

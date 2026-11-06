@@ -22,6 +22,8 @@ case "$CONFIG" in
 esac
 
 cd "$ROOT"
+swift package resolve
+bash "$ROOT/scripts/apply-cefswift-patches.sh"
 swift package \
   --allow-writing-to-package-directory \
   --allow-network-connections all \
@@ -29,19 +31,93 @@ swift package \
   --product Kestrel \
   --configuration "$CONFIG" \
   --output "$BUILD_DIR" \
-  --bundle-id com.shayprasad.KestrelChromium \
+  --bundle-id com.shayprasad.Kestrel \
   --sign -
 
 # CefSwift assembles and signs the CEF framework and helper apps. Add Kestrel's
-# icon to the completed bundle, then re-sign the app container so its resource
-# seal includes the icon while leaving the nested CEF signatures intact.
+# app resources, Sparkle's dynamic framework and browser permission
+# descriptions, then re-sign the app container so its resource seal includes
+# them while preserving nested code.
 mkdir -p "$APP/Contents/Resources"
+SPARKLE_FRAMEWORK="$(find "$ROOT/.build/artifacts" -path '*/Sparkle.framework' -print -quit)"
+if [[ -z "$SPARKLE_FRAMEWORK" || ! -d "$SPARKLE_FRAMEWORK" ]]; then
+  echo "error: the resolved Sparkle.framework was not found under .build/artifacts." >&2
+  exit 1
+fi
+mkdir -p "$APP/Contents/Frameworks"
+cp -R "$SPARKLE_FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
+# SwiftPM links the executable to Sparkle with @rpath, but CefSwift's app
+# template does not include the app-level Frameworks directory in its runpath.
+# Add it explicitly so dyld can resolve the framework from this bundle.
+MAIN_EXECUTABLE="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
+if ! otool -l "$MAIN_EXECUTABLE" | grep -Fq '@executable_path/../Frameworks'; then
+  install_name_tool -add_rpath '@executable_path/../Frameworks' "$MAIN_EXECUTABLE"
+fi
+cp "$ROOT/licenses/Sparkle-LICENSE.txt" "$APP/Contents/Resources/Sparkle-LICENSE.txt"
+RESOURCE_BUNDLE="$(find "$ROOT/.build" -type d -name 'KestrelChromium_KestrelWebKit.bundle' -path "*/$CONFIG/*" -print -quit)"
+if [[ -z "$RESOURCE_BUNDLE" || ! -d "$RESOURCE_BUNDLE" ]]; then
+  echo "error: the compiled Kestrel resource bundle was not found under .build for $CONFIG." >&2
+  exit 1
+fi
+# `swift build` copies .xcassets as a directory instead of compiling it to an
+# Assets.car. Compile the catalog into the same resource bundle so SwiftUI's
+# Image(name, bundle:) lookups work in the packaged app.
+xcrun actool \
+  --compile "$RESOURCE_BUNDLE" \
+  --platform macosx \
+  --minimum-deployment-target 14.0 \
+  --output-partial-info-plist "$BUILD_DIR/KestrelAssetsInfo.plist" \
+  "$ROOT/KestrelWebKit/Assets.xcassets"
+test -s "$RESOURCE_BUNDLE/Assets.car"
+cp -R "$RESOURCE_BUNDLE" "$APP/Contents/Resources/KestrelChromium_KestrelWebKit.bundle"
 cp "$ROOT/KestrelWebKit/Kestrel.icns" "$APP/Contents/Resources/Kestrel.icns"
-/usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string Kestrel.icns' "$APP/Contents/Info.plist" 2>/dev/null \
-  || /usr/libexec/PlistBuddy -c 'Set :CFBundleIconFile Kestrel.icns' "$APP/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
+INFO="$APP/Contents/Info.plist"
+set_plist_string() {
+  local key="$1" value="$2"
+  /usr/libexec/PlistBuddy -c "Set :$key $value" "$INFO" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :$key string $value" "$INFO"
+}
+set_plist_bool() {
+  local key="$1" value="$2"
+  /usr/libexec/PlistBuddy -c "Set :$key $value" "$INFO" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :$key bool $value" "$INFO"
+}
+set_plist_string CFBundleDisplayName "Kestrel Chromium"
+set_plist_string CFBundleIconFile Kestrel.icns
+set_plist_string CFBundleShortVersionString "$VERSION"
+set_plist_string CFBundleVersion "$VERSION"
+set_plist_string LSApplicationCategoryType public.app-category.utilities
+set_plist_string NSCameraUsageDescription "Websites you visit may ask to use your camera."
+set_plist_string NSMicrophoneUsageDescription "Websites you visit may ask to use your microphone."
+set_plist_string NSBluetoothAlwaysUsageDescription "Bluetooth lets websites verify that a phone used for passkey sign-in is nearby."
+set_plist_string NSLocationUsageDescription "Websites you visit may ask to use your location."
+set_plist_string NSLocationWhenInUseUsageDescription "Websites you visit may ask to use your location."
+set_plist_string NSDownloadsFolderUsageDescription "Files you download are saved to your Downloads folder."
+set_plist_string SUFeedURL "https://github.com/shay2000/Kestrel-chromium/releases/latest/download/appcast.xml"
+set_plist_string SUPublicEDKey "1Fe/NeDkmo8kFRAvGxgma0GKqbad8w3is5pGuHSwkdc="
+set_plist_bool SUEnableAutomaticChecks true
+set_plist_bool SUEnableInstallerLauncherService true
+
+if ! /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes' "$INFO" >/dev/null 2>&1; then
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes array' "$INFO"
+fi
+if ! /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0' "$INFO" >/dev/null 2>&1; then
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0 dict' "$INFO"
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleTypeRole string Viewer' "$INFO"
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLName string HTTP and HTTPS web pages' "$INFO"
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes array' "$INFO"
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string http' "$INFO"
+  /usr/libexec/PlistBuddy -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes:1 string https' "$INFO"
+fi
+
+if ! /usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity' "$INFO" >/dev/null 2>&1; then
+  /usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity dict' "$INFO"
+fi
+/usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true' "$INFO" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c 'Set :NSAppTransportSecurity:NSAllowsArbitraryLoads true' "$INFO"
 cp "$ROOT/licenses/CEF-LICENSE.txt" "$APP/Contents/Resources/CEF-LICENSE.txt"
 cp "$ROOT/licenses/CefSwift-LICENSE.txt" "$APP/Contents/Resources/CefSwift-LICENSE.txt"
+bash "$ROOT/scripts/package-codex-runtime.sh" "$APP"
 codesign --force --sign - "$APP" >/dev/null
 codesign --verify --deep --strict "$APP"
 

@@ -1,0 +1,11 @@
+{
+  "repository": "shay2000/Kestrel-chromium",
+  "tag": "v1.0.2-chromium-preview.1",
+  "title": "Kestrel Chromium 1.0.2 — Extensions inside Kestrel",
+  "source": "757a17f779ea6dfe01527500c1189e4cebaedc09",
+  "run_id": 42085793532,
+  "artifact_id": 13444795070,
+  "artifact_digest": "sha256:4b368265ad2ced2c2c1e8f5129cb7809a8389abf1b00e0749fc5904342153b12",
+  "dmg": "Kestrel-Chromium-1.0.2-arm64.dmg",
+  "notes": "docs/releases/v1.0.2-chromium-preview.1.md"
+}

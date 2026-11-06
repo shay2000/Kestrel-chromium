@@ -3,6 +3,7 @@ name: macOS Chromium build
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -27,24 +28,396 @@ jobs:
           swift --version
           uname -m
 
-      - name: Restore Swift and CEF cache
+      - name: Verify native overlay hit testing and ownership
+        shell: bash
+        run: |
+          swiftc -swift-version 5 -parse-as-library KestrelChromium/ChromiumNativeOverlays.swift KestrelChromium/ChromiumWindowAccessibility.swift KestrelChromium/ChromiumWindowAttachment.swift scripts/test-native-overlays-macos.swift -o "$RUNNER_TEMP/kestrel-native-overlays-test"
+          "$RUNNER_TEMP/kestrel-native-overlays-test"
+
+      - name: Verify CRX3 signatures and identity preservation
+        run: bash scripts/test-crx-package.sh 2>&1 | tee "$RUNNER_TEMP/kestrel-crx-tests.log"
+        shell: bash
+
+      - name: Restore pinned CEF distribution
         uses: actions/cache@v4
         with:
-          path: |
-            .build
-            .cef
+          path: .cef
           key: kestrel-cef-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift') }}
+          save-always: true
+
+      - name: Restore Swift build cache
+        id: swift-build-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .build
+          restore-keys: kestrel-build-${{ runner.os }}-${{ runner.arch }}-
+          key: kestrel-build-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift', 'KestrelChromium/**/*.swift', 'KestrelWebKit/**/*.swift', 'build.sh', 'patches/**') }}
 
       - name: Build and bundle the macOS app
-        run: ./build.sh release
+        run: ./build.sh release 2>&1 | tee "$RUNNER_TEMP/kestrel-chromium-build.log"
+        shell: bash
 
-      - name: Archive the app bundle
-        run: ditto -c -k --keepParent build/Kestrel.app "$RUNNER_TEMP/Kestrel-Chromium-macOS.zip"
+      - name: Run the complete Kestrel SwiftPM regression suite
+        id: native-tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee "$RUNNER_TEMP/kestrel-native-tests.log"
 
-      - name: Upload app bundle
+      - name: Cache the successfully compiled app dependencies
+        if: steps.swift-build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .build
+          key: ${{ steps.swift-build-cache.outputs.cache-primary-key }}
+
+      - name: Verify native browser identity and lifecycle regressions
+        run: swift test --package-path .build/checkouts/CefSwift --filter KestrelLifecycleTests 2>&1 | tee "$RUNNER_TEMP/kestrel-lifecycle-tests.log"
+        shell: bash
+
+      - name: Add the MV3 smoke fixture to the test app bundle
+        run: |
+          DEST="build/Kestrel.app/Contents/Resources/ChromiumExtensionSmoke"
+          mkdir -p "$DEST"
+          ditto scripts/fixtures/chromium-extension-smoke "$DEST"
+          codesign --force --sign - build/Kestrel.app
+        shell: bash
+
+      - name: Configure the Manifest V3 extension smoke fixture
+        run: >-
+          defaults write com.shayprasad.Kestrel
+          kestrel.chromium.approved-extension-paths.v1
+          -array "$GITHUB_WORKSPACE/build/Kestrel.app/Contents/Resources/ChromiumExtensionSmoke"
+        shell: bash
+
+      - id: launch-smoke
+        name: Launch the app and capture first-run screenshot
+        env:
+          KESTREL_SMOKE_DEBUG_PORT: 9333
+        run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke" launch
+        shell: bash
+
+      - name: Upload first-run screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-first-run-screenshot
+          path: |
+            ${{ runner.temp }}/kestrel-chromium-runtime-smoke/first-launch.png
+            ${{ runner.temp }}/kestrel-chromium-runtime-smoke/launch.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - id: navigate-smoke
+        name: Open a web page and capture browser screenshot
+        if: steps.launch-smoke.outcome == 'success'
+        run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke" navigate
+        shell: bash
+
+      - name: Drag-select text in the Chromium page
+        if: steps.navigate-smoke.outcome == 'success'
+        run: |
+          swift scripts/select-page-text-macos.swift \
+            "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/after-url-open.png" \
+            "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/page-text-selection.png"
+          swift scripts/verify-macos-screenshot.swift "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/page-text-selection.png" "documentation examples"
+        shell: bash
+
+      - id: store-smoke
+        name: Open a Chrome Web Store listing and capture screenshot
+        if: always() && steps.launch-smoke.outcome == 'success'
+        run: bash scripts/smoke-macos-app.sh build/Kestrel.app "$RUNNER_TEMP/kestrel-chromium-runtime-smoke" webstore
+        shell: bash
+
+      - name: Exercise cancellable form close and native passkey options
+        if: always() && steps.launch-smoke.outcome == 'success'
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory scripts/fixtures > "$RUNNER_TEMP/kestrel-local-fixtures.log" 2>&1 &
+          FIXTURE_PID=$!
+          trap 'kill "$FIXTURE_PID" 2>/dev/null || true' EXIT
+          swiftc -swift-version 5 -D KESTREL_LIFECYCLE_HARNESS -parse-as-library \
+            scripts/test-chrome-web-store-macos.swift scripts/test-chromium-lifecycle-macos.swift \
+            -o "$RUNNER_TEMP/kestrel-lifecycle-test"
+          "$RUNNER_TEMP/kestrel-lifecycle-test" "$GITHUB_WORKSPACE/build/Kestrel.app" \
+            "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/lifecycle-acceptance" \
+            http://localhost:8765/chromium-lifecycle-probe.html \
+            2>&1 | tee "$RUNNER_TEMP/kestrel-lifecycle-ui.log"
+        shell: bash
+
+      - name: Verify native page focus, first-click controls and toolbar attachment
+        if: always() && steps.launch-smoke.outcome == 'success'
+        shell: bash
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory scripts/fixtures > "$RUNNER_TEMP/kestrel-focus-server.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          swiftc -swift-version 5 -D KESTREL_LIFECYCLE_HARNESS -parse-as-library scripts/test-chrome-web-store-macos.swift scripts/test-window-integration-macos.swift -o "$RUNNER_TEMP/kestrel-window-test"
+          "$RUNNER_TEMP/kestrel-window-test" "$GITHUB_WORKSPACE/build/Kestrel.app" "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/window-integration" http://localhost:8765/window-focus.html 2>&1 | tee "$RUNNER_TEMP/kestrel-window-test.log"
+
+      - name: Retain native window geometry diagnostics
+        if: always() && steps.launch-smoke.outcome == 'success'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP']) / 'kestrel-chromium-runtime-smoke/app-stderr.txt'
+          if path.exists():
+              lines = [line for line in path.read_text(errors='replace').splitlines() if 'KESTREL_LIFECYCLE windowGeometry' in line]
+              print('\n'.join(lines[-30:]))
+          PY
+
+      - name: Operate native Chrome Web Store installs and verify restart
+        if: always() && steps.launch-smoke.outcome == 'success'
+        env:
+          KESTREL_REQUIRE_EXTENSION_WINDOW_FIXTURE: "1"
+          KESTREL_NATIVE_MOUSE_INPUT: "1"
+        run: |
+          swiftc -swift-version 5 -parse-as-library scripts/test-chrome-web-store-macos.swift -o "$RUNNER_TEMP/kestrel-web-store-test"
+          "$RUNNER_TEMP/kestrel-web-store-test" "$GITHUB_WORKSPACE/build/Kestrel.app" \
+            "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/web-store-acceptance" \
+            2>&1 | tee "$RUNNER_TEMP/kestrel-web-store-test.log"
+        shell: bash
+
+      - name: Verify genuine extension actions, placement choices and a cold restart
+        if: always() && steps.launch-smoke.outcome == 'success'
+        env:
+          KESTREL_NATIVE_MOUSE_INPUT: "1"
+        shell: bash
+        run: |
+          swiftc -swift-version 5 -D KESTREL_LIFECYCLE_HARNESS -parse-as-library scripts/test-chrome-web-store-macos.swift scripts/test-extension-actions-macos.swift -o "$RUNNER_TEMP/kestrel-extension-actions-test"
+          "$RUNNER_TEMP/kestrel-extension-actions-test" "$GITHUB_WORKSPACE/build/Kestrel.app" "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/extension-actions" 2>&1 | tee "$RUNNER_TEMP/kestrel-extension-actions-test.log"
+
+      - name: Download the original WebKit 1.0.0 release
+        id: webkit-release
+        if: always() && steps.launch-smoke.outcome == 'success'
+        run: |
+          curl -fL --retry 3 \
+            https://github.com/shay2000/Kestrel-Browser/releases/download/v1.0.0/Kestrel-Browser.zip \
+            -o "$RUNNER_TEMP/Kestrel-Browser.zip"
+          mkdir -p "$RUNNER_TEMP/kestrel-webkit-release"
+          ditto -x -k "$RUNNER_TEMP/Kestrel-Browser.zip" "$RUNNER_TEMP/kestrel-webkit-release"
+          test -d "$RUNNER_TEMP/kestrel-webkit-release/Kestrel.app"
+        shell: bash
+
+      - name: Run the original WebKit release on the same page
+        if: always() && steps.webkit-release.outcome == 'success'
+        run: >-
+          bash scripts/smoke-macos-app.sh
+          "$RUNNER_TEMP/kestrel-webkit-release/Kestrel.app"
+          "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/comparison"
+          compare-original
+          "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/after-url-open.png"
+        shell: bash
+
+      - name: Compare desktop menus and advanced workflows with WebKit
+        if: always() && steps.webkit-release.outcome == 'success'
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          set +e
+          ROOT="$RUNNER_TEMP/kestrel-chromium-runtime-smoke/desktop-comparison"
+          CHROMIUM_APP="$GITHUB_WORKSPACE/build/Kestrel.app"
+          WEBKIT_APP="$RUNNER_TEMP/kestrel-webkit-release/Kestrel.app"
+          mkdir -p "$ROOT"
+
+          pkill -TERM -x Kestrel 2>/dev/null || true
+          # Store/action acceptance above intentionally leaves Dark Reader
+          # enabled. Use a clean browser profile for the visual comparison so
+          # extension CSS does not disguise the WebKit/CEF page presentation.
+          KESTREL_COMPARISON_PROFILE="$HOME/Library/Application Support/com.shayprasad.Kestrel/CefSwift"
+          KESTREL_COMPARISON_PROFILE_BACKUP="$RUNNER_TEMP/kestrel-extension-acceptance-profile"
+          if [[ -d "$KESTREL_COMPARISON_PROFILE" ]]; then
+            for _ in {1..60}; do
+              pgrep -x Kestrel >/dev/null || break
+              sleep 0.2
+            done
+            mv "$KESTREL_COMPARISON_PROFILE" "$KESTREL_COMPARISON_PROFILE_BACKUP" || exit 1
+            restore_extension_profile() {
+              pkill -TERM -x Kestrel 2>/dev/null || true
+              for _ in {1..60}; do
+                pgrep -x Kestrel >/dev/null || break
+                sleep 0.2
+              done
+              if [[ -d "$KESTREL_COMPARISON_PROFILE" ]]; then mv "$KESTREL_COMPARISON_PROFILE" "$RUNNER_TEMP/kestrel-desktop-parity-profile"; fi
+              mv "$KESTREL_COMPARISON_PROFILE_BACKUP" "$KESTREL_COMPARISON_PROFILE"
+            }
+            trap restore_extension_profile EXIT
+          fi
+          KESTREL_MENU_TEST_APP="$CHROMIUM_APP" \
+            KESTREL_MENU_TEST_OUT="$ROOT/chromium-menu" \
+            KESTREL_MENU_TEST_ENGINE=chromium \
+            python3 scripts/test-desktop-menus-macos.py
+          CHROMIUM_MENU_STATUS=$?
+          pkill -TERM -x Kestrel 2>/dev/null || true
+          KESTREL_STRESS_APP="$CHROMIUM_APP" \
+            KESTREL_STRESS_OUT="$ROOT/chromium-workflows" \
+            KESTREL_STRESS_ENGINE=chromium \
+            KESTREL_STRESS_CYCLES=1 \
+            KESTREL_STRESS_SKIP_CLOSE_TAB=0 \
+            python3 scripts/macos-user-stress.py
+          CHROMIUM_STRESS_STATUS=$?
+
+          pkill -TERM -x Kestrel 2>/dev/null || true
+          KESTREL_MENU_TEST_APP="$WEBKIT_APP" \
+            KESTREL_MENU_TEST_OUT="$ROOT/webkit-menu" \
+            KESTREL_MENU_TEST_ENGINE=webkit \
+            python3 scripts/test-desktop-menus-macos.py
+          WEBKIT_MENU_STATUS=$?
+          pkill -TERM -x Kestrel 2>/dev/null || true
+          KESTREL_STRESS_APP="$WEBKIT_APP" \
+            KESTREL_STRESS_OUT="$ROOT/webkit-workflows" \
+            KESTREL_STRESS_ENGINE=webkit \
+            KESTREL_STRESS_CYCLES=1 \
+            KESTREL_STRESS_SKIP_CLOSE_TAB=1 \
+            python3 scripts/macos-user-stress.py
+          WEBKIT_STRESS_STATUS=$?
+
+          printf 'Chromium menus=%s workflows=%s; WebKit menus=%s workflows=%s\n' \
+            "$CHROMIUM_MENU_STATUS" "$CHROMIUM_STRESS_STATUS" "$WEBKIT_MENU_STATUS" "$WEBKIT_STRESS_STATUS"
+          if [[ "$CHROMIUM_MENU_STATUS" -ne 0 || "$CHROMIUM_STRESS_STATUS" -ne 0 || \
+                "$WEBKIT_MENU_STATUS" -ne 0 || "$WEBKIT_STRESS_STATUS" -ne 0 ]]; then
+            exit 1
+          fi
+
+      - name: Remove the smoke fixture and prepare clean distribution files
+        run: |
+          defaults delete com.shayprasad.Kestrel kestrel.chromium.approved-extension-paths.v1 2>/dev/null || true
+          rm -rf build/Kestrel.app/Contents/Resources/ChromiumExtensionSmoke
+          codesign --force --deep --sign - build/Kestrel.app
+          codesign --verify --deep --strict --verbose=2 build/Kestrel.app
+          ditto -c -k --keepParent build/Kestrel.app "$RUNNER_TEMP/Kestrel-Chromium-macOS.zip"
+
+          STAGING="$RUNNER_TEMP/Kestrel-Chromium-DMG"
+          mkdir -p "$STAGING"
+          ditto build/Kestrel.app "$STAGING/Kestrel.app"
+          ln -s /Applications "$STAGING/Applications"
+          VERSION="$(cat VERSION)"
+          DMG="$RUNNER_TEMP/Kestrel-Chromium-${VERSION}-arm64.dmg"
+          hdiutil create -volname "Kestrel Chromium ${VERSION}" \
+            -srcfolder "$STAGING" -ov -format UDZO "$DMG"
+          (cd "$RUNNER_TEMP" && shasum -a 256 "$(basename "$DMG")" > "$(basename "$DMG").sha256")
+        shell: bash
+
+      - name: Upload clean app bundle
         uses: actions/upload-artifact@v4
         with:
           name: Kestrel-Chromium-macOS
           path: ${{ runner.temp }}/Kestrel-Chromium-macOS.zip
           if-no-files-found: error
           retention-days: 30
+
+      - name: Upload versioned DMG and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-macOS-DMG
+          path: |
+            ${{ runner.temp }}/Kestrel-Chromium-*.dmg
+            ${{ runner.temp }}/Kestrel-Chromium-*.dmg.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload WebKit versus Chromium comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-WebKit-versus-Chromium
+          path: ${{ runner.temp }}/kestrel-chromium-runtime-smoke/comparison
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload Chrome Web Store screenshot
+        if: always() && steps.store-smoke.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-chrome-web-store-screenshot
+          path: ${{ runner.temp }}/kestrel-chromium-runtime-smoke/chrome-web-store.png
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload runtime smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-runtime-smoke
+          path: ${{ runner.temp }}/kestrel-chromium-runtime-smoke
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload Chrome Web Store acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-web-store-acceptance
+          path: |
+            ${{ runner.temp }}/kestrel-chromium-runtime-smoke/web-store-acceptance
+            ${{ runner.temp }}/kestrel-web-store-test.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload native extension action evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-extension-actions
+          path: |
+            ${{ runner.temp }}/kestrel-chromium-runtime-smoke/extension-actions
+            ${{ runner.temp }}/kestrel-extension-actions-test.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-build-log
+          path: ${{ runner.temp }}/kestrel-chromium-build.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload extension verification results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-extension-tests
+          path: ${{ runner.temp }}/kestrel-crx-tests.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload lifecycle regression results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-Chromium-lifecycle-tests
+          path: |
+            ${{ runner.temp }}/kestrel-lifecycle-tests.log
+            ${{ runner.temp }}/kestrel-lifecycle-ui.log
+            ${{ runner.temp }}/kestrel-local-fixtures.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload native regression results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-native-regression-tests
+          path: ${{ runner.temp }}/kestrel-native-tests.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload desktop and advanced workflow comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-desktop-webkit-comparison
+          path: ${{ runner.temp }}/kestrel-chromium-runtime-smoke/desktop-comparison
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Report native regression suite failure after desktop checks
+        if: always() && steps.native-tests.outcome == 'failure'
+        shell: bash
+        run: |
+          echo 'The complete Kestrel SwiftPM regression suite failed; its log and the desktop comparison artifacts were retained.' >&2
+          exit 1

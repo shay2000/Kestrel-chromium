@@ -1,4 +1,4 @@
-#if canImport(SwiftUI) && canImport(WebKit)
+#if canImport(SwiftUI) && canImport(CefSwiftUI)
 
 import SwiftUI
 
@@ -10,6 +10,7 @@ struct KestrelCommands: Commands {
     @ObservedObject var chat: AIChatStore
     @ObservedObject var settings: AppSettings
     @ObservedObject var updater: KestrelUpdater
+    @ObservedObject private var extensionCatalogue = ChromiumInstalledExtensions.shared
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
@@ -115,10 +116,9 @@ struct KestrelCommands: Commands {
         }
 
         CommandGroup(after: .newItem) {
-            // Kestrel's embedded WebKit view has no platform passkeys without
-            // Apple's managed browser capabilities, so a passkey sign-in page
-            // can be handed to the user's default browser in one explicit
-            // action. The page opens there; Kestrel keeps its own tab.
+            // Explicitly opens the current page outside Kestrel. Chromium
+            // handles WebAuthn in-app; the command remains available as a
+            // user-controlled fallback for sites or authenticators that fail.
             Button("Open Page in Default Browser") {
                 _ = tabs.openSelectedPageInDefaultBrowser()
             }
@@ -159,29 +159,38 @@ struct KestrelCommands: Commands {
             }
         }
 
+        CommandMenu("Chromium") {
+            Button("Site Permissions & Browser Settings…") {
+                tabs.openChromiumPage("chrome://settings/content")
+            }
+            Button("Browsing History…") {
+                tabs.openChromiumPage("chrome://history")
+            }
+            Button("Downloads…") {
+                tabs.openChromiumPage("chrome://downloads")
+            }
+        }
+
         if settings.extensions.menuBarVisible {
             CommandMenu("Extensions") {
-                Text("Manage extensions in Settings")
-                Divider()
-                Button("Load Unpacked Extension…") { }
-                    .disabled(true)
-                    .help("Importing an extension lives in Kestrel Settings, so this menu item stays disabled rather than duplicating it. Nothing is loaded until you approve each permission there.")
-                Button("Install Chromium CRX…") { }
-                    .disabled(true)
-                    .help("Chromium CRX packages are not supported by the public WKWebExtension API.")
+                ForEach(extensionCatalogue.actions) { item in
+                    Button(item.name) { tabs.showExtensionAction(item.id) }
+                        .disabled(!tabs.canShowExtensionActions(for: tabs.selectedID))
+                }
+                if !extensionCatalogue.actions.isEmpty { Divider() }
+                Button("Show Extensions") { tabs.showExtensionMenu(for: tabs.selectedID) }
+                    .disabled(!tabs.canShowExtensionActions(for: tabs.selectedID))
+                Button("Manage Extensions…") { tabs.openChromiumExtensions() }
+                Button("Get Extensions…") { _ = tabs.newTab(urlString: "https://chromewebstore.google.com/category/extensions") }
+                    .help("Open Chromium's extension manager")
+                Text("Import packages in Kestrel Settings → Extensions")
             }
         }
     }
 
     private func splitAction(on side: BrowserSplitSide) {
         withAnimation(.snappy(duration: 0.24)) {
-            let query = tabs.newTabSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-            if tabs.isNewTabSearchPresented, !query.isEmpty {
-                settings.recordSearch(query)
-                _ = tabs.openSearchInSplit(query, on: side)
-            } else {
-                tabs.placeSelectedTab(on: side)
-            }
+            tabs.performSplitCommand(on: side, settings: settings)
         }
     }
 }

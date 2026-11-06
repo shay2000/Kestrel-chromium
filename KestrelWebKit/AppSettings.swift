@@ -203,6 +203,8 @@ final class AppSettings: ObservableObject {
     private static let advancedModelPickingKey = "kestrel.assistant.advanced-model-picking.v1"
     private static let shareRegionWithAssistantKey = "kestrel.assistant.share-region.v1"
     private static let bookmarksKey = "kestrel.browser.bookmarks.v1"
+    private static let defaultBookmarksSeededKey = "kestrel.browser.default-bookmarks-seeded.v1"
+    private static let firstRunBookmarks = DefaultBrowserApps.bookmarks
     private static let recentSearchesKey = "kestrel.browser.recent-searches.v1"
     private static let assistantConversationsKey = "kestrel.assistant.conversations.v1"
     private static let recentSearchesLimit = 50
@@ -237,6 +239,19 @@ final class AppSettings: ObservableObject {
 
     var secrets: SecretProviding {
         Secrets.defaultProvider()
+    }
+
+    /// Adds Kestrel's starter sites only before a bookmark list has ever been
+    /// saved. An explicitly empty list remains empty, so removing the starter
+    /// bookmarks does not cause them to return on the next launch.
+    func seedDefaultBookmarksIfNeeded() {
+        guard defaults.object(forKey: Self.defaultBookmarksSeededKey) == nil else { return }
+        guard defaults.object(forKey: Self.bookmarksKey) == nil else {
+            defaults.set(true, forKey: Self.defaultBookmarksSeededKey)
+            return
+        }
+        bookmarks = Self.firstRunBookmarks
+        defaults.set(true, forKey: Self.defaultBookmarksSeededKey)
     }
 
     /// Which environment variable names are consulted for the current provider,

@@ -14,28 +14,75 @@ struct ExtensionsSettings: Codable, Equatable, Sendable {
     /// capability stays available.
     var allowsUnpackedImports: Bool
 
+    /// Shortcuts for real runtime actions; independent of the macOS menu.
+    var toolbarActionsVisible: Bool = true
+    var sidebarActionsVisible: Bool = false
+    /// nil follows all available actions; an explicit list keeps the user's selection.
+    var sidebarActionIDs: [String]? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case menuBarVisible, allowsUnpackedImports, toolbarActionsVisible, sidebarActionsVisible, sidebarActionIDs
+    }
+
+    init(menuBarVisible: Bool, allowsUnpackedImports: Bool,
+         toolbarActionsVisible: Bool = true, sidebarActionsVisible: Bool = false,
+         sidebarActionIDs: [String]? = nil) {
+        self.menuBarVisible = menuBarVisible
+        self.allowsUnpackedImports = allowsUnpackedImports
+        self.toolbarActionsVisible = toolbarActionsVisible
+        self.sidebarActionsVisible = sidebarActionsVisible
+        self.sidebarActionIDs = sidebarActionIDs.map(Self.validActionIDs)
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(menuBarVisible: try values.decodeIfPresent(Bool.self, forKey: .menuBarVisible) ?? true,
+                  allowsUnpackedImports: try values.decodeIfPresent(Bool.self, forKey: .allowsUnpackedImports) ?? false,
+                  toolbarActionsVisible: try values.decodeIfPresent(Bool.self, forKey: .toolbarActionsVisible) ?? true,
+                  sidebarActionsVisible: try values.decodeIfPresent(Bool.self, forKey: .sidebarActionsVisible) ?? false,
+                  sidebarActionIDs: try values.decodeIfPresent([String].self, forKey: .sidebarActionIDs))
+    }
+
+    func showsSidebarAction(_ id: String) -> Bool {
+        sidebarActionIDs?.contains(id) ?? true
+    }
+
+    mutating func setSidebarAction(_ id: String, visible: Bool, availableIDs: [String]) {
+        guard Self.validActionIDs([id]) == [id] else { return }
+        var selected = sidebarActionIDs ?? Self.validActionIDs(availableIDs)
+        selected.removeAll { $0 == id }
+        if visible { selected.append(id) }
+        sidebarActionIDs = Self.validActionIDs(selected)
+    }
+
+    private static func validActionIDs(_ ids: [String]) -> [String] {
+        var seen = Set<String>()
+        return Array(ids.filter { id in
+            id.utf8.count == 32 && id.utf8.allSatisfy { (97...112).contains($0) } && seen.insert(id).inserted
+        }.prefix(256))
+    }
+
     static let `default` = ExtensionsSettings(menuBarVisible: true, allowsUnpackedImports: false)
 }
 
 // MARK: - Capability reporting
 
 enum ExtensionSupportLevel: String, Codable, Sendable {
-    /// No public WebKit extension API on this machine.
+    /// The Chromium runtime is unavailable on this platform.
     case unsupported
-    /// The public API exists, but Kestrel's user-facing import flow is not
-    /// enabled on this build or platform.
+    /// Chromium is present, but Kestrel's extension import flow is not enabled.
     case limited
-    /// The public API exists and a safe, user-approved import flow is wired.
+    /// The Chromium runtime and user-approved extension import flow are wired.
     case available
 
     var description: String {
         switch self {
         case .unsupported:
-            return "Extensions are unavailable. Kestrel targets macOS 14, while the public WKWebExtension API begins in macOS 15.4."
+            return "The Chromium extension runtime is unavailable on this platform."
         case .limited:
-            return "WKWebExtension is available on this macOS version, but Kestrel's import flow is not enabled on this build. Chromium CRX packages are not supported."
+            return "Chromium is available, but extension imports are not enabled in this build."
         case .available:
-            return "Extensions are available on this macOS version. Kestrel can import an unpacked WebExtension directory or a standard ZIP archive, show every requested API permission and host pattern, and load only what you explicitly tick. Chromium-origin WebExtensions may work where WebKit supports the APIs they use; nothing is granted automatically, and Chromium CRX packages are not supported."
+            return "Kestrel uses Chromium's Chrome runtime. It reviews Manifest V3 extension permissions before loading unpacked folders, ZIP archives or signature-verified CRX3 packages. Approved extensions load when Kestrel starts; Chromium manages their runtime and site access."
         }
     }
 }
@@ -43,9 +90,7 @@ enum ExtensionSupportLevel: String, Codable, Sendable {
 /// The single boundary that answers one question honestly: what can Kestrel
 /// actually do on this machine with public APIs only?
 enum ExtensionSupport {
-    /// The macOS release where `WKWebExtension` and `WKWebExtensionController`
-    /// became publicly usable. Documented here so the baseline gap is explicit.
-    static let minimumMacOSVersion = "15.4"
+    static let minimumMacOSVersion = "14.0"
 
     /// Kestrel never grants an extension's requested permissions on import.
     /// Every permission and host pattern needs an explicit approval before a
@@ -60,13 +105,8 @@ enum ExtensionSupport {
     static let requiresExplicitPermissionApproval = true
 
     static func supportLevel() -> ExtensionSupportLevel {
-        #if canImport(WebKit)
-        if #available(macOS 15.4, *) {
-            // The public API exists and Settings wires the file importer plus
-            // the explicit approval sheet, so the safe import flow is complete.
-            return .available
-        }
-        return .unsupported
+        #if canImport(CefKit)
+        return .available
         #else
         return .unsupported
         #endif
@@ -76,42 +116,40 @@ enum ExtensionSupport {
         supportLevel().description
     }
 
-    /// True only where the public `WKWebExtension` API exists (macOS 15.4+),
-    /// because that is where Settings offers the unpacked-directory importer.
+    /// CEF can load approved unpacked extension directories.
     static var supportsUnpackedWebExtensionDirectories: Bool {
-        #if canImport(WebKit)
-        if #available(macOS 15.4, *) { return true }
+        #if canImport(CefKit)
+        return true
         #endif
         return false
     }
 
-    /// True only where the public `WKWebExtension` API exists (macOS 15.4+),
-    /// because that is where Settings offers the standard ZIP importer.
+    /// CEF's Chrome runtime can load packages extracted from a standard ZIP.
     static var supportsZIPArchiveImport: Bool {
-        #if canImport(WebKit)
-        if #available(macOS 15.4, *) { return true }
+        #if canImport(CefKit)
+        return true
         #endif
         return false
     }
 
-    /// Deliberately false: there is no public API for Chromium CRX packages
-    /// and Kestrel does not ship an unpacker or a Chromium runtime.
     static var supportsChromiumCRXImport: Bool {
-        false
+        #if canImport(CefKit)
+        return true
+        #else
+        return false
+        #endif
     }
 
     static let chromiumCRXRejectionReason =
-        "Chromium CRX packages are not supported by the public WKWebExtension API. Ask the extension's author for an unpacked directory or a standard ZIP archive."
+        "Kestrel could not read this Chromium extension package."
 
     static let unsupportedFormatRejectionReason =
-        "Kestrel can only load an unpacked WebExtension directory or a standard ZIP archive that contains manifest.json."
+        "Kestrel can only load an unpacked WebExtension directory, ZIP archive or Chromium CRX package."
 }
 
 // MARK: - Package classification
 
-/// What kind of local package the user pointed Kestrel at. This is decided by
-/// name and file-system kind only; WebKit performs the real manifest
-/// validation after a package is accepted for loading.
+/// What kind of local package the user pointed Kestrel at.
 enum ExtensionPackageKind: String, Equatable, Sendable {
     case directory
     case zipArchive
@@ -137,8 +175,7 @@ enum ExtensionPackageClassifier {
     }
 }
 
-/// The import decision for a package kind. Chromium CRX and unknown formats
-/// are rejected before WebKit is asked to parse anything.
+/// The import decision for a package kind.
 enum ExtensionPackageDecision: Equatable, Sendable {
     case loadable
     case unsupportedFormat(reason: String)
@@ -155,10 +192,8 @@ enum ExtensionPackageDecision: Equatable, Sendable {
 
     static func forKind(_ kind: ExtensionPackageKind) -> ExtensionPackageDecision {
         switch kind {
-        case .directory, .zipArchive:
+        case .directory, .zipArchive, .chromiumCRX:
             return .loadable
-        case .chromiumCRX:
-            return .unsupportedFormat(reason: ExtensionSupport.chromiumCRXRejectionReason)
         case .unsupported:
             return .unsupportedFormat(reason: ExtensionSupport.unsupportedFormatRejectionReason)
         }
@@ -208,6 +243,7 @@ struct ExtensionInstallPreview: Equatable, Sendable, Identifiable {
     var packageKind: ExtensionPackageKind
     var requested: PendingExtensionPermissions
     var warnings: [String]
+    var signedExtensionID: String? = nil
 }
 
 /// The outcome of staging a local package. `pendingApproval` is the only

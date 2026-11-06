@@ -272,7 +272,7 @@ final class TabModelTests: XCTestCase {
         XCTAssertThrowsError(try BrowserBookmarkImporter.parse(data: data, filename: "Bookmarks"))
     }
 
-#if canImport(SwiftUI) && canImport(WebKit)
+#if canImport(SwiftUI) && canImport(WebKit) && !canImport(CefSwiftUI)
     @MainActor
     func testNewTabShortcutCanToggleItsOverlayClosed() {
         let tabs = TabStore(initialAddress: "https://example.com")
@@ -946,7 +946,7 @@ final class TabOrganisationTests: XCTestCase {
     }
 }
 
-#if canImport(SwiftUI) && canImport(WebKit)
+#if canImport(SwiftUI) && canImport(WebKit) && !canImport(CefSwiftUI)
 @MainActor
 final class TabOrganisationStoreTests: XCTestCase {
     func testClosingPinnedPageKeepsShortcutAndReleasesWebView() {

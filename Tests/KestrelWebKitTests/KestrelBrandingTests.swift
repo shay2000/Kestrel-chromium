@@ -18,7 +18,7 @@ final class KestrelBrandingTests: XCTestCase {
         let info = ["CFBundleIdentifier": "test.kestrel.assets", "CFBundlePackageType": "APPL", "CFBundleName": "Fixture"]
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
             .write(to: contents.appendingPathComponent("Info.plist"))
-        let packagedURL = resources.appendingPathComponent("KestrelWebKit_KestrelWebKit.bundle")
+        let packagedURL = resources.appendingPathComponent(KestrelAssets.bundle.bundleURL.lastPathComponent)
         try manager.copyItem(at: KestrelAssets.bundle.bundleURL, to: packagedURL)
         let application = try XCTUnwrap(Bundle(url: appURL))
         let assets = KestrelAssets.resolve(in: application)

@@ -3,9 +3,6 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
-#if canImport(AuthenticationServices)
-import AuthenticationServices
-#endif
 #if canImport(Security)
 import Security
 #endif
@@ -70,6 +67,7 @@ struct SettingsView: View {
 
     @ObservedObject var settings: AppSettings
     @ObservedObject var mcpServer: KestrelMCPServer
+    @ObservedObject private var extensionHost = BrowserExtensionHost.shared
 
     @State private var profileDraft = PersonalProfile()
     @State private var profileStatus: String?
@@ -86,11 +84,6 @@ struct SettingsView: View {
     @State private var isConnectingCodex = false
     @State private var isCodexRegistered = false
     @StateObject private var codexAccount = CodexAccountController()
-
-    #if canImport(AuthenticationServices)
-    @State private var passkeyAccessState: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState = .notDetermined
-    @State private var isRequestingPasskeyAccess = false
-    #endif
 
     // Extension import and approval state. Nothing is granted until the user
     // presses the approval button, and every checkbox starts off.
@@ -163,7 +156,6 @@ struct SettingsView: View {
         .frame(minWidth: 800, idealWidth: 900, minHeight: 600, idealHeight: 680)
         .navigationTitle("Kestrel Settings")
         .onAppear {
-            refreshPasskeyAccess()
             profileDraft = settings.personalProfile
         }
         .confirmationDialog("Remove your saved personal details?", isPresented: $confirmsProfileRemoval) {
@@ -970,101 +962,14 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var passkeysSection: some View {
-        #if canImport(AuthenticationServices) && canImport(Security)
         SettingsCard("Passkeys") {
-            if #available(macOS 13.3, *) {
-                if hasManagedBrowserPasskeyCapabilities {
-                    switch passkeyAccessState {
-                    case .authorized:
-                        Label("macOS allows Kestrel to use platform passkeys", systemImage: "checkmark.shield")
-                            .font(KestrelTypography.chromeDetail)
-                    case .denied:
-                        Label("Passkey access is turned off for Kestrel", systemImage: "hand.raised")
-                            .font(KestrelTypography.chromeDetail)
-                        Text("Review Kestrel’s passkey permission in System Settings.")
-                            .font(KestrelTypography.chromeDetail)
-                            .foregroundStyle(Color.primary.opacity(0.66))
-                    case .notDetermined:
-                        Label("Kestrel has not requested passkey access", systemImage: "key.horizontal")
-                            .font(KestrelTypography.chromeDetail)
-                        Button(isRequestingPasskeyAccess ? "Requesting Access…" : "Request macOS Access…") {
-                            requestPasskeyAccess()
-                        }
-                        .help("Ask macOS for Kestrel's browser passkey permission")
-                        .disabled(isRequestingPasskeyAccess)
-                    @unknown default:
-                        Label("Passkey access state is unavailable", systemImage: "questionmark.circle")
-                            .font(KestrelTypography.chromeDetail)
-                    }
-                } else {
-                    Label("Apple approval is required for browser passkeys", systemImage: "lock.shield")
-                        .font(KestrelTypography.chromeDetail)
-                    Text("This signed build does not contain Apple’s managed browser and public-key-credential capabilities. Kestrel cannot ask macOS for general-site passkey access until Apple grants those capabilities and the app is signed with the matching profile.")
-                        .font(KestrelTypography.chromeDetail)
-                        .foregroundStyle(Color.primary.opacity(0.66))
-                }
-
-                Text("WebKit handles websites’ Web Authentication requests. Kestrel never reads or stores passkey credentials. A granted macOS permission reports access only; website registration and sign-in still need verification in the signed app.")
-                    .font(KestrelTypography.chromeDetail)
-                    .foregroundStyle(Color.primary.opacity(0.66))
-
-                Text("To sign in with an Apple Passwords passkey today, use File → Open Page in Default Browser (⌘⇧O) and finish the sign-in there. The default browser has the passkey access this build does not.")
-                    .font(KestrelTypography.chromeDetail)
-                    .foregroundStyle(Color.primary.opacity(0.66))
-            } else {
-                Text("Browser passkey access requires macOS 13.3 or later.")
-                    .font(KestrelTypography.chromeDetail)
-                    .foregroundStyle(Color.primary.opacity(0.66))
-            }
-        }
-        #else
-        SettingsCard("Passkeys") {
-            Text("Authentication Services is unavailable on this platform.")
+            Text("The Chromium engine can receive website WebAuthn requests, but passkey registration and sign-in have not been verified in Kestrel. Apple credential-provider access may require browser capabilities in the signed app.")
+                .font(KestrelTypography.chromeDetail)
+                .foregroundStyle(Color.primary.opacity(0.66))
+            Text("Kestrel does not read or store credentials. If an explicit passkey attempt fails, it can offer to open the page in your default browser.")
                 .font(KestrelTypography.chromeDetail)
                 .foregroundStyle(Color.primary.opacity(0.66))
         }
-        #endif
-    }
-
-    private var hasManagedBrowserPasskeyCapabilities: Bool {
-        #if canImport(Security)
-        guard let task = SecTaskCreateFromSelf(kCFAllocatorDefault) else { return false }
-        let browser = SecTaskCopyValueForEntitlement(
-            task,
-            "com.apple.developer.web-browser" as CFString,
-            nil
-        ) as? Bool ?? false
-        let credentials = SecTaskCopyValueForEntitlement(
-            task,
-            "com.apple.developer.web-browser.public-key-credential" as CFString,
-            nil
-        ) as? Bool ?? false
-        return browser && credentials
-        #else
-        return false
-        #endif
-    }
-
-    private func refreshPasskeyAccess() {
-        #if canImport(AuthenticationServices) && canImport(Security)
-        if #available(macOS 13.3, *), hasManagedBrowserPasskeyCapabilities {
-            passkeyAccessState = ASAuthorizationWebBrowserPublicKeyCredentialManager()
-                .authorizationStateForPlatformCredentials
-        }
-        #endif
-    }
-
-    private func requestPasskeyAccess() {
-        #if canImport(AuthenticationServices) && canImport(Security)
-        guard #available(macOS 13.3, *), hasManagedBrowserPasskeyCapabilities else { return }
-        isRequestingPasskeyAccess = true
-        ASAuthorizationWebBrowserPublicKeyCredentialManager().requestAuthorizationForPublicKeyCredentials { state in
-            Task { @MainActor in
-                passkeyAccessState = state
-                isRequestingPasskeyAccess = false
-            }
-        }
-        #endif
     }
 
     // MARK: - Extensions
@@ -1076,14 +981,17 @@ struct SettingsView: View {
             Divider()
             SettingsToggle("Show the Extensions command menu", isOn: $settings.extensions.menuBarVisible)
                 .help("Show or hide the Extensions menu in Kestrel's menu bar")
-            SettingsToggle("Allow WebExtension folders and ZIP archives", isOn: unpackedBinding)
-                .help("Enable the file picker for unpacked folders and ZIP extensions")
+            #if canImport(CefKit)
+            ExtensionPlacementSettings(settings: settings)
+            #endif
+            SettingsToggle("Allow WebExtension imports", isOn: unpackedBinding)
+                .help("Enable importing unpacked folders, ZIP archives and Chromium CRX packages")
                 .disabled(!ExtensionSupport.supportsUnpackedWebExtensionDirectories)
             extensionImportControls
             DisclosureGroup("Compatibility and permissions") {
-                Text("Kestrel uses Apple’s public WKWebExtension API. Chromium-origin extensions may work when they use APIs supported by WebKit, but Kestrel is not Chrome and cannot provide every Chrome-only API. Chrome .crx packages are not accepted; import an unpacked folder or ZIP instead. On macOS 14, importing is unavailable. Extensions are never exposed to the AI operator.")
+                Text("Kestrel runs extensions in Chromium's Chrome runtime. It accepts Manifest V3 extension folders, ZIP archives and CRX packages. Chromium controls extension APIs, site access prompts and extension lifecycle. Extensions are never exposed to the AI operator.")
                     .settingsSupportingCopy()
-                Text("Imports are staged first. Every requested API permission and site pattern starts unselected; nothing loads until you approve it.")
+                Text("Imports are staged first. Every requested API permission and site pattern starts unselected. Approval stores the extension locally; restart Kestrel to load it into Chromium.")
                     .settingsSupportingCopy()
             }
             if let extensionStatusMessage {
@@ -1094,40 +1002,52 @@ struct SettingsView: View {
         }
     }
 
-    /// A native file importer is only offered where the public API exists.
-    /// `.folder` and `.zip` are the accepted types, so CRX is never offered.
-    /// The button is also gated on the explicit opt-in toggle and
-    /// never imports anything on its own.
+    /// Importing is opt-in and always opens the explicit permission review.
     @ViewBuilder
     private var extensionImportControls: some View {
-        if #available(macOS 15.4, *) {
-            HStack(spacing: 8) {
-                Button("Import WebExtension…") {
-                    fileImportPurpose = .webExtension
-                    isImportingFile = true
-                }
-                    .help("Choose an unpacked WebExtension folder or ZIP file to review")
-                    .disabled(!settings.extensions.allowsUnpackedImports || isStagingExtension)
-                if isStagingExtension {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-                Spacer()
+        HStack(spacing: 8) {
+            Button("Import WebExtension…") {
+                fileImportPurpose = .webExtension
+                isImportingFile = true
             }
-            Text("Choose a WebExtension folder or standard .zip archive. Chrome .crx packages are not supported by Apple's public WebKit loader.")
-                .font(KestrelTypography.chromeDetail)
-                .foregroundStyle(Color.primary.opacity(0.66))
-        } else {
-            Text("Importing an extension needs macOS 15.4 or later, where the public WKWebExtension API exists. This build uses the macOS 14 baseline, so importing stays unavailable.")
-                .font(KestrelTypography.chromeDetail)
-                .foregroundStyle(Color.primary.opacity(0.66))
+                .help("Choose an unpacked folder, ZIP archive or Chromium CRX package to review")
+                .disabled(!settings.extensions.allowsUnpackedImports || isStagingExtension)
+            if isStagingExtension {
+                ProgressView().controlSize(.small)
+            }
+            Spacer()
         }
+        Text("Choose a Manifest V3 extension folder, .zip or .crx file. Kestrel copies approved packages to this Mac and loads them after the next restart.")
+            .font(KestrelTypography.chromeDetail)
+            .foregroundStyle(Color.primary.opacity(0.66))
+            if !extensionHost.installed.isEmpty {
+                Divider()
+                Text("Approved extensions")
+                    .font(KestrelTypography.chromeLabel)
+                ForEach(extensionHost.installed) { item in
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.displayName).font(KestrelTypography.chromeDetail)
+                            if let version = item.version {
+                                Text("Version \(version)")
+                                    .font(KestrelTypography.chromeDetail)
+                                    .foregroundStyle(Color.primary.opacity(0.58))
+                            }
+                        }
+                        Spacer(minLength: 8)
+                        Button("Remove") { removeInstalledExtension(item) }
+                            .buttonStyle(.borderless)
+                            .help("Remove this extension from Kestrel and stop loading it after restart")
+                    }
+                }
+                Text("Extensions removed in Chromium's manager can return after restart. Remove them here to remove the approved local package.")
+                    .font(KestrelTypography.chromeDetail)
+                    .foregroundStyle(Color.primary.opacity(0.66))
+            }
     }
 
-    /// Folder and ZIP only. No CRX content type is listed, so the picker cannot
-    /// offer one.
     private var extensionImportContentTypes: [UTType] {
-        [.folder, .zip]
+        [.folder, .zip] + [UTType(filenameExtension: "crx")].compactMap { $0 }
     }
 
     private func handleImportSelection(_ result: Result<[URL], Error>) {
@@ -1155,15 +1075,10 @@ struct SettingsView: View {
     }
 
     private func stageImport(_ url: URL) {
-        guard #available(macOS 15.4, *) else {
-            extensionStatusMessage = "Importing an extension needs macOS 15.4 or later."
-            return
-        }
         isStagingExtension = true
         extensionStatusMessage = nil
         // `fileImporter` hands back a security-scoped URL. Keep that scope
-        // alive while the package waits in the approval sheet; WebKit may need
-        // to read the source again when the context is loaded.
+        // alive while the package waits in the approval sheet.
         if url.startAccessingSecurityScopedResource() {
             securityScopedExtensionURL = url
         }
@@ -1190,10 +1105,6 @@ struct SettingsView: View {
             stagedID = nil
             endSecurityScope()
         }
-        guard #available(macOS 15.4, *) else {
-            extensionStatusMessage = "Loading an extension needs macOS 15.4 or later."
-            return
-        }
         do {
             let approved = try BrowserExtensionHost.shared.approve(
                 id: preview.id,
@@ -1201,17 +1112,24 @@ struct SettingsView: View {
                 hostPatterns: selectedHostPatterns
             )
             let version = approved.version.map { " \($0)" } ?? ""
-            extensionStatusMessage = "Loaded \(approved.displayName)\(version). Granted \(selectedPermissions.count) permission(s) and \(selectedHostPatterns.count) site pattern(s)."
+            extensionStatusMessage = "Approved \(approved.displayName)\(version). Granted \(selectedPermissions.count) permission(s) and \(selectedHostPatterns.count) site pattern(s). Restart Kestrel to load it into Chromium."
         } catch {
             BrowserExtensionHost.shared.discard(id: preview.id)
             extensionStatusMessage = "Could not load \(preview.displayName): \(error.localizedDescription)"
         }
     }
 
-    private func discardStagedExtension(_ preview: ExtensionInstallPreview) {
-        if #available(macOS 15.4, *) {
-            BrowserExtensionHost.shared.discard(id: preview.id)
+    private func removeInstalledExtension(_ item: InstalledChromiumExtension) {
+        do {
+            try extensionHost.removeInstalled(path: item.path)
+            extensionStatusMessage = "Removed \(item.displayName). Restart Kestrel to apply the change to Chromium."
+        } catch {
+            extensionStatusMessage = "Could not remove \(item.displayName): \(error.localizedDescription)"
         }
+    }
+
+    private func discardStagedExtension(_ preview: ExtensionInstallPreview) {
+        BrowserExtensionHost.shared.discard(id: preview.id)
         extensionStatusMessage = "Discarded \(preview.displayName) without loading it."
         stagedPreview = nil
         stagedID = nil
@@ -1222,9 +1140,7 @@ struct SettingsView: View {
     /// approved, it is forgotten without loading.
     private func discardStagedIfNeeded() {
         guard let id = stagedID else { return }
-        if #available(macOS 15.4, *) {
-            BrowserExtensionHost.shared.discard(id: id)
-        }
+        BrowserExtensionHost.shared.discard(id: id)
         stagedID = nil
         endSecurityScope()
     }
@@ -1354,7 +1270,7 @@ private struct SettingsRow<Control: View>: View {
     }
 }
 
-private struct SettingsToggle: View {
+struct SettingsToggle: View {
     let title: String
     var detail: String? = nil
     @Binding var isOn: Bool
@@ -1476,6 +1392,11 @@ private struct ExtensionApprovalSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(preview.displayName)
                     .font(.headline)
+                if let extensionID = preview.signedExtensionID {
+                    Text("Signed extension ID: \(extensionID)")
+                        .font(KestrelTypography.chromeDetail)
+                        .textSelection(.enabled)
+                }
                 Text(preview.version.map { "Version \($0)" } ?? "Version not declared")
                     .font(KestrelTypography.chromeDetail)
                     .foregroundStyle(Color.primary.opacity(0.66))
@@ -1494,7 +1415,7 @@ private struct ExtensionApprovalSheet: View {
                         .foregroundStyle(.orange)
                     }
 
-                    Text("Nothing is loaded until you press Approve. Only the items you tick are granted; everything else stays denied.")
+                    Text("Nothing is loaded until you approve all required permissions and site patterns. Approved extensions load when Kestrel next starts.")
                         .settingsSupportingCopy()
 
                     if preview.requested.isEmpty {
@@ -1513,9 +1434,9 @@ private struct ExtensionApprovalSheet: View {
                 Button("Cancel", role: .cancel, action: onDiscard)
                     .help("Discard this staged extension")
                 Spacer()
-                Button("Approve and Load", action: onApprove)
+                Button("Approve Import", action: onApprove)
                     .buttonStyle(.borderedProminent)
-                    .help("Load the extension with only the permissions you selected")
+                    .help("Approve all required permissions and load the extension on the next start")
                     .keyboardShortcut(.defaultAction)
             }
         }

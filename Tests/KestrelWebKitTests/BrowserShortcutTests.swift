@@ -6,6 +6,14 @@ import AppKit
 
 @MainActor
 final class BrowserShortcutTests: XCTestCase {
+    func testCommandArrowUsesPhysicalArrowBeforeChromiumHistory() throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [.command, .function, .numericPad], timestamp: 0, windowNumber: 0,
+            context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 123))
+        XCTAssertTrue(try XCTUnwrap(BrowserCommand.splitLeft.defaultShortcut).matches(event: event))
+        XCTAssertFalse(try XCTUnwrap(BrowserCommand.splitRight.defaultShortcut).matches(event: event))
+        XCTAssertFalse(AssistantSidebarShortcut(key: "\u{f702}", modifiers: ["command", "option"]).matches(event: event))
+    }
     private func withSettings(_ check: (AppSettings, UserDefaults) throws -> Void) rethrows {
         let name = "kestrel-shortcut-tests-" + UUID().uuidString
         let defaults = UserDefaults(suiteName: name)!

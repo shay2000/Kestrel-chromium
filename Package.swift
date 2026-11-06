@@ -12,63 +12,57 @@ let packageDependencies: [Package.Dependency] = [
         revision: "b18cceef8afaf6686147e19a9239f31c2dd81541"
     )
 ]
-let updaterDependencies: [Target.Dependency] = [
-    .product(name: "Sparkle", package: "Sparkle", condition: .when(platforms: [.macOS]))
-]
-let chromiumDependencies: [Target.Dependency] = [
+let appDependencies: [Target.Dependency] = [
+    .product(name: "Sparkle", package: "Sparkle", condition: .when(platforms: [.macOS])),
     .product(name: "CefKit", package: "CefSwift"),
     .product(name: "CefSwiftUI", package: "CefSwift")
 ]
 #else
 let packageDependencies: [Package.Dependency] = []
-let updaterDependencies: [Target.Dependency] = []
-let chromiumDependencies: [Target.Dependency] = []
-#endif
-
-#if os(macOS)
-let kestrelExcludes = ["Info.plist", "Entitlements", "Kestrel.icns"]
-let kestrelResources: [Resource] = [.process("Assets.xcassets")]
-#else
-let kestrelExcludes = ["Info.plist", "Entitlements", "Assets.xcassets", "Kestrel.icns"]
-let kestrelResources: [Resource] = []
+let appDependencies: [Target.Dependency] = []
 #endif
 
 let package = Package(
-    name: "KestrelWebKit",
+    name: "KestrelChromium",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .executable(
-            name: "KestrelWebKit",
-            targets: ["KestrelWebKit"]
-        ),
-        .executable(
             name: "Kestrel",
-            targets: ["Kestrel"]
+            targets: ["KestrelWebKit"]
         )
     ],
     dependencies: packageDependencies,
     targets: [
         .executableTarget(
             name: "KestrelWebKit",
-            dependencies: updaterDependencies,
-            path: "KestrelWebKit",
-            exclude: kestrelExcludes,
-            resources: kestrelResources,
+            dependencies: appDependencies,
+            path: ".",
+            exclude: [
+                ".build", ".cef", "build", ".github", "Tests", "scripts", "archive", "docs",
+                "resources", "historic-icons", "KestrelWebKit.xcodeproj",
+                "KestrelWebKit/KestrelWebKitApp.swift",
+                "KestrelWebKit/BrowserOperator.swift",
+                "KestrelWebKit/BrowserStore.swift",
+                "KestrelWebKit/BrowserView.swift",
+                "KestrelWebKit/BrowserExtensionHost.swift",
+                "KestrelWebKit/TabStore.swift",
+                "KestrelWebKit/WebKitConfiguration.swift",
+                "KestrelWebKit/Info.plist",
+                "KestrelWebKit/Entitlements",
+                "KestrelWebKit/Assets.xcassets",
+                "KestrelWebKit/Kestrel.icns"
+            ],
+            sources: ["KestrelWebKit", "KestrelChromium"],
+            resources: [.process("KestrelWebKit/Assets.xcassets")],
             swiftSettings: [
-                // The UI and WebKit page lifecycle are main-thread work. Keep
+                // The UI and Chromium page lifecycle are main-thread work. Keep
                 // Swift 6's toolchain while avoiding needless strict-isolation
                 // ceremony until the tab model is in place.
                 .swiftLanguageMode(.v5)
             ]
-        ),
-        .executableTarget(
-            name: "Kestrel",
-            dependencies: chromiumDependencies,
-            path: "KestrelChromium",
-            exclude: ["cefapp.json"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
             name: "KestrelWebKitTests",

@@ -17,30 +17,81 @@ final class AddressTextFieldTests: XCTestCase {
         var body: some View {
             AddressTextField(text: $state.text, completionPrefix: $state.prefix,
                 isFocused: $state.focused, placeholder: "Address", fontSize: 14,
-                selectAllOnFocus: true, completion: { _ in nil }, onSubmit: {},
-                onAssistant: {}, onMove: { _ in true }, onTab: { false }, onEscape: {})
+                selectAllOnFocus: true, completion: { _ in nil }, onSubmit: { _ in },
+                onAssistant: { _ in }, onMove: { _ in true }, onTab: { false }, onEscape: {}, focusTarget: .toolbar)
                 .frame(width: 400, height: 33)
         }
     }
 
+    private func pumpAppKitEvents() {
+        while let event = NSApp.nextEvent(matching: .any, until: Date(), inMode: .default, dequeue: true) {
+            NSApp.sendEvent(event)
+        }
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01))
+    }
+
     func testHostedToolbarFocusSelectsURLAndSurvivesViewUpdates() async throws {
         _ = NSApplication.shared
+        NSApp.setActivationPolicy(.regular)
+        NSApp.finishLaunching()
         let state = HostedState()
+        state.focused = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 60),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        BrowserWindowFocus.register(window)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
         window.contentView = NSHostingView(rootView: HostedField(state: state))
         window.contentView?.layoutSubtreeIfNeeded()
         defer { window.makeFirstResponder(nil); window.close() }
-        try await Task.sleep(nanoseconds: 100_000_000)
+        for _ in 0..<20 where !NSApp.isActive || !window.isKeyWindow {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            pumpAppKitEvents()
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        // NSHostingView mounts its representable on a later run-loop turn,
+        // even when the window has already become key.
+        for _ in 0..<20 where !AddressTextField.Field.fields.allObjects.contains(where: { $0.window === window && $0.focusTarget == .toolbar }) {
+            window.contentView?.layoutSubtreeIfNeeded()
+            pumpAppKitEvents()
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertTrue(BrowserWindowFocus.keyboardOwner === window,
+                      "active=\(NSApp.isActive) key=\(window.isKeyWindow) visible=\(window.isVisible) modal=\(NSApp.modalWindow != nil) fields=\(AddressTextField.Field.fields.allObjects.count)")
+        XCTAssertTrue(AddressTextField.focus(.toolbar, in: window), "The shortcut must install its editor synchronously")
+        for _ in 0..<20 where !(window.firstResponder is NSTextView) {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
         let editor = try XCTUnwrap(window.firstResponder as? NSTextView)
         XCTAssertTrue(state.focused)
         XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: state.text.utf16.count))
+        XCTAssertTrue(AddressTextField.focus(.toolbar, in: window))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(state.focused, "Refocusing an active editor must not end editing")
+        XCTAssertTrue(window.firstResponder === editor)
         editor.insertText("redd", replacementRange: editor.selectedRange())
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertTrue(state.focused)
         XCTAssertEqual(state.text, "redd")
         XCTAssertTrue(window.firstResponder === editor)
+        XCTAssertTrue(AddressTextField.focus(.toolbar, in: window))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(state.focused)
+        XCTAssertTrue(window.firstResponder === editor)
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 4))
+        state.focused = false
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertFalse(state.focused)
+        XCTAssertFalse(window.firstResponder === editor)
+        if let root = window.contentView, root.acceptsFirstResponder {
+            XCTAssertTrue(window.firstResponder === root)
+        }
+        XCTAssertTrue(AddressTextField.focus(.toolbar, in: window), "The field must refocus after returning to the document")
+        XCTAssertTrue(state.focused)
     }
 
     private final class State {
@@ -66,8 +117,8 @@ final class AddressTextFieldTests: XCTestCase {
             isFocused: Binding(get: { state.focused }, set: { state.focused = $0 }),
             placeholder: "Search", fontSize: 14, selectAllOnFocus: false,
             completion: { state.candidate.hasPrefix($0) && $0.count >= 2 ? state.candidate : nil },
-            onSubmit: { state.submitted.append(state.index) },
-            onAssistant: { state.assistantCount += 1 },
+            onSubmit: { _ in state.submitted.append(state.index) },
+            onAssistant: { _ in state.assistantCount += 1 },
             onMove: { state.index = min(max(state.index + $0, 0), 3); return true },
             onTab: {
                 guard state.consumeTabKeyword else { return false }

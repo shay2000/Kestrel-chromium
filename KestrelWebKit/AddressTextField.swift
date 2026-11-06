@@ -2,6 +2,10 @@
 import SwiftUI
 import AppKit
 
+enum AddressFieldTarget: Hashable {
+    case toolbar, pane(UUID), newTab
+}
+
 /// Owns the field editor rather than racing SwiftUI's submit and selection updates.
 struct AddressTextField: NSViewRepresentable {
     @Binding var text: String
@@ -11,13 +15,25 @@ struct AddressTextField: NSViewRepresentable {
     let fontSize: CGFloat
     let selectAllOnFocus: Bool
     let completion: (String) -> String?
-    let onSubmit: () -> Void
-    let onAssistant: () -> Void
+    let onSubmit: (String) -> Void
+    let onAssistant: (String) -> Void
     let onMove: (Int) -> Bool
     let onTab: () -> Bool
     let onEscape: () -> Void
     var onTypedChange: (String) -> Void = { _ in }
     var onBackspaceAtStart: () -> Bool = { false }
+    var focusTarget: AddressFieldTarget? = nil
+    var isAccessible = true
+
+    /// The toolbar keeps its native editor mounted beneath the formatted URL.
+    /// A shortcut can therefore focus it before the next key event arrives.
+    @MainActor static func focus(_ target: AddressFieldTarget, in owner: NSWindow) -> Bool {
+        guard BrowserWindowFocus.keyboardOwner === owner,
+              let field = Field.fields.allObjects.first(where: {
+                  $0.focusTarget == target && $0.window != nil && ($0.window === owner || $0.window?.parent === owner)
+              }) else { return false }
+        return field.focusForCommand()
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -31,13 +47,24 @@ struct AddressTextField: NSViewRepresentable {
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.setAccessibilityLabel("Address bar")
         field.delegate = context.coordinator
-        field.onAssistant = { [weak coordinator = context.coordinator] in coordinator?.parent.onAssistant() }
+        field.focusTarget = focusTarget
+        field.onFocusRequest = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.isFocused = true
+        }
+        field.onAssistant = { [weak coordinator = context.coordinator, weak field] in
+            guard let coordinator, let field else { return }
+            let value = (field.currentEditor() as? NSTextView)?.string ?? field.stringValue
+            coordinator.parent.text = value
+            coordinator.parent.onAssistant(value)
+        }
         return field
     }
 
     func updateNSView(_ field: Field, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+        field.focusTarget = focusTarget
+        field.setAccessibilityElement(isAccessible)
         field.placeholderString = placeholder
         field.font = .systemFont(ofSize: fontSize)
         field.textColor = .labelColor
@@ -52,20 +79,56 @@ struct AddressTextField: NSViewRepresentable {
         // Focus and late network completions run after SwiftUI finishes updating.
         DispatchQueue.main.async { [weak field, weak coordinator] in
             guard let field, let coordinator, let window = field.window else { return }
-            if coordinator.parent.isFocused, field.currentEditor() == nil {
-                window.makeFirstResponder(field)
-                if coordinator.parent.selectAllOnFocus, let editor = field.currentEditor() as? NSTextView {
-                    editor.setSelectedRange(NSRange(location: 0, length: editor.string.utf16.count))
+            if coordinator.parent.isFocused {
+                guard NSApp.isActive, let owner = BrowserWindowFocus.keyboardOwner,
+                      window === owner || window.parent === owner else { return }
+                let editor = field.currentEditor() as? NSTextView
+                if !window.isKeyWindow || editor == nil || window.firstResponder !== editor {
+                    if !window.isKeyWindow { window.makeKey() }
+                    window.makeFirstResponder(field)
+                    if coordinator.parent.selectAllOnFocus, let editor = field.currentEditor() as? NSTextView {
+                        editor.setSelectedRange(NSRange(location: 0, length: editor.string.utf16.count))
+                    }
                 }
-            } else if !coordinator.parent.isFocused, field.currentEditor() != nil {
-                window.makeFirstResponder(nil)
+            } else if !coordinator.parent.isFocused, let editor = field.currentEditor(), window.firstResponder === editor {
+                // Let the document host accept focus when possible, without
+                // clearing a new responder after this editor has lost focus.
+                if let root = window.contentView, root.acceptsFirstResponder {
+                    window.makeFirstResponder(root)
+                } else {
+                    window.makeFirstResponder(nil)
+                }
             }
             coordinator.applyCompletion(in: field)
         }
     }
 
     final class Field: NSTextField {
+        static let fields = NSHashTable<Field>.weakObjects()
+        var focusTarget: AddressFieldTarget?
+        var onFocusRequest: (() -> Void)?
         var onAssistant: (() -> Void)?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil { Self.fields.add(self) } else { Self.fields.remove(self) }
+        }
+        func focusForCommand() -> Bool {
+            guard let window else { return false }
+            if !window.isKeyWindow { window.makeKey() }
+            // The editor, rather than the NSTextField, is first responder
+            // during editing. Replacing it with its field ends the session
+            // and lets the end-editing callback clear the focus binding.
+            if let editor = currentEditor() as? NSTextView, window.firstResponder === editor {
+                onFocusRequest?()
+                editor.selectAll(nil)
+                return true
+            }
+            onFocusRequest?()
+            guard window.makeFirstResponder(self), let editor = currentEditor() as? NSTextView else { return false }
+            onFocusRequest?()
+            editor.selectAll(nil)
+            return true
+        }
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
             let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
             if currentEditor() != nil, flags == .command, [36, 76].contains(event.keyCode) {
@@ -131,7 +194,10 @@ struct AddressTextField: NSViewRepresentable {
             guard !textView.hasMarkedText() else { return false }
             switch command {
             case #selector(NSResponder.insertNewline(_:)):
-                parent.onSubmit()
+                // A paste and Return can arrive before SwiftUI renders the
+                // changed binding. Submit the actual editor contents.
+                parent.text = textView.string
+                parent.onSubmit(textView.string)
                 return true
             case #selector(NSResponder.moveDown(_:)):
                 return parent.onMove(1)

@@ -1,4 +1,4 @@
-#if canImport(SwiftUI) && canImport(WebKit)
+#if canImport(SwiftUI) && canImport(CefSwiftUI)
 
 import Combine
 import Foundation

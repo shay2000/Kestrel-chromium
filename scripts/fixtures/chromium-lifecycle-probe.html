@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Kestrel lifecycle and WebAuthn probe</title>
+<style>body{font:18px system-ui;margin:36px;max-width:850px}button,input{font:inherit;margin:8px;padding:10px}pre{white-space:pre-wrap}</style>
+<h1>Kestrel lifecycle and WebAuthn probe</h1>
+<p>Disposable localhost test data only. Phone requests use a random nonexistent credential; cancel the native dialogue.</p>
+<input id="draft" aria-label="Unsaved test draft" value="A draft to preserve">
+<button id="edit">Edit test draft</button><button id="save">Save test draft</button>
+<button id="hybrid">Try phone passkey</button><button id="cancel">Cancel passkey request</button>
+<pre id="result">Ready</pre>
+<script>
+let dirty = false, controller;
+edit.onclick = () => { dirty = true; draft.value = 'Unsaved draft survives Stay'; result.textContent = 'Unsaved test draft'; };
+save.onclick = () => { dirty = false; result.textContent = 'Saved test draft'; };
+addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
+hybrid.onclick = async () => {
+  controller?.abort(); controller = new AbortController(); result.textContent = 'Native hybrid request pending';
+  try {
+    await navigator.credentials.get({signal:controller.signal, publicKey:{
+      challenge:crypto.getRandomValues(new Uint8Array(32)), rpId:location.hostname, timeout:60000,
+      userVerification:'preferred', hints:['hybrid'],
+      allowCredentials:[{type:'public-key', id:crypto.getRandomValues(new Uint8Array(32)), transports:['hybrid']}]
+    }});
+    result.textContent = 'Native assertion returned; discarded';
+  } catch (error) { result.textContent = 'Native request ended: ' + error.name; }
+};
+cancel.onclick = () => controller?.abort();
+// Separate synthetic authenticator test: all credentials stay in a disposable CDP device.
+window.virtualWebAuthnRoundTrip = async () => {
+  const bytes = n => crypto.getRandomValues(new Uint8Array(n));
+  const b64 = data => btoa(String.fromCharCode(...new Uint8Array(data))).replaceAll('+','-').replaceAll('/','_').replaceAll('=','');
+  const createChallenge = bytes(32);
+  const credential = await navigator.credentials.create({publicKey:{
+    challenge:createChallenge, rp:{id:location.hostname,name:'Disposable Kestrel test'},
+    user:{id:bytes(16),name:'local-test',displayName:'Local test'},
+    pubKeyCredParams:[{type:'public-key',alg:-7}],
+    authenticatorSelection:{residentKey:'required',userVerification:'required'},attestation:'none',timeout:15000
+  }});
+  const registration = JSON.parse(new TextDecoder().decode(credential.response.clientDataJSON));
+  const key = await crypto.subtle.importKey('spki',credential.response.getPublicKey(),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+  const getChallenge = bytes(32);
+  const assertion = await navigator.credentials.get({publicKey:{challenge:getChallenge,rpId:location.hostname,
+    allowCredentials:[{type:'public-key',id:credential.rawId,transports:['usb']}],userVerification:'required',timeout:15000}});
+  const clientData = JSON.parse(new TextDecoder().decode(assertion.response.clientDataJSON));
+  const auth = new Uint8Array(assertion.response.authenticatorData);
+  const rpHash = new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(location.hostname)));
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256',assertion.response.clientDataJSON));
+  const signed = new Uint8Array(auth.length + digest.length); signed.set(auth); signed.set(digest,auth.length);
+  const der = new Uint8Array(assertion.response.signature);
+  // CTAP ECDSA signatures use DER; WebCrypto expects the fixed 32-byte r and s pair.
+  if(der[0]!==48 || der[2]!==2) throw Error('Unexpected test signature');
+  const rLength=der[3], sOffset=4+rLength;
+  if(der[sOffset]!==2) throw Error('Unexpected test signature');
+  const sLength=der[sOffset+1], raw=new Uint8Array(64);
+  const r=der.slice(4,4+rLength), s=der.slice(sOffset+2,sOffset+2+sLength);
+  if(r.length>33 || s.length>33) throw Error('Unexpected test signature length');
+  raw.set(r.slice(-32),32-Math.min(32,r.length)); raw.set(s.slice(-32),64-Math.min(32,s.length));
+  const verified = await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,raw,signed);
+  return {syntheticAuthenticator:true,signatureVerified:verified,
+    registrationBound:registration.type==='webauthn.create' && registration.challenge===b64(createChallenge) && registration.origin===location.origin,
+    assertionBound:clientData.type==='webauthn.get' && clientData.challenge===b64(getChallenge) && clientData.origin===location.origin,
+    credentialMatched:b64(credential.rawId)===b64(assertion.rawId),rpHashMatched:rpHash.every((b,i)=>auth[i]===b),
+    userPresenceAndVerification:(auth[32]&5)===5};
+};
+</script>

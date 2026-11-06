@@ -1,0 +1,103 @@
+name: Audit published extension menu and passkey QR
+on:
+  push:
+    branches: [audit/extensions-passkey]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and verify the published 1.0.1 app
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/kestrel-audit"
+          curl -fL --retry 3 https://github.com/shay2000/Kestrel-chromium/releases/download/v1.0.1-chromium-preview.1/Kestrel-Chromium-1.0.1-arm64.dmg -o "$RUNNER_TEMP/kestrel-audit/Kestrel.dmg"
+          python3 - <<'PY'
+          import hashlib,os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'kestrel-audit/Kestrel.dmg'
+          assert hashlib.sha256(p.read_bytes()).hexdigest()=='15d8a915d80f2d183811040a766ab1265e2e43868280b7154334381ad20cf343'
+          PY
+          hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/kestrel-audit/mounted" "$RUNNER_TEMP/kestrel-audit/Kestrel.dmg"
+          ditto "$RUNNER_TEMP/kestrel-audit/mounted/Kestrel.app" "$RUNNER_TEMP/kestrel-audit/Kestrel.app"
+          hdiutil detach "$RUNNER_TEMP/kestrel-audit/mounted"
+          codesign --verify --deep --strict "$RUNNER_TEMP/kestrel-audit/Kestrel.app"
+          sw_vers
+          xcodebuild -version
+      - name: Compile the native published-app audit
+        run: swiftc -swift-version 5 -D KESTREL_LIFECYCLE_HARNESS -parse-as-library scripts/test-chrome-web-store-macos.swift scripts/audit-extension-menu-passkey-macos.swift -o "$RUNNER_TEMP/kestrel-qr-audit"
+      - name: Run actual Store and native passkey UI audit
+        id: baseline
+        shell: bash
+        env:
+          KESTREL_NATIVE_MOUSE_INPUT: '1'
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory scripts/fixtures > "$RUNNER_TEMP/kestrel-audit/server.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          "$RUNNER_TEMP/kestrel-qr-audit" "$RUNNER_TEMP/kestrel-audit/Kestrel.app" "$RUNNER_TEMP/kestrel-audit/baseline" http://localhost:8765/passkey-qr-audit.html baseline 2>&1 | tee "$RUNNER_TEMP/kestrel-audit/baseline.log"
+      - name: Inspect and request Bluetooth power on the disposable runner
+        if: always() && steps.baseline.outcome == 'success'
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          brew install blueutil > "$RUNNER_TEMP/kestrel-audit/blueutil-install.log" 2>&1 || true
+          python3 - <<'PY'
+          import json,subprocess,os,shutil
+          from pathlib import Path
+          results=[]
+          commands=[['system_profiler','SPBluetoothDataType','-json']]
+          if tool:=shutil.which('blueutil'):
+              commands += [[tool,'--power'],[tool,'--power','1'],[tool,'--power']]
+          for command in commands:
+              try:
+                  p=subprocess.run(command,capture_output=True,text=True,timeout=25)
+                  results.append(dict(command=command,exit=p.returncode,stdout=p.stdout[:12000],stderr=p.stderr[:3000]))
+              except subprocess.TimeoutExpired:
+                  results.append(dict(command=command,timedOut=True))
+          p=Path(os.environ['RUNNER_TEMP'])/'kestrel-audit/bluetooth.json'
+          p.write_text(json.dumps(results,indent=2))
+          print(p.read_text())
+          PY
+      - name: Retry native QR UI after the Bluetooth power request
+        if: always() && steps.baseline.outcome == 'success'
+        shell: bash
+        env:
+          KESTREL_NATIVE_MOUSE_INPUT: '1'
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory scripts/fixtures > "$RUNNER_TEMP/kestrel-audit/retry-server.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          "$RUNNER_TEMP/kestrel-qr-audit" "$RUNNER_TEMP/kestrel-audit/Kestrel.app" "$RUNNER_TEMP/kestrel-audit/power-requested" http://localhost:8765/passkey-qr-audit.html power-requested 2>&1 | tee "$RUNNER_TEMP/kestrel-audit/power-requested.log"
+      - name: Report feature acceptance separately from audit completion
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'kestrel-audit'
+          results=[json.loads(p.read_text()) for p in root.glob('*/result.json')]
+          summary={'auditResults':results,'nativeQrVisible':any(x.get('anyNativeFidoQRVisible',False) for x in results),'extensionToolbarActionVisible':any(x.get('toolbar',{}).get('extensionActionVisible',False) for x in results),'physicalCeremonyPassed':False}
+          (root/'summary.json').write_text(json.dumps(summary,indent=2))
+          print(json.dumps(summary,indent=2))
+          assert summary['nativeQrVisible'], 'No native FIDO QR was observed; inspect Bluetooth/UI evidence.'
+          assert summary['extensionToolbarActionVisible'], 'Installed extension has no toolbar action in this published build.'
+          PY
+      - name: Retain published-app audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-extension-menu-passkey-QR-audit
+          path: |
+            ${{ runner.temp }}/kestrel-audit/**/*.json
+            ${{ runner.temp }}/kestrel-audit/**/*.jsonl
+            ${{ runner.temp }}/kestrel-audit/**/*.txt
+            ${{ runner.temp }}/kestrel-audit/**/*.png
+            ${{ runner.temp }}/kestrel-audit/*.log
+          retention-days: 30

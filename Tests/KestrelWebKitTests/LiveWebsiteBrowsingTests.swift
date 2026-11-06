@@ -1,4 +1,4 @@
-#if canImport(WebKit) && canImport(AppKit)
+#if canImport(WebKit) && canImport(AppKit) && !canImport(CefSwiftUI)
 import AppKit
 import WebKit
 import XCTest
