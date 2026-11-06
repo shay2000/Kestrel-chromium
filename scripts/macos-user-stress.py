@@ -252,6 +252,20 @@ def navigate(path):
     record("address_focus_verified_by_navigation", path=path)
 
 
+def verify_chromium_pages(paths, label):
+    if ENGINE != "chromium":
+        return
+    expected = {base + path for path in paths}
+    def matches():
+        pages = json.loads(command([str(OUT / "read-desktop-pages"), "9333", base], timeout=15))
+        record("renderer_page_readback", state=label, pages=pages)
+        return {page.get("url") for page in pages} == expected and all(
+            page.get("ready") == "complete" and page.get("heading") ==
+            "Kestrel stress fixture " + urllib.parse.parse_qs(urllib.parse.urlsplit(page["url"]).query)["page"][0]
+            for page in pages)
+    wait(matches, label)
+
+
 def message_value():
     values = fields("Assistant message")
     return values[0] if values else ""
@@ -266,6 +280,8 @@ if os.environ.get("KESTREL_UI_PROBE"):
     result["kind"] = "diagnostic only; not stress acceptance"
 try:
     command(["swiftc", str(pathlib.Path(__file__).with_name("macos-accessibility.swift")), "-o", str(AX_CLIENT)], timeout=120)
+    if ENGINE == "chromium":
+        command(["swiftc", "-parse-as-library", str(pathlib.Path(__file__).with_name("read-desktop-pages-macos.swift")), "-o", str(OUT / "read-desktop-pages")], timeout=120)
     subprocess.run(["pkill", "-TERM", "-x", "Kestrel"], capture_output=True)
     wait(lambda: subprocess.run(["pgrep", "-x", "Kestrel"], capture_output=True).returncode != 0, "previous app exited before seeding preferences")
     # Only this disposable runner's synthetic app profile is replaced. The
@@ -339,12 +355,14 @@ try:
         wait(lambda: json.loads(command([str(AX_CLIENT), PID, "selected", "Right pane: New Tab"]))["selected"], "right split pane selected")
         navigate(a)
         wait(lambda: any(a in value for value in fields("Address bar")) and any(b in value for value in fields("Address bar")), "both split destinations retained")
+        verify_chromium_pages([a, b], "both split renderer documents retained")
         resize_window(780, 620)
         invoke("Tabs", "Equal Split Widths")
         if cycle == 0:
             snapshot("stress-narrow-split")
             time.sleep(0.6)
             snapshot("stress-narrow-split-settled")
+            verify_chromium_pages([a, b], "narrow split renderer documents retained")
         invoke("Tabs", "Previous Tab")
         invoke("Tabs", "Next Tab")
         invoke("Tabs", "Separate Split View")

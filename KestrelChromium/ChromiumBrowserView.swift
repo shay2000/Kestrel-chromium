@@ -258,7 +258,7 @@ private final class PersistentChromeHostView: NSView {
                 }
                 if !loggedWindowGeometry {
                     loggedWindowGeometry = true
-                    let diagnostic = "KESTREL_LIFECYCLE windowGeometry integratedHeader=\(headerHeight) root=\(type(of: root)) card=\(NSStringFromRect(root.bounds))"
+                    let diagnostic = "KESTREL_LIFECYCLE windowGeometry browser=\(browser.browser.id) window=\(overlay.windowNumber) owner=\(window.windowNumber) integratedHeader=\(headerHeight) root=\(type(of: root)) card=\(NSStringFromRect(root.bounds))"
                     try? FileHandle.standardError.write(contentsOf: Data((diagnostic + "\n").utf8))
                 }
             }

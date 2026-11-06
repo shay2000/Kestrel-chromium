@@ -698,6 +698,10 @@ final class TabStore: ObservableObject {
         guard CefRuntime.shared.isAcceptingBrowsers,
               collection.tabs.contains(where: { $0.id == id }), pendingPageCloses[id] == nil else { return nil }
         let model = webView(for: id)
+        if CommandLine.arguments.contains("--kestrel-desktop-audit") {
+            let trace = "KESTREL_DESKTOP chromeCreate begin tab=\(id) model=\(ObjectIdentifier(model)) tabs=\(tabs.count) existing=\(chromeBrowsers.count)\n"
+            try? FileHandle.standardError.write(contentsOf: Data(trace.utf8))
+        }
         var options = CefChromeBrowserOptions()
         options.isFrameless = true
         options.isResizable = false
@@ -714,6 +718,10 @@ final class TabStore: ObservableObject {
         browserDelegates[id] = delegate
         chrome.hide()
         chromeBrowsers[id] = chrome
+        if CommandLine.arguments.contains("--kestrel-desktop-audit") {
+            let trace = "KESTREL_DESKTOP chromeCreate complete tab=\(id) browser=\(chrome.browser.id) window=\(chrome.nsWindow?.windowNumber ?? -1)\n"
+            try? FileHandle.standardError.write(contentsOf: Data(trace.utf8))
+        }
         chrome.onWindowDestroyed = { [weak self, weak chrome] in
             guard let self, let chrome, self.chromeBrowsers[id] === chrome else { return }
             let completion = self.pendingPageCloses.removeValue(forKey: id)
