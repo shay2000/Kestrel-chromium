@@ -45,9 +45,10 @@ struct NativeExtensionActionAcceptance {
             try ActionProbe.command("/usr/sbin/screencapture", ["-x", url.path])
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
+            request.customWords = ["Extension Options", "Google Translate"]
             try VNImageRequestHandler(url: url).perform([request])
             let matches = try (request.results ?? []).compactMap { observation -> CGRect? in
-                guard let text = observation.topCandidates(1).first,
+                guard let text = observation.topCandidates(5).first(where: { $0.string.contains("Extension Options") }),
                       let range = text.string.range(of: "Extension Options") else { return nil }
                 return try text.boundingBox(for: range)?.boundingBox
             }

@@ -263,7 +263,7 @@ try:
     preferences = OUT / "synthetic-preferences.plist"
     preferences.write_bytes(plistlib.dumps({"kestrel.shortcuts.browser.v1": json.dumps(overrides).encode()}))
     bundle_id = command(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleIdentifier", str(APP / "Contents/Info.plist")])
-    command(["defaults", "import", bundle_id, str(preferences)])
+    command(["swift", str(pathlib.Path(__file__).with_name("seed-macos-preferences.swift")), bundle_id, str(preferences)])
     record("synthetic_profile_configured", bundle_id=bundle_id, shortcut_overrides=overrides,
            close_tab_checks_skipped=os.environ.get("KESTREL_STRESS_SKIP_CLOSE_TAB") == "1")
     command(["open", "-a", str(APP), "--stderr", str(OUT / "runtime.log")])
@@ -384,6 +384,12 @@ try:
             invoke("File", "Close Tab")
             # Close the extra fixture tab from this cycle; keep the other one.
             invoke("File", "Close Tab")
+        if ENGINE == "chromium" and cycle == 0:
+            select_menu_item("Tabs", "Move Tab to Right Split")
+            wait(lambda: count("Address bar") == 2, "native menu creates both split cards")
+            snapshot("stress-menu-split")
+            select_menu_item("Tabs", "Separate Split View")
+            wait(lambda: count("Address bar") == 1, "native menu separates both split cards")
         if cycle % 3 == 0:
             key(",", ["command"])
             wait(lambda: ui('return name of window 1') == "Kestrel Settings", "Settings window opened")

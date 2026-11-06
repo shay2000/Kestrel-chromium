@@ -62,6 +62,9 @@ let onscreen = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktop
     return CGRect(dictionaryRepresentation: bounds as CFDictionary)
 }
 visit(window, depth: 0)
+if let focused = attribute(app, "AXFocusedWindow") {
+    visit(unsafeBitCast(focused, to: AXUIElement.self), depth: 0)
+}
 if let document = frame(window) {
     for child in windows where !CFEqual(child, window) {
         guard let rect = frame(child), document.contains(CGPoint(x: rect.midX, y: rect.midY)),

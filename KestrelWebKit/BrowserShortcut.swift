@@ -199,7 +199,7 @@ struct BrowserCloseShortcut: NSViewRepresentable {
                 // CEF's Chrome runtime consumes Command-arrow as history
                 // navigation before SwiftUI's menu equivalent can see it.
                 // Route these Kestrel commands at the same boundary as Close.
-                let commands: [BrowserCommand] = [.closeTab, .splitLeft, .splitRight]
+                let commands: [BrowserCommand] = [.closeTab, .splitLeft, .splitRight, .focusAddress]
                 guard let command = commands.first(where: { command in
                     guard let shortcut = self.settings.shortcut(for: command) else { return false }
                     return shortcut.matches(event: event)
@@ -208,6 +208,7 @@ struct BrowserCloseShortcut: NSViewRepresentable {
                 case .closeTab: self.tabs.closeSelectedTab()
                 case .splitLeft: self.tabs.performSplitCommand(on: .left, settings: self.settings)
                 case .splitRight: self.tabs.performSplitCommand(on: .right, settings: self.settings)
+                case .focusAddress: self.tabs.requestAddressFieldFocus()
                 default: return event
                 }
                 return nil

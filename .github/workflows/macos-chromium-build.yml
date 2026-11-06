@@ -233,7 +233,7 @@ jobs:
             KESTREL_STRESS_OUT="$ROOT/chromium-workflows" \
             KESTREL_STRESS_ENGINE=chromium \
             KESTREL_STRESS_CYCLES=1 \
-            KESTREL_STRESS_SKIP_CLOSE_TAB=1 \
+            KESTREL_STRESS_SKIP_CLOSE_TAB=0 \
             python3 scripts/macos-user-stress.py
           CHROMIUM_STRESS_STATUS=$?
 

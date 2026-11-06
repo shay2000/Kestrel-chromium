@@ -18,7 +18,7 @@ final class AddressTextFieldTests: XCTestCase {
             AddressTextField(text: $state.text, completionPrefix: $state.prefix,
                 isFocused: $state.focused, placeholder: "Address", fontSize: 14,
                 selectAllOnFocus: true, completion: { _ in nil }, onSubmit: { _ in },
-                onAssistant: { _ in }, onMove: { _ in true }, onTab: { false }, onEscape: {})
+                onAssistant: { _ in }, onMove: { _ in true }, onTab: { false }, onEscape: {}, focusTarget: .toolbar)
                 .frame(width: 400, height: 33)
         }
     }
@@ -42,7 +42,7 @@ final class AddressTextFieldTests: XCTestCase {
             window.makeKeyAndOrderFront(nil)
             try await Task.sleep(nanoseconds: 50_000_000)
         }
-        state.focused = true
+        XCTAssertTrue(AddressTextField.focus(.toolbar, in: window), "The shortcut must install its editor synchronously")
         for _ in 0..<20 where !(window.firstResponder is NSTextView) {
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)

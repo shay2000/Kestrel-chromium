@@ -473,6 +473,8 @@ final class TabStore: ObservableObject {
     }
 
     func requestAddressFieldFocus() {
+        let target: AddressFieldTarget = split != nil ? .pane(selectedID) : (selectedTabHasNoPage ? .newTab : .toolbar)
+        if let owner = BrowserWindowFocus.keyboardOwner, AddressTextField.focus(target, in: owner) { return }
         addressFieldFocusRequest = UUID()
     }
 

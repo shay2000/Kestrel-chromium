@@ -5,11 +5,7 @@ import CefSwiftUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-private enum BrowserAddressFocus: Hashable {
-    case toolbar
-    case pane(UUID)
-    case newTab
-}
+private typealias BrowserAddressFocus = AddressFieldTarget
 
 /// Keep the composer anchored while typing; the results scroll below it.
 enum NewTabPageLayout {
@@ -2932,36 +2928,8 @@ private struct AddressEntry: View {
     }
 
     var body: some View {
-        HStack(spacing: 9) {
-            if style == .toolbar && !fieldIsFocused {
-                Button {
-                    activateAddressField()
-                } label: {
-                    HStack(spacing: 7) {
-                        if let label = AddressBarPresentation.label(for: text) {
-                            Text(label.primary)
-                                .foregroundStyle(.primary)
-                            if let detail = label.detail {
-                                Text("/").foregroundStyle(.tertiary)
-                                Text(detail).foregroundStyle(.secondary)
-                            }
-                        } else {
-                            Text(text.isEmpty ? "Search or enter address" : text)
-                                .foregroundStyle(text.isEmpty ? .secondary : .primary)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .font(KestrelTypography.chromeLabel)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, minHeight: style.height, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Edit the address or search the web")
-                .accessibilityLabel("Address bar, \(text)")
-                .accessibilityAction { activateAddressField() }
-            } else {
+        ZStack(alignment: .leading) {
+            HStack(spacing: 9) {
                 if style.isFloating || fieldIsFocused {
                     Image(systemName: addressSymbol)
                         .font(.system(size: style.isFloating ? 17 : 11, weight: .medium))
@@ -3037,7 +3005,9 @@ private struct AddressEntry: View {
                         guard activeShortcut != nil else { return false }
                         activeShortcut = nil
                         return true
-                    }
+                    },
+                    focusTarget: focusTarget,
+                    isAccessible: style.isFloating || fieldIsFocused
                 )
                 .help(assistantOnly
                       ? "Ask the assistant about the attached sources. Enter sends this only to the assistant."
@@ -3053,6 +3023,38 @@ private struct AddressEntry: View {
                 .buttonStyle(.plain)
                 .help("Go to address or search with \(searchEngine.displayName)")
                 .accessibilityLabel("Go to address or search with \(searchEngine.displayName)")
+            }
+            .opacity(style == .toolbar && !fieldIsFocused ? 0 : 1)
+            .allowsHitTesting(style != .toolbar || fieldIsFocused)
+            .accessibilityHidden(style == .toolbar && !fieldIsFocused)
+            if style == .toolbar && !fieldIsFocused {
+                Button {
+                    activateAddressField()
+                } label: {
+                    HStack(spacing: 7) {
+                        if let label = AddressBarPresentation.label(for: text) {
+                            Text(label.primary)
+                                .foregroundStyle(.primary)
+                            if let detail = label.detail {
+                                Text("/").foregroundStyle(.tertiary)
+                                Text(detail).foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Text(text.isEmpty ? "Search or enter address" : text)
+                                .foregroundStyle(text.isEmpty ? .secondary : .primary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .font(KestrelTypography.chromeLabel)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, minHeight: style.height, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Edit the address or search the web")
+                .accessibilityLabel("Address bar, \(text)")
+                .accessibilityAction { activateAddressField() }
             }
         }
         .padding(.leading, style.horizontalInset)

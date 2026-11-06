@@ -153,7 +153,7 @@ def seed_grouped_chats():
     fixture = OUT / "synthetic-menu-preferences.plist"
     fixture.write_bytes(plistlib.dumps(preferences))
     bundle_id = command(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleIdentifier", str(APP / "Contents/Info.plist")])
-    subprocess.run(["defaults", "import", bundle_id, str(fixture)], check=True)
+    command(["swift", str(ROOT / "seed-macos-preferences.swift"), bundle_id, str(fixture)])
     exported = OUT / "seeded-preferences.plist"
     subprocess.run(["defaults", "export", bundle_id, str(exported)], check=True, capture_output=True)
     seeded = plistlib.loads(exported.read_bytes()).get("kestrel.assistant.conversations.v1")
