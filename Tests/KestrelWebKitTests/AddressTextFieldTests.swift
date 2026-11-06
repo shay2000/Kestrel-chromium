@@ -23,9 +23,17 @@ final class AddressTextFieldTests: XCTestCase {
         }
     }
 
+    private func pumpAppKitEvents() {
+        while let event = NSApp.nextEvent(matching: .any, until: Date(), inMode: .default, dequeue: true) {
+            NSApp.sendEvent(event)
+        }
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01))
+    }
+
     func testHostedToolbarFocusSelectsURLAndSurvivesViewUpdates() async throws {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.regular)
+        NSApp.finishLaunching()
         let state = HostedState()
         state.focused = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 60),
@@ -40,15 +48,18 @@ final class AddressTextFieldTests: XCTestCase {
         for _ in 0..<20 where !NSApp.isActive || !window.isKeyWindow {
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
+            pumpAppKitEvents()
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         // NSHostingView mounts its representable on a later run-loop turn,
         // even when the window has already become key.
         for _ in 0..<20 where !AddressTextField.Field.fields.allObjects.contains(where: { $0.window === window && $0.focusTarget == .toolbar }) {
             window.contentView?.layoutSubtreeIfNeeded()
+            pumpAppKitEvents()
             try await Task.sleep(nanoseconds: 50_000_000)
         }
-        XCTAssertTrue(BrowserWindowFocus.keyboardOwner === window)
+        XCTAssertTrue(BrowserWindowFocus.keyboardOwner === window,
+                      "active=\(NSApp.isActive) key=\(window.isKeyWindow) visible=\(window.isVisible) modal=\(NSApp.modalWindow != nil) fields=\(AddressTextField.Field.fields.allObjects.count)")
         XCTAssertTrue(AddressTextField.focus(.toolbar, in: window), "The shortcut must install its editor synchronously")
         for _ in 0..<20 where !(window.firstResponder is NSTextView) {
             NSApp.activate(ignoringOtherApps: true)

@@ -25,6 +25,32 @@ func text(_ node: AXUIElement, _ name: String) -> String {
     guard let value = attribute(node, name) else { return "" }
     return String(describing: value)
 }
+if arguments[2] == "menu_select" {
+    guard arguments.count == 4 else { fail("A menu and item title are required") }
+    let titles = arguments[3].split(separator: "|", maxSplits: 1).map(String.init)
+    guard titles.count == 2, let rawBar = attribute(app, "AXMenuBar") else { fail("No menu bar") }
+    let bar = unsafeBitCast(rawBar, to: AXUIElement.self)
+    let groups = (attribute(bar, "AXChildren") as? [AXUIElement] ?? []).filter { text($0, "AXTitle") == titles[0] }
+    guard groups.count == 1 else { fail("Expected one menu: \(titles[0])") }
+    NSRunningApplication(processIdentifier: pid)?.activate(options: [])
+    Thread.sleep(forTimeInterval: 0.15)
+    guard AXUIElementPerformAction(groups[0], kAXPressAction as CFString) == .success else { fail("Cannot open menu") }
+    Thread.sleep(forTimeInterval: 0.2)
+    var pending = attribute(groups[0], "AXChildren") as? [AXUIElement] ?? []
+    var items: [AXUIElement] = []
+    var examined = 0
+    while !pending.isEmpty, examined < 1000 {
+        let node = pending.removeFirst()
+        examined += 1
+        if text(node, "AXRole") == "AXMenuItem", text(node, "AXTitle") == titles[1] { items.append(node) }
+        pending += attribute(node, "AXChildren") as? [AXUIElement] ?? []
+    }
+    guard items.count == 1, text(items[0], "AXEnabled") == "1",
+          AXUIElementPerformAction(items[0], kAXPressAction as CFString) == .success else { fail("Cannot select menu item: \(titles[1])") }
+    Thread.sleep(forTimeInterval: 0.35)
+    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: ["menu": titles[0], "item": titles[1]]))
+    exit(0)
+}
 // Handle only this known runner prompt, by a real pointer click. Denying LAN
 // discovery keeps ordinary web/loopback testing independent of that permission.
 if arguments[2] == "dismiss-local-network" {
@@ -116,6 +142,18 @@ let matches = nodes.filter { node in
 }
 let output: Any
 switch arguments[2] {
+case "resize":
+    let dimensions = label.split(separator: ",").compactMap { Double($0) }
+    guard dimensions.count == 2, dimensions.allSatisfy(\.isFinite),
+          (700...1600).contains(dimensions[0]), (520...1000).contains(dimensions[1]) else { fail("Invalid document size") }
+    let screen = CGDisplayBounds(CGMainDisplayID())
+    var size = CGSize(width: min(CGFloat(dimensions[0]), screen.width - 80), height: min(CGFloat(dimensions[1]), screen.height - 100))
+    guard let value = AXValueCreate(.cgSize, &size),
+          AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, value) == .success else { fail("Cannot resize the main document") }
+    output = ["width": size.width, "height": size.height]
+case "window_frame":
+    guard let rect = frame(window) else { fail("No main document frame") }
+    output = ["x": rect.minX, "y": rect.minY, "width": rect.width, "height": rect.height]
 case "dump":
     output = nodes.map { node in
         Dictionary(uniqueKeysWithValues: ["AXRole", "AXTitle", "AXDescription", "AXValue", "AXIdentifier", "AXFocused", "AXSelected"].map {

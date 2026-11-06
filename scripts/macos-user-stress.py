@@ -44,7 +44,8 @@ def quote(value):
 
 
 def ui(body):
-    return script('tell application "System Events" to tell process "Kestrel"\n' + body + "\nend tell")
+    assert PID is not None
+    return script(f'tell application "System Events" to tell (first application process whose unix id is {PID})\n' + body + "\nend tell")
 
 
 def record(action, **data):
@@ -69,7 +70,7 @@ def wait(check, description, timeout=12):
             prompt = json.loads(command([str(AX_CLIENT), PID, "dismiss-local-network", str(OUT / "local-network-prompt.png")]))
             if prompt["dismissed"]:
                 record("local_network_prompt", **prompt)
-                script('tell application "Kestrel" to activate')
+                ui('set frontmost to true')
             prompt_check = time.monotonic() + 3
         time.sleep(0.15)
     raise AssertionError(f"State not reached: {description}; last error: {last}")
@@ -85,6 +86,15 @@ def count(label):
 
 def focused(label):
     return json.loads(command([str(AX_CLIENT), PID, "focused", label]))["focused"]
+
+
+def resize_window(width, height):
+    target = json.loads(command([str(AX_CLIENT), PID, "resize", f"{width},{height}"]))
+    def resized():
+        frame = json.loads(command([str(AX_CLIENT), PID, "window_frame"]))
+        return all(abs(frame[dimension] - target[dimension]) < 2 for dimension in ("width", "height"))
+    wait(resized, "main document resized")
+    record("document_resized", requested_width=width, requested_height=height, **target)
 
 
 def menu_rows(menu_name):
@@ -121,13 +131,8 @@ def verify_menu_state(menu_name, expected):
 
 
 def select_menu_item(menu_name, item_name):
-    menu = quote(menu_name)
-    item = quote(item_name)
-    ui(f'''click menu bar item {menu} of menu bar 1
-delay 0.15
-click menu item {item} of menu 1 of menu bar item {menu} of menu bar 1
-delay 0.25
-key code 53''')
+    ui('set frontmost to true')
+    command([str(AX_CLIENT), PID, "menu_select", menu_name + "|" + item_name])
     record("menu_command", menu=menu_name, item=item_name)
 
 
@@ -167,7 +172,7 @@ def invoke(group, item):
 
 def key(text, modifiers=None):
     suffix = " using {" + ", ".join(x + " down" for x in modifiers) + "}" if modifiers else ""
-    ui("keystroke " + quote(text) + suffix)
+    ui("set frontmost to true\nkeystroke " + quote(text) + suffix)
 
 
 def enter():
@@ -276,16 +281,18 @@ try:
         command(["defaults", "import", bundle_id, str(preferences)])
     record("synthetic_profile_configured", bundle_id=bundle_id, shortcut_overrides=overrides,
            close_tab_checks_skipped=os.environ.get("KESTREL_STRESS_SKIP_CLOSE_TAB") == "1")
-    command(["open", "-a", str(APP), "--stderr", str(OUT / "runtime.log")])
+    command(["open", "-a", str(APP), "--stderr", str(OUT / "runtime.log"), "--args", "--kestrel-desktop-audit"])
     wait(lambda: bool(command(["pgrep", "-x", "Kestrel"])), "app running")
-    script('tell application "Kestrel" to activate')
-    wait(lambda: int(ui("return count windows")) > 0, "browser window")
     pid = command(["pgrep", "-x", "Kestrel"]).splitlines()[0]
     PID = pid
+    ui('set frontmost to true')
+    wait(lambda: int(ui("return count windows")) > 0, "browser window")
+    active_pid = script('tell application "System Events" to get unix id of first application process whose frontmost is true')
+    assert active_pid == PID, f"Expected frontmost PID {PID}, got {active_pid}"
     executable = command(["ps", "-o", "command=", "-p", pid])
     assert str(APP / "Contents/MacOS/Kestrel") in executable, executable
     record("verified_executable", path=executable)
-    ui("set size of window 1 to {1200, 800}")
+    resize_window(1200, 800)
     if os.environ.get("KESTREL_UI_PROBE") == "1":
         invoke("Navigate", "Focus Address Bar")
         wait(lambda: focused("Address bar"), "probe address editor focused")
@@ -297,7 +304,7 @@ try:
         record("probe_address_values", values=fields("Address bar"))
         snapshot("accessibility-probe")
         result.update(kind="diagnostic only; not stress acceptance", diagnostic_completed=True)
-        script('tell application "Kestrel" to quit')
+        key("q", ["command"])
         sys.exit(0)
     navigate("/?page=A&round=start")
     verify_menu_state("Tabs", {"Separate Split View": False, "Equal Split Widths": False})
@@ -329,7 +336,7 @@ try:
         wait(lambda: json.loads(command([str(AX_CLIENT), PID, "selected", "Right pane: New Tab"]))["selected"], "right split pane selected")
         navigate(a)
         wait(lambda: any(a in value for value in fields("Address bar")) and any(b in value for value in fields("Address bar")), "both split destinations retained")
-        ui("set size of window 1 to {780, 620}")
+        resize_window(780, 620)
         invoke("Tabs", "Equal Split Widths")
         if cycle == 0:
             snapshot("stress-narrow-split")
@@ -343,7 +350,7 @@ try:
             wait(lambda: int(ui("return count windows")) > 0 and any(b in value for value in fields("Address bar")), "Cmd-W closes only the selected tab")
             invoke("File", "Reopen Closed Tab")
             wait(lambda: any(a in value for value in fields("Address bar")), "closed tab reopened with its destination")
-        ui("set size of window 1 to {1200, 800}")
+        resize_window(1200, 800)
         invoke("Assistant", "Show Assistant")
         wait(lambda: count("Assistant message") == 1, "sidebar composer available")
         assert "Hide Assistant" in [row["title"] for row in menu_rows("Assistant")]
@@ -409,7 +416,7 @@ try:
         rss = int(command(["ps", "-o", "rss=", "-p", pid]))
         record("cycle_completed", cycle=cycle + 1, app_rss_kib=rss)
     snapshot("stress-complete")
-    script('tell application "Kestrel" to quit')
+    key("q", ["command"])
     wait(lambda: subprocess.run(["pgrep", "-x", "Kestrel"], capture_output=True).returncode != 0, "app exited after stress", timeout=10)
     result.update(passed=not observed_mismatches, cycles_completed=CYCLES,
                   observed_mismatches=observed_mismatches,

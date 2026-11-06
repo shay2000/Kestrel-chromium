@@ -223,6 +223,28 @@ jobs:
           mkdir -p "$ROOT"
 
           pkill -TERM -x Kestrel 2>/dev/null || true
+          # Store/action acceptance above intentionally leaves Dark Reader
+          # enabled. Use a clean browser profile for the visual comparison so
+          # extension CSS does not disguise the WebKit/CEF page presentation.
+          KESTREL_COMPARISON_PROFILE="$HOME/Library/Application Support/com.shayprasad.Kestrel/CefSwift"
+          KESTREL_COMPARISON_PROFILE_BACKUP="$RUNNER_TEMP/kestrel-extension-acceptance-profile"
+          if [[ -d "$KESTREL_COMPARISON_PROFILE" ]]; then
+            for _ in {1..60}; do
+              pgrep -x Kestrel >/dev/null || break
+              sleep 0.2
+            done
+            mv "$KESTREL_COMPARISON_PROFILE" "$KESTREL_COMPARISON_PROFILE_BACKUP" || exit 1
+            restore_extension_profile() {
+              pkill -TERM -x Kestrel 2>/dev/null || true
+              for _ in {1..60}; do
+                pgrep -x Kestrel >/dev/null || break
+                sleep 0.2
+              done
+              if [[ -d "$KESTREL_COMPARISON_PROFILE" ]]; then mv "$KESTREL_COMPARISON_PROFILE" "$RUNNER_TEMP/kestrel-desktop-parity-profile"; fi
+              mv "$KESTREL_COMPARISON_PROFILE_BACKUP" "$KESTREL_COMPARISON_PROFILE"
+            }
+            trap restore_extension_profile EXIT
+          fi
           KESTREL_MENU_TEST_APP="$CHROMIUM_APP" \
             KESTREL_MENU_TEST_OUT="$ROOT/chromium-menu" \
             KESTREL_MENU_TEST_ENGINE=chromium \

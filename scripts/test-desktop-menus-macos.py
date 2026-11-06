@@ -16,6 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parent
 OUT.mkdir(parents=True, exist_ok=True)
 events = []
 errors = []
+PID = None
 
 
 def command(argv, timeout=30):
@@ -34,7 +35,8 @@ def apple_quote(value):
 
 
 def ui(body):
-    source = 'tell application "System Events" to tell process "Kestrel"\n' + body + "\nend tell"
+    assert PID is not None
+    source = f'tell application "System Events" to tell (first application process whose unix id is {PID})\n' + body + "\nend tell"
     return command(["osascript", "-e", source])
 
 
@@ -96,13 +98,8 @@ encodedRows'''
 
 
 def click_menu_command(menu_name, command_name):
-    body = (
-        f'click menu bar item {apple_quote(menu_name)} of menu bar 1\n'
-        "delay 0.15\n"
-        f'click menu item {apple_quote(command_name)} of menu 1 of menu bar item {apple_quote(menu_name)} of menu bar 1\n'
-        "delay 0.4\nkey code 53"
-    )
-    ui(body)
+    ui('set frontmost to true')
+    command([str(OUT / "macos-accessibility"), str(PID), "menu_select", menu_name + "|" + command_name])
 
 
 def address_values(pid):
@@ -189,6 +186,7 @@ def close_app(executable):
 
 
 def main():
+    global PID
     executable = command(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleExecutable", str(APP / "Contents/Info.plist")])
     close_app(executable)
     bundle_id = seed_grouped_chats()
@@ -203,6 +201,7 @@ def main():
         time.sleep(0.3)
     if pid is None:
         raise RuntimeError("Kestrel did not remain running for menu inspection")
+    PID = pid
     ui('set frontmost to true')
     time.sleep(1.0)
     address_values(pid)  # Compile the shared native helper before using it.

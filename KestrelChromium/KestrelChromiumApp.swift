@@ -60,6 +60,12 @@ struct KestrelChromiumApp: CefSwiftApp {
             let decoded = data.flatMap { try? JSONDecoder().decode([AssistantConversation].self, from: $0) }
             let line = "KESTREL_DESKTOP archive settings=\(settings.assistantConversations.count) chat=\(chat.savedConversations.count) domain=\(decoded?.count ?? -1) bytes=\(data?.count ?? 0) bundle=\(Bundle.main.bundleIdentifier ?? "nil") home=\(NSHomeDirectory()) keys=\(UserDefaults.standard.dictionaryRepresentation().keys.filter { $0.hasPrefix("kestrel.") }.count)\n"
             try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
+            for delay in [2.0, 5.0, 10.0, 20.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    let focus = "KESTREL_DESKTOP focus active=\(NSApp.isActive) key=\(NSApp.keyWindow?.windowNumber ?? -1) main=\(NSApp.mainWindow?.windowNumber ?? -1) owner=\(BrowserWindowFocus.keyboardOwner?.windowNumber ?? -1) parent=\(NSApp.keyWindow?.parent?.windowNumber ?? -1) modal=\(NSApp.modalWindow != nil) fields=\(AddressTextField.Field.fields.allObjects.count) editors=\(AddressTextField.Field.fields.allObjects.filter { $0.currentEditor() != nil }.count)\n"
+                    try? FileHandle.standardError.write(contentsOf: Data(focus.utf8))
+                }
+            }
         }
         chat.localTitleGenerator = { prompt, answer in
             await AppleLocalModelProvider.generateConversationTitle(prompt: prompt, answer: answer)
