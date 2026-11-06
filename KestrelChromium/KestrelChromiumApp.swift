@@ -32,7 +32,7 @@ struct KestrelChromiumApp: CefSwiftApp {
         settings.seedDefaultBookmarksIfNeeded()
         let tabs = TabStore(
             searchEngine: settings.searchEngine,
-            pinnedTabsDefaults: .standard
+            pinnedTabsDefaults: KestrelPreferences.app
         )
         CefRuntime.shared.onChromeUIBrowserCreated = { [weak tabs] browser in
             tabs?.routeChromeUIBrowser(browser)
@@ -55,10 +55,10 @@ struct KestrelChromiumApp: CefSwiftApp {
         }
         chat.loadSavedConversations()
         if CommandLine.arguments.contains("--kestrel-desktop-audit") {
-            let domain = Bundle.main.bundleIdentifier ?? "com.shayprasad.Kestrel"
-            let data = UserDefaults.standard.persistentDomain(forName: domain)?["kestrel.assistant.conversations.v1"] as? Data
+            let domain = KestrelPreferences.domain
+            let data = KestrelPreferences.app.data(forKey: "kestrel.assistant.conversations.v1")
             let decoded = data.flatMap { try? JSONDecoder().decode([AssistantConversation].self, from: $0) }
-            let line = "KESTREL_DESKTOP archive settings=\(settings.assistantConversations.count) chat=\(chat.savedConversations.count) domain=\(decoded?.count ?? -1) bytes=\(data?.count ?? 0)\n"
+            let line = "KESTREL_DESKTOP archive settings=\(settings.assistantConversations.count) chat=\(chat.savedConversations.count) domain=\(decoded?.count ?? -1) bytes=\(data?.count ?? 0) bundle=\(Bundle.main.bundleIdentifier ?? "nil")\n"
             try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
         }
         chat.localTitleGenerator = { prompt, answer in
@@ -228,6 +228,7 @@ struct KestrelChromiumApp: CefSwiftApp {
     var body: some Scene {
         WindowGroup("Kestrel") {
             ContentView(tabs: tabs, chat: chat, settings: settings)
+                .defaultAppStorage(KestrelPreferences.app)
                 .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
                 .frame(minWidth: 700, minHeight: 520)
                 .preferredColorScheme(settings.appearanceMode.preferredColorScheme)
@@ -244,6 +245,7 @@ struct KestrelChromiumApp: CefSwiftApp {
 
         Settings {
             SettingsView(settings: settings, mcpServer: mcpServer)
+                .defaultAppStorage(KestrelPreferences.app)
                 .preferredColorScheme(settings.appearanceMode.preferredColorScheme)
         }
     }

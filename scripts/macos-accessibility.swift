@@ -23,18 +23,18 @@ func text(_ node: AXUIElement, _ name: String) -> String {
     guard let value = attribute(node, name) else { return "" }
     return String(describing: value)
 }
-guard let windows = attribute(app, "AXWindows") as? [AXUIElement], let window = windows.first else {
-    fail("No accessible app window")
-}
 var nodes: [AXUIElement] = []
+var visited: [CFHashCode: [AXUIElement]] = [:]
 func visit(_ node: AXUIElement, depth: Int) {
     guard depth < 60, nodes.count < 10000 else { return }
+    let hash = CFHash(node)
+    guard !(visited[hash] ?? []).contains(where: { CFEqual($0, node) }) else { return }
+    visited[hash, default: []].append(node)
     nodes.append(node)
     for child in attribute(node, "AXChildren") as? [AXUIElement] ?? [] {
         visit(child, depth: depth + 1)
     }
 }
-visit(window, depth: 0)
 let label = arguments.count > 3 ? arguments[3] : ""
 func labels(_ node: AXUIElement) -> [String] {
     [text(node, "AXDescription"), text(node, "AXTitle")]
@@ -47,6 +47,27 @@ func frame(_ node: AXUIElement) -> CGRect? {
     guard AXValueGetValue(unsafeBitCast(rawPoint, to: AXValue.self), .cgPoint, &point),
           AXValueGetValue(unsafeBitCast(rawSize, to: AXValue.self), .cgSize, &size) else { return nil }
     return CGRect(origin: point, size: size)
+}
+// CEF hosts each page in a native child window. A split has two sibling
+// page windows; AXWindows.first is not necessarily the document or active page.
+// Inspect the main document and its on-screen children, deduplicating AX nodes.
+guard let windows = attribute(app, "AXWindows") as? [AXUIElement], !windows.isEmpty else {
+    fail("No accessible app window")
+}
+let main = attribute(app, "AXMainWindow").map { unsafeBitCast($0, to: AXUIElement.self) }
+let window = main ?? windows.max(by: { (frame($0)?.width ?? 0) * (frame($0)?.height ?? 0) < (frame($1)?.width ?? 0) * (frame($1)?.height ?? 0) })!
+let onscreen = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []).compactMap { row -> CGRect? in
+    guard (row[kCGWindowOwnerPID as String] as? Int) == Int(pid),
+          let bounds = row[kCGWindowBounds as String] as? [String: Any] else { return nil }
+    return CGRect(dictionaryRepresentation: bounds as CFDictionary)
+}
+visit(window, depth: 0)
+if let document = frame(window) {
+    for child in windows where !CFEqual(child, window) {
+        guard let rect = frame(child), document.contains(CGPoint(x: rect.midX, y: rect.midY)),
+              onscreen.contains(where: { abs($0.minX - rect.minX) < 2 && abs($0.minY - rect.minY) < 2 && abs($0.width - rect.width) < 2 && abs($0.height - rect.height) < 2 }) else { continue }
+        visit(child, depth: 0)
+    }
 }
 let matches = nodes.filter { node in
     labels(node).contains { $0 == label || (label == "Address bar" && $0.hasPrefix("Address bar, ")) }

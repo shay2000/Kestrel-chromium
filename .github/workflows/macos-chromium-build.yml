@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          swift test --parallel 2>&1 | tee "$RUNNER_TEMP/kestrel-native-tests.log"
+          swift test 2>&1 | tee "$RUNNER_TEMP/kestrel-native-tests.log"
 
       - name: Cache the successfully compiled app dependencies
         if: steps.swift-build-cache.outputs.cache-hit != 'true'

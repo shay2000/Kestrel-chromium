@@ -17,8 +17,8 @@ final class AddressTextFieldTests: XCTestCase {
         var body: some View {
             AddressTextField(text: $state.text, completionPrefix: $state.prefix,
                 isFocused: $state.focused, placeholder: "Address", fontSize: 14,
-                selectAllOnFocus: true, completion: { _ in nil }, onSubmit: {},
-                onAssistant: {}, onMove: { _ in true }, onTab: { false }, onEscape: {})
+                selectAllOnFocus: true, completion: { _ in nil }, onSubmit: { _ in },
+                onAssistant: { _ in }, onMove: { _ in true }, onTab: { false }, onEscape: {})
                 .frame(width: 400, height: 33)
         }
     }
@@ -69,8 +69,8 @@ final class AddressTextFieldTests: XCTestCase {
             isFocused: Binding(get: { state.focused }, set: { state.focused = $0 }),
             placeholder: "Search", fontSize: 14, selectAllOnFocus: false,
             completion: { state.candidate.hasPrefix($0) && $0.count >= 2 ? state.candidate : nil },
-            onSubmit: { state.submitted.append(state.index) },
-            onAssistant: { state.assistantCount += 1 },
+            onSubmit: { _ in state.submitted.append(state.index) },
+            onAssistant: { _ in state.assistantCount += 1 },
             onMove: { state.index = min(max(state.index + $0, 0), 3); return true },
             onTab: {
                 guard state.consumeTabKeyword else { return false }

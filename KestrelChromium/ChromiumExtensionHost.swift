@@ -31,14 +31,14 @@ final class BrowserExtensionHost: ObservableObject {
         refreshInstalled()
     }
 
-    static func approvedExtensionPaths(defaults: UserDefaults = .standard) -> [String] {
+    static func approvedExtensionPaths(defaults: UserDefaults = KestrelPreferences.app) -> [String] {
         let paths = defaults.stringArray(forKey: approvedPathsKey) ?? []
         let existing = paths.filter { FileManager.default.fileExists(atPath: $0) }
         if paths != existing { defaults.set(existing, forKey: approvedPathsKey) }
         return existing
     }
 
-    static func commandLineSwitches(defaults: UserDefaults = .standard) -> [String: String?] {
+    static func commandLineSwitches(defaults: UserDefaults = KestrelPreferences.app) -> [String: String?] {
         let paths = approvedExtensionPaths(defaults: defaults)
         return paths.isEmpty ? [:] : ["load-extension": paths.joined(separator: ",")]
     }
@@ -62,7 +62,7 @@ final class BrowserExtensionHost: ObservableObject {
             try FileManager.default.removeItem(at: url)
         }
         let paths = Self.approvedExtensionPaths().filter { URL(fileURLWithPath: $0).standardizedFileURL != url }
-        UserDefaults.standard.set(paths, forKey: Self.approvedPathsKey)
+        KestrelPreferences.app.set(paths, forKey: Self.approvedPathsKey)
         refreshInstalled()
     }
 
@@ -147,7 +147,7 @@ final class BrowserExtensionHost: ObservableObject {
                 throw BrowserExtensionHostError.installFailed("The extension changed after review. Stage it again before approving it.")
             }
             let paths = Self.approvedExtensionPaths() + [destination.path]
-            UserDefaults.standard.set(Array(Set(paths)).sorted(), forKey: Self.approvedPathsKey)
+            KestrelPreferences.app.set(Array(Set(paths)).sorted(), forKey: Self.approvedPathsKey)
             staged[id] = nil
             try? FileManager.default.removeItem(at: item.snapshotURL)
             refreshInstalled()
