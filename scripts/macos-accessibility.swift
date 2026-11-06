@@ -85,8 +85,32 @@ if arguments[2] == "menu_select" {
     guard let rawBar = attribute(app, "AXMenuBar") else { fail("No menu bar") }
     let bar = unsafeBitCast(rawBar, to: AXUIElement.self)
     let groups = (attribute(bar, "AXChildren") as? [AXUIElement] ?? []).filter { text($0, "AXTitle") == titles[0] }
-    guard groups.count == 1, AXUIElementPerformAction(groups[0], kAXPressAction as CFString) == .success else { fail("Cannot open menu: \(titles[0])") }
-    Thread.sleep(forTimeInterval: 0.2)
+    guard groups.count == 1 else { fail("Cannot find menu: \(titles[0])") }
+    func menuFrame(_ node: AXUIElement) -> CGRect? {
+        guard let rawPoint = attribute(node, "AXPosition"), let rawSize = attribute(node, "AXSize"),
+              CFGetTypeID(rawPoint) == AXValueGetTypeID(), CFGetTypeID(rawSize) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(unsafeBitCast(rawPoint, to: AXValue.self), .cgPoint, &point),
+              AXValueGetValue(unsafeBitCast(rawSize, to: AXValue.self), .cgSize, &size),
+              size.width > 0, size.height > 0 else { return nil }
+        return CGRect(origin: point, size: size)
+    }
+    func clickMenu(_ node: AXUIElement) -> CGPoint {
+        guard let rect = menuFrame(node) else { fail("No visible menu frame") }
+        let point = CGPoint(x: rect.midX, y: rect.midY)
+        for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+            let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: point, mouseButton: .left)
+            event?.flags = []
+            event?.post(tap: .cghidEventTap)
+            Thread.sleep(forTimeInterval: 0.06)
+        }
+        Thread.sleep(forTimeInterval: 0.2)
+        return point
+    }
+    // A real menu-bar click starts ordinary AppKit tracking. AXPress/AXPick
+    // can expose/highlight this SwiftUI menu without committing its action.
+    let groupPoint = clickMenu(groups[0])
     var pending = attribute(groups[0], "AXChildren") as? [AXUIElement] ?? []
     var items: [AXUIElement] = []
     var examined = 0
@@ -100,11 +124,13 @@ if arguments[2] == "menu_select" {
     var rawActions: CFArray?
     guard AXUIElementCopyActionNames(items[0], &rawActions) == .success else { fail("Cannot inspect menu item actions") }
     let actions = rawActions as? [String] ?? []
-    guard let action = ["AXPick", "AXPress", "AXConfirm"].first(where: { actions.contains($0) }) else { fail("No supported menu selection action: \(actions)") }
-    let status = AXUIElementPerformAction(items[0], action as CFString)
-    guard status == .success else { fail("Cannot perform menu selection: \(status.rawValue)") }
+    let itemPoint = clickMenu(items[0])
     Thread.sleep(forTimeInterval: 0.35)
-    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: ["menu": titles[0], "item": titles[1], "method": action, "supportedActions": actions]))
+    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: [
+        "menu": titles[0], "item": titles[1], "method": "nativePointer", "supportedActions": actions,
+        "menuX": groupPoint.x, "menuY": groupPoint.y, "itemX": itemPoint.x, "itemY": itemPoint.y,
+        "frontmostPID": NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
+    ]))
     exit(0)
 }
 // Handle only this known runner prompt, by a real pointer click. Denying LAN

@@ -311,6 +311,7 @@ def main():
                 errors.append(f"{title} did not open its in-app page")
                 record("internal_page_failed", command=title, error=str(error))
         if failed_internal_pages:
+            subprocess.run(["sample", str(pid), "1", "1", "-file", str(OUT / "menu-process-sample.txt")], capture_output=True, timeout=15)
             # Diagnostic only. A direct AppKit menu invocation can identify a
             # tracking/automation failure; it never clears the failed checks.
             helper = str(OUT / "macos-accessibility")
