@@ -1,7 +1,9 @@
 // Native AX client for the disposable-runner user stress harness.
 // Avoids System Events' unstable object specifiers for SwiftUI virtual controls.
 import ApplicationServices
+import AppKit
 import Foundation
+import Vision
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data((message + "\n").utf8))
@@ -22,6 +24,43 @@ func attribute(_ node: AXUIElement, _ name: String) -> CFTypeRef? {
 func text(_ node: AXUIElement, _ name: String) -> String {
     guard let value = attribute(node, name) else { return "" }
     return String(describing: value)
+}
+// Handle only this known runner prompt, by a real pointer click. Denying LAN
+// discovery keeps ordinary web/loopback testing independent of that permission.
+if arguments[2] == "dismiss-local-network" {
+    guard arguments.count == 4 else { fail("A prompt screenshot path is required") }
+    let url = URL(fileURLWithPath: arguments[3])
+    let capture = Process()
+    capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    capture.arguments = ["-x", url.path]
+    try capture.run()
+    capture.waitUntilExit()
+    guard capture.terminationStatus == 0 else { fail("Cannot capture the runner prompt") }
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
+    try VNImageRequestHandler(url: url).perform([request])
+    let lines = (request.results ?? []).compactMap { node -> (String, CGRect)? in
+        guard let candidate = node.topCandidates(1).first else { return nil }
+        return (candidate.string, node.boundingBox)
+    }
+    let words = lines.map { $0.0.lowercased() }.joined(separator: " ")
+    let buttons = lines.filter { ["Don't Allow", "Don’t Allow"].contains($0.0) }
+    var dismissed = false
+    if words.contains("kestrel"), words.contains("find"), words.contains("devices"), words.contains("local networks"), buttons.count == 1 {
+        let screen = CGDisplayBounds(CGMainDisplayID())
+        let box = buttons[0].1
+        let point = CGPoint(x: screen.minX + screen.width * box.midX, y: screen.minY + screen.height * (1 - box.midY))
+        for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+            guard let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: point, mouseButton: .left) else { fail("Cannot click the runner prompt") }
+            event.flags = []
+            event.post(tap: .cghidEventTap)
+            Thread.sleep(forTimeInterval: 0.04)
+        }
+        dismissed = true
+    }
+    let result: [String: Any] = ["dismissed": dismissed, "choice": dismissed ? "Don't Allow" : "none"]
+    FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]))
+    exit(0)
 }
 var nodes: [AXUIElement] = []
 var visited: [CFHashCode: [AXUIElement]] = [:]

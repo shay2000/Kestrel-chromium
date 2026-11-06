@@ -48,8 +48,12 @@ struct NativeExtensionActionAcceptance {
             request.customWords = ["Extension Options", "Google Translate"]
             try VNImageRequestHandler(url: url).perform([request])
             let matches = try (request.results ?? []).compactMap { observation -> CGRect? in
-                guard let text = observation.topCandidates(5).first(where: { $0.string.contains("Extension Options") }),
-                      let range = text.string.range(of: "Extension Options") else { return nil }
+                // Vision confuses this popup's small blue p with n. Keep the
+                // known one-glyph alternative; the subsequent native click
+                // must still open the real extension's options document.
+                let pattern = "Extension O[pn]tions"
+                guard let text = observation.topCandidates(5).first(where: { $0.string.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil }),
+                      let range = text.string.range(of: pattern, options: [.regularExpression, .caseInsensitive]) else { return nil }
                 return try text.boundingBox(for: range)?.boundingBox
             }
             if matches.count == 1, let box = matches.first {

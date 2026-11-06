@@ -57,6 +57,7 @@ def record(action, **data):
 def wait(check, description, timeout=12):
     end = time.monotonic() + timeout
     last = None
+    prompt_check = time.monotonic() + 1
     while time.monotonic() < end:
         try:
             if check():
@@ -64,6 +65,12 @@ def wait(check, description, timeout=12):
                 return
         except (subprocess.SubprocessError, ValueError) as error:
             last = getattr(error, "stderr", None) or str(error)
+        if PID and time.monotonic() >= prompt_check:
+            prompt = json.loads(command([str(AX_CLIENT), PID, "dismiss-local-network", str(OUT / "local-network-prompt.png")]))
+            if prompt["dismissed"]:
+                record("local_network_prompt", **prompt)
+                script('tell application "Kestrel" to activate')
+            prompt_check = time.monotonic() + 3
         time.sleep(0.15)
     raise AssertionError(f"State not reached: {description}; last error: {last}")
 
@@ -263,7 +270,10 @@ try:
     preferences = OUT / "synthetic-preferences.plist"
     preferences.write_bytes(plistlib.dumps({"kestrel.shortcuts.browser.v1": json.dumps(overrides).encode()}))
     bundle_id = command(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleIdentifier", str(APP / "Contents/Info.plist")])
-    command(["swift", str(pathlib.Path(__file__).with_name("seed-macos-preferences.swift")), bundle_id, str(preferences)])
+    if ENGINE == "chromium":
+        command(["swift", str(pathlib.Path(__file__).with_name("seed-macos-preferences.swift")), bundle_id, str(preferences)])
+    else:
+        command(["defaults", "import", bundle_id, str(preferences)])
     record("synthetic_profile_configured", bundle_id=bundle_id, shortcut_overrides=overrides,
            close_tab_checks_skipped=os.environ.get("KESTREL_STRESS_SKIP_CLOSE_TAB") == "1")
     command(["open", "-a", str(APP), "--stderr", str(OUT / "runtime.log")])

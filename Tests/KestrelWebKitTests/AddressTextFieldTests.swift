@@ -42,6 +42,13 @@ final class AddressTextFieldTests: XCTestCase {
             window.makeKeyAndOrderFront(nil)
             try await Task.sleep(nanoseconds: 50_000_000)
         }
+        // NSHostingView mounts its representable on a later run-loop turn,
+        // even when the window has already become key.
+        for _ in 0..<20 where !AddressTextField.Field.fields.allObjects.contains(where: { $0.window === window && $0.focusTarget == .toolbar }) {
+            window.contentView?.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertTrue(BrowserWindowFocus.keyboardOwner === window)
         XCTAssertTrue(AddressTextField.focus(.toolbar, in: window), "The shortcut must install its editor synchronously")
         for _ in 0..<20 where !(window.firstResponder is NSTextView) {
             NSApp.activate(ignoringOtherApps: true)

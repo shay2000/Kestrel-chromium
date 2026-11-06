@@ -123,6 +123,13 @@ def wait_for_address(pid, prefix, timeout=8):
     raise AssertionError(f"Address bar did not reach {prefix!r}; last values: {last}")
 
 
+def export_preferences(bundle_id, destination):
+    if ENGINE == "chromium":
+        command(["swift", str(ROOT / "seed-macos-preferences.swift"), bundle_id, "--export", str(destination)])
+    else:
+        command(["defaults", "export", bundle_id, str(destination)])
+
+
 def seed_grouped_chats():
     reference_offset = 978307200
     now = time.time() - reference_offset
@@ -153,9 +160,12 @@ def seed_grouped_chats():
     fixture = OUT / "synthetic-menu-preferences.plist"
     fixture.write_bytes(plistlib.dumps(preferences))
     bundle_id = command(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleIdentifier", str(APP / "Contents/Info.plist")])
-    command(["swift", str(ROOT / "seed-macos-preferences.swift"), bundle_id, str(fixture)])
+    if ENGINE == "chromium":
+        command(["swift", str(ROOT / "seed-macos-preferences.swift"), bundle_id, str(fixture)])
+    else:
+        command(["defaults", "import", bundle_id, str(fixture)])
     exported = OUT / "seeded-preferences.plist"
-    subprocess.run(["defaults", "export", bundle_id, str(exported)], check=True, capture_output=True)
+    export_preferences(bundle_id, exported)
     seeded = plistlib.loads(exported.read_bytes()).get("kestrel.assistant.conversations.v1")
     count = len(json.loads(seeded)) if isinstance(seeded, bytes) else 0
     record("chat_fixture_seeded", bundle_id=bundle_id, expected=12, stored=count)
@@ -195,11 +205,17 @@ def main():
         raise RuntimeError("Kestrel did not remain running for menu inspection")
     ui('set frontmost to true')
     time.sleep(1.0)
+    address_values(pid)  # Compile the shared native helper before using it.
+    prompt = json.loads(command([str(OUT / "macos-accessibility"), str(pid), "dismiss-local-network", str(OUT / "local-network-prompt.png")]))
+    record("local_network_prompt", **prompt)
+    if prompt["dismissed"]:
+        time.sleep(0.5)
+        ui('set frontmost to true')
 
     top = menu_bar_titles()
     record("menu_bar", titles=top, app_executable=executable, bundle_id=bundle_id, pid=pid)
     exported = OUT / "preferences-after-launch.plist"
-    subprocess.run(["defaults", "export", bundle_id, str(exported)], check=True, capture_output=True)
+    export_preferences(bundle_id, exported)
     stored = plistlib.loads(exported.read_bytes()).get("kestrel.assistant.conversations.v1")
     stored_count = len(json.loads(stored)) if isinstance(stored, bytes) else 0
     record("chat_fixture_after_launch", expected=12, stored=stored_count)
