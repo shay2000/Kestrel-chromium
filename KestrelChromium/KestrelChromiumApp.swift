@@ -62,7 +62,8 @@ struct KestrelChromiumApp: CefSwiftApp {
             try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
             var eventCount = 0
             _ = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown]) { event in
-                if eventCount < 60 {
+                let chord = event.type == .keyDown && !event.modifierFlags.intersection([.command, .option, .control]).isEmpty
+                if eventCount < 160 && (chord || event.type == .leftMouseDown) {
                     eventCount += 1
                     let root = event.window?.contentView
                     let hit = event.type == .leftMouseDown ? root?.hitTest(root?.convert(event.locationInWindow, from: nil) ?? .zero) : nil

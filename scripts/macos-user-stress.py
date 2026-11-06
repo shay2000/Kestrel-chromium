@@ -280,7 +280,10 @@ try:
         command(["defaults", "import", bundle_id, str(preferences)])
     record("synthetic_profile_configured", bundle_id=bundle_id, shortcut_overrides=overrides,
            close_tab_checks_skipped=os.environ.get("KESTREL_STRESS_SKIP_CLOSE_TAB") == "1")
-    command(["open", "-a", str(APP), "--stderr", str(OUT / "runtime.log"), "--args", "--kestrel-desktop-audit"])
+    arguments = ["open", "-a", str(APP), "--stderr", str(OUT / "runtime.log"), "--args", "--kestrel-desktop-audit"]
+    if ENGINE == "chromium":
+        arguments.append("--remote-debugging-port=9333")  # Enables CEF close/quit lifecycle diagnostics.
+    command(arguments)
     wait(lambda: bool(command(["pgrep", "-x", "Kestrel"])), "app running")
     pid = command(["pgrep", "-x", "Kestrel"]).splitlines()[0]
     PID = pid
@@ -339,6 +342,8 @@ try:
         invoke("Tabs", "Equal Split Widths")
         if cycle == 0:
             snapshot("stress-narrow-split")
+            time.sleep(0.6)
+            snapshot("stress-narrow-split-settled")
         invoke("Tabs", "Previous Tab")
         invoke("Tabs", "Next Tab")
         invoke("Tabs", "Separate Split View")
@@ -415,6 +420,7 @@ try:
         rss = int(command(["ps", "-o", "rss=", "-p", pid]))
         record("cycle_completed", cycle=cycle + 1, app_rss_kib=rss)
     snapshot("stress-complete")
+    record("before_quit", expected_pid=PID, running_pids=command(["pgrep", "-x", "Kestrel"]).splitlines())
     key("q", ["command"])
     wait(lambda: subprocess.run(["pgrep", "-x", "Kestrel"], capture_output=True).returncode != 0, "app exited after stress", timeout=10)
     result.update(passed=not observed_mismatches, cycles_completed=CYCLES,

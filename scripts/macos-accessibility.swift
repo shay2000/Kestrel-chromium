@@ -57,13 +57,16 @@ if ["native-key", "native-keycode"].contains(arguments[2]) {
         guard let code = codes[arguments[3].lowercased()] else { fail("Unsupported native shortcut") }
         send(code)
     } else {
-        for character in arguments[3] { send(0, unicode: Array(String(character).utf16)) }
+        // Match the passing native focus probe: one Unicode insertion is a
+        // normal paste event, without a synthetic 300-character/second burst.
+        send(0, unicode: Array(arguments[3].utf16))
     }
     for code in [CGKeyCode(55), 59, 58, 56] {
         let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)
         event?.flags = []
         event?.post(tap: .cghidEventTap)
     }
+    Thread.sleep(forTimeInterval: 0.15) // Drain posted events before this helper exits.
     FileHandle.standardOutput.write(Data("{\"native\":true}".utf8))
     exit(0)
 }
@@ -76,7 +79,22 @@ if arguments[2] == "menu_select" {
     guard groups.count == 1 else { fail("Expected one menu: \(titles[0])") }
     NSRunningApplication(processIdentifier: pid)?.activate(options: [])
     Thread.sleep(forTimeInterval: 0.15)
-    guard AXUIElementPerformAction(groups[0], kAXPressAction as CFString) == .success else { fail("Cannot open menu") }
+    for down in [true, false] {
+        let escape = CGEvent(keyboardEventSource: nil, virtualKey: 53, keyDown: down)
+        escape?.flags = []
+        escape?.post(tap: .cghidEventTap)
+    }
+    Thread.sleep(forTimeInterval: 0.1)
+    guard let groupBounds = frame(groups[0]) else { fail("No menu bar bounds") }
+    // Start and finish native menu tracking with pointer events. AXPress can
+    // expose a menu tree without committing the subsequent selected action.
+    let barPoint = CGPoint(x: groupBounds.midX, y: groupBounds.midY)
+    for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+        guard let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: barPoint, mouseButton: .left) else { fail("Cannot open the menu bar item") }
+        event.flags = []
+        event.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.04)
+    }
     Thread.sleep(forTimeInterval: 0.2)
     var pending = attribute(groups[0], "AXChildren") as? [AXUIElement] ?? []
     var items: [AXUIElement] = []

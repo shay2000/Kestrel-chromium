@@ -815,8 +815,14 @@ final class TabStore: ObservableObject {
 
     @discardableResult
     func openChromiumPage(_ address: String) -> UUID? {
-        guard let url = URLNormalisation.chromiumInternalURL(from: address) else { return nil }
-        return newTab(urlString: url.absoluteString)
+        let before = tabs.count
+        let url = URLNormalisation.chromiumInternalURL(from: address)
+        let id = url.map { newTab(urlString: $0.absoluteString) }
+        if CommandLine.arguments.contains("--kestrel-desktop-audit") {
+            let line = "KESTREL_DESKTOP internalPage valid=\(url != nil) before=\(before) after=\(tabs.count) accepting=\(CefRuntime.shared.isAcceptingBrowsers)\n"
+            try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
+        }
+        return id
     }
 
     @discardableResult
