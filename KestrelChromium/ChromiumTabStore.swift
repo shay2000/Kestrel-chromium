@@ -772,7 +772,7 @@ final class TabStore: ObservableObject {
     /// Opens Chromium's built-in manager for the installed extensions.
     @discardableResult
     func openChromiumExtensions() {
-        _ = openChromiumPage("chrome://extensions")
+        openChromiumPage("chrome://extensions")
     }
 
     func canShowExtensionActions(for id: UUID) -> Bool {
@@ -813,16 +813,25 @@ final class TabStore: ObservableObject {
         }
     }
 
-    @discardableResult
-    func openChromiumPage(_ address: String) -> UUID? {
-        let before = tabs.count
-        let url = URLNormalisation.chromiumInternalURL(from: address)
-        let id = url.map { newTab(urlString: $0.absoluteString) }
+    func openChromiumPage(_ address: String) {
+        guard let url = URLNormalisation.chromiumInternalURL(from: address) else { return }
         if CommandLine.arguments.contains("--kestrel-desktop-audit") {
-            let line = "KESTREL_DESKTOP internalPage valid=\(url != nil) before=\(before) after=\(tabs.count) accepting=\(CefRuntime.shared.isAcceptingBrowsers)\n"
+            let line = "KESTREL_DESKTOP internalPage received host=\(url.host ?? "nil") mode=\(RunLoop.current.currentMode?.rawValue ?? "nil") tabs=\(tabs.count)\n"
             try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
         }
-        return id
+        // CEF creates a native top-level view for a new page. Do that after
+        // AppKit finishes menu tracking, rather than inside the menu callback.
+        RunLoop.main.perform(inModes: [.default]) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let before = self.tabs.count
+                _ = self.newTab(urlString: url.absoluteString)
+                if CommandLine.arguments.contains("--kestrel-desktop-audit") {
+                    let line = "KESTREL_DESKTOP internalPage applied before=\(before) after=\(self.tabs.count)\n"
+                    try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
+                }
+            }
+        }
     }
 
     @discardableResult

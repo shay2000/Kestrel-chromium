@@ -28,6 +28,10 @@ struct KestrelChromiumApp: CefSwiftApp {
     init() {
         CefScriptRunner.shared.installBridge()
         CefPasskeyHandoff.shared.installBridge()
+        let importedLegacyChats = LegacyAssistantArchiveMigration.importIfNeeded(
+            defaults: .standard,
+            from: LegacyAssistantArchiveMigration.preferencesURL(accountHome: FileManager.default.homeDirectoryForCurrentUser)
+        )
         let settings = AppSettings()
         settings.seedDefaultBookmarksIfNeeded()
         let tabs = TabStore(
@@ -58,7 +62,7 @@ struct KestrelChromiumApp: CefSwiftApp {
             let domain = Bundle.main.bundleIdentifier ?? "com.shayprasad.Kestrel"
             let data = UserDefaults.standard.data(forKey: "kestrel.assistant.conversations.v1")
             let decoded = data.flatMap { try? JSONDecoder().decode([AssistantConversation].self, from: $0) }
-            let line = "KESTREL_DESKTOP archive settings=\(settings.assistantConversations.count) chat=\(chat.savedConversations.count) domain=\(decoded?.count ?? -1) bytes=\(data?.count ?? 0) bundle=\(Bundle.main.bundleIdentifier ?? "nil") home=\(NSHomeDirectory()) keys=\(UserDefaults.standard.dictionaryRepresentation().keys.filter { $0.hasPrefix("kestrel.") }.count)\n"
+            let line = "KESTREL_DESKTOP archive settings=\(settings.assistantConversations.count) chat=\(chat.savedConversations.count) domain=\(decoded?.count ?? -1) bytes=\(data?.count ?? 0) bundle=\(Bundle.main.bundleIdentifier ?? "nil") home=\(NSHomeDirectory()) keys=\(UserDefaults.standard.dictionaryRepresentation().keys.filter { $0.hasPrefix("kestrel.") }.count) migrated=\(importedLegacyChats)\n"
             try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
             var eventCount = 0
             _ = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown]) { event in

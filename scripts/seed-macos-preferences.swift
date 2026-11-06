@@ -4,6 +4,12 @@ import Foundation
 guard [3, 4].contains(CommandLine.arguments.count),
       let defaults = UserDefaults(suiteName: CommandLine.arguments[1]) else { exit(2) }
 if CommandLine.arguments.count == 4 {
+    if CommandLine.arguments[2] == "--remove",
+       CommandLine.arguments[3] == "kestrel.assistant.conversations.v1" {
+        defaults.removeObject(forKey: CommandLine.arguments[3])
+        guard defaults.synchronize() else { exit(1) }
+        exit(0)
+    }
     guard CommandLine.arguments[2] == "--export" else { exit(2) }
     let values = defaults.dictionaryRepresentation().filter { $0.key.hasPrefix("kestrel.") }
     let data = try PropertyListSerialization.data(fromPropertyList: values, format: .xml, options: 0)

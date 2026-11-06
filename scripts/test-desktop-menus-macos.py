@@ -17,6 +17,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 events = []
 errors = []
 PID = None
+EXPECT_LEGACY_MIGRATION = ENGINE == "chromium" and os.environ.get("CI") == "true"
 
 
 def command(argv, timeout=30):
@@ -155,18 +156,33 @@ def seed_grouped_chats():
         }).encode(),
     }
     fixture = OUT / "synthetic-menu-preferences.plist"
-    fixture.write_bytes(plistlib.dumps(preferences))
     bundle_id = command(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleIdentifier", str(APP / "Contents/Info.plist")])
     if ENGINE == "chromium":
+        if EXPECT_LEGACY_MIGRATION:
+            # Disposable CI only: simulate upgrading from the signed,
+            # sandboxed WebKit release while the new archive is absent.
+            legacy = pathlib.Path.home() / "Library/Containers" / bundle_id / "Data/Library/Preferences" / (bundle_id + ".plist")
+            legacy.parent.mkdir(parents=True, exist_ok=True)
+            assert not legacy.is_symlink(), "refuse a linked migration fixture"
+            existing = plistlib.loads(legacy.read_bytes()) if legacy.exists() else {}
+            existing["kestrel.assistant.conversations.v1"] = preferences.pop("kestrel.assistant.conversations.v1")
+            temporary = legacy.with_suffix(".migration-fixture.plist")
+            temporary.write_bytes(plistlib.dumps(existing))
+            temporary.replace(legacy)
+            command(["swift", str(ROOT / "seed-macos-preferences.swift"), bundle_id, "--remove", "kestrel.assistant.conversations.v1"])
+            record("legacy_container_fixture", stored=len(conversations), path=str(legacy))
+        fixture.write_bytes(plistlib.dumps(preferences))
         command(["swift", str(ROOT / "seed-macos-preferences.swift"), bundle_id, str(fixture)])
     else:
+        fixture.write_bytes(plistlib.dumps(preferences))
         command(["defaults", "import", bundle_id, str(fixture)])
     exported = OUT / "seeded-preferences.plist"
     export_preferences(bundle_id, exported)
     seeded = plistlib.loads(exported.read_bytes()).get("kestrel.assistant.conversations.v1")
     count = len(json.loads(seeded)) if isinstance(seeded, bytes) else 0
-    record("chat_fixture_seeded", bundle_id=bundle_id, expected=12, stored=count)
-    check(count == 12, "synthetic chat fixture was written to the app defaults domain", bundle_id=bundle_id, stored=count)
+    expected = 0 if EXPECT_LEGACY_MIGRATION else 12
+    record("chat_fixture_seeded", bundle_id=bundle_id, expected=expected, stored=count, requires_legacy_migration=EXPECT_LEGACY_MIGRATION)
+    check(count == expected, "synthetic archive precondition matches the tested profile", bundle_id=bundle_id, stored=count)
     return bundle_id
 
 
@@ -219,6 +235,8 @@ def main():
     stored_count = len(json.loads(stored)) if isinstance(stored, bytes) else 0
     record("chat_fixture_after_launch", expected=12, stored=stored_count)
     check(stored_count == 12, "Chromium retains the seeded chat archive after launch", bundle_id=bundle_id, stored=stored_count)
+    if EXPECT_LEGACY_MIGRATION:
+        check("migrated=true" in (OUT / "runtime.log").read_text(), "Chromium imported the legacy sandbox archive at startup")
     common = ["Tabs", "Navigate", "Assistant", "Chats"]
     for label in common:
         check(label in top, f"{label} menu exists", menu_bar=top)

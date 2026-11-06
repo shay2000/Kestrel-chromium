@@ -91,8 +91,8 @@ struct AddressTextField: NSViewRepresentable {
                     }
                 }
             } else if !coordinator.parent.isFocused, let editor = field.currentEditor(), window.firstResponder === editor {
-                // Restore the document's responder chain after Escape. A nil
-                // responder leaves SwiftUI commands without their hosting view.
+                // Let the document host accept focus when possible, without
+                // clearing a new responder after this editor has lost focus.
                 if let root = window.contentView, root.acceptsFirstResponder {
                     window.makeFirstResponder(root)
                 } else {

@@ -161,13 +161,13 @@ struct KestrelCommands: Commands {
 
         CommandMenu("Chromium") {
             Button("Site Permissions & Browser Settings…") {
-                _ = tabs.openChromiumPage("chrome://settings/content")
+                tabs.openChromiumPage("chrome://settings/content")
             }
             Button("Browsing History…") {
-                _ = tabs.openChromiumPage("chrome://history")
+                tabs.openChromiumPage("chrome://history")
             }
             Button("Downloads…") {
-                _ = tabs.openChromiumPage("chrome://downloads")
+                tabs.openChromiumPage("chrome://downloads")
             }
         }
 
