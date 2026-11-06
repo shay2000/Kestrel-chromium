@@ -70,18 +70,35 @@ if ["native-key", "native-keycode"].contains(arguments[2]) {
     FileHandle.standardOutput.write(Data("{\"native\":true}".utf8))
     exit(0)
 }
+func cancelTrackedMenus() {
+    guard let rawBar = attribute(app, "AXMenuBar") else { return }
+    let bar = unsafeBitCast(rawBar, to: AXUIElement.self)
+    var pending = attribute(bar, "AXChildren") as? [AXUIElement] ?? []
+    var menus: [AXUIElement] = []
+    var examined = 0
+    while !pending.isEmpty, examined < 1000 {
+        let node = pending.removeFirst()
+        examined += 1
+        if text(node, "AXRole") == "AXMenu" { menus.append(node) }
+        pending += attribute(node, "AXChildren") as? [AXUIElement] ?? []
+    }
+    // AX opening creates a nested tracking session; a posted Escape can leave
+    // it alive. Cancel the actual menus, deepest first, before another click.
+    for menu in menus.reversed() { _ = AXUIElementPerformAction(menu, "AXCancel" as CFString) }
+    Thread.sleep(forTimeInterval: 0.15)
+}
+if arguments[2] == "menu_cancel" {
+    cancelTrackedMenus()
+    FileHandle.standardOutput.write(Data("{\"cancelled\":true}".utf8))
+    exit(0)
+}
 if arguments[2] == "menu_select" {
     guard arguments.count == 4 else { fail("A menu and item title are required") }
     let titles = arguments[3].split(separator: "|", maxSplits: 1).map(String.init)
     guard titles.count == 2 else { fail("Invalid menu selection") }
     NSRunningApplication(processIdentifier: pid)?.activate(options: [])
     Thread.sleep(forTimeInterval: 0.15)
-    for down in [true, false] {
-        let escape = CGEvent(keyboardEventSource: nil, virtualKey: 53, keyDown: down)
-        escape?.flags = []
-        escape?.post(tap: .cghidEventTap)
-    }
-    Thread.sleep(forTimeInterval: 0.1)
+    cancelTrackedMenus()
     guard let rawBar = attribute(app, "AXMenuBar") else { fail("No menu bar") }
     let bar = unsafeBitCast(rawBar, to: AXUIElement.self)
     let groups = (attribute(bar, "AXChildren") as? [AXUIElement] ?? []).filter { text($0, "AXTitle") == titles[0] }
@@ -124,6 +141,19 @@ if arguments[2] == "menu_select" {
     var rawActions: CFArray?
     guard AXUIElementCopyActionNames(items[0], &rawActions) == .success else { fail("Cannot inspect menu item actions") }
     let actions = rawActions as? [String] ?? []
+    // Hidden NSMenu items still expose default AX frames at the bottom-left
+    // of the screen. Never click those or count that as a user selection.
+    var visibleFrame: CGRect?
+    for _ in 0..<20 {
+        if let candidate = menuFrame(items[0]),
+           candidate.minX >= groupPoint.x - 100, candidate.minX <= groupPoint.x + 100,
+           candidate.minY > groupPoint.y, candidate.maxY < CGDisplayBounds(CGMainDisplayID()).maxY - 40 {
+            visibleFrame = candidate
+            break
+        }
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+    guard visibleFrame != nil else { fail("The native menu did not expose a visible item beneath its heading") }
     let itemPoint = clickMenu(items[0])
     Thread.sleep(forTimeInterval: 0.35)
     FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: [

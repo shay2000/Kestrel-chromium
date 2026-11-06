@@ -75,6 +75,7 @@ encodedRows'''
             image_name += "-" + submenu.lower().replace(" ", "-").replace("–", "-")
         subprocess.run(["screencapture", "-x", str(OUT / (image_name + ".png"))], check=True)
         raw = ui(body)
+        command([str(OUT / "macos-accessibility"), str(PID), "menu_cancel"])
     except Exception:
         subprocess.run(["osascript", "-e", 'tell application "System Events" to key code 53'], check=False)
         raise

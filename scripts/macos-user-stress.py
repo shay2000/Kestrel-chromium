@@ -112,6 +112,7 @@ end repeat
 key code 53
 encodedRows'''
     raw = ui(body)
+    command([str(AX_CLIENT), PID, "menu_cancel"])
     rows = []
     for entry in raw.split("\x1e"):
         if not entry:
