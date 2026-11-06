@@ -83,6 +83,8 @@ final class TabStore: ObservableObject {
     private var browserStores: [UUID: BrowserStore] = [:]
     private var webViews: [UUID: CefWebViewModel] = [:]
     private var chromeBrowsers: [UUID: CefChromeBrowser] = [:]
+    private var creatingChromePageIDs = Set<UUID>()
+    private var deferredChromeHostIDs = Set<UUID>()
     private var extensionActionRequest = UUID()
     private var pendingPageCloses: [UUID: () -> Void] = [:]
     private var browserDelegates: [UUID: CefBrowserDelegateProxy] = [:]
@@ -697,6 +699,25 @@ final class TabStore: ObservableObject {
         if let existing = chromeBrowsers[id], existing.isWindowAlive { return existing }
         guard CefRuntime.shared.isAcceptingBrowsers,
               collection.tabs.contains(where: { $0.id == id }), pendingPageCloses[id] == nil else { return nil }
+        // Native CEF creation can service AppKit/SwiftUI reentrantly before it
+        // returns. Reserve the tab before that call so another host cannot
+        // create a second browser and overwrite the model's browser registry.
+        guard creatingChromePageIDs.insert(id).inserted else {
+            deferredChromeHostIDs.insert(id)
+            if CommandLine.arguments.contains("--kestrel-desktop-audit") {
+                try? FileHandle.standardError.write(contentsOf: Data("KESTREL_DESKTOP chromeCreate deferred tab=\(id)\n".utf8))
+            }
+            return nil
+        }
+        defer {
+            creatingChromePageIDs.remove(id)
+            // A reentrant SwiftUI task received nil. Retry it only after the
+            // reserved browser is published, without replacing that browser.
+            if deferredChromeHostIDs.remove(id) != nil, chromeBrowsers[id]?.isWindowAlive == true,
+               collection.tabs.contains(where: { $0.id == id }) {
+                advancePageGeneration(for: id)
+            }
+        }
         let model = webView(for: id)
         if CommandLine.arguments.contains("--kestrel-desktop-audit") {
             let trace = "KESTREL_DESKTOP chromeCreate begin tab=\(id) model=\(ObjectIdentifier(model)) tabs=\(tabs.count) existing=\(chromeBrowsers.count)\n"
@@ -712,6 +733,14 @@ final class TabStore: ObservableObject {
         options.initialBounds = CGRect(x: -4096, y: -4096, width: 800, height: 600)
         let initialURL = model.url ?? URL(string: "about:blank")!
         let chrome = CefChromeBrowser.create(url: initialURL, options: options, delegate: model)
+        // The user can close the tab or quit in the nested AppKit loop. Do
+        // not publish an orphan page into a removed/replaced model.
+        guard CefRuntime.shared.isAcceptingBrowsers,
+              collection.tabs.contains(where: { $0.id == id }), webViews[id] === model else {
+            chrome.hide()
+            DispatchQueue.main.async { chrome.close() }
+            return nil
+        }
         model.kestrelAttach(chrome.browser)
         let delegate = CefBrowserDelegateProxy(model: model, store: browser(for: id), tabs: self)
         chrome.browser.delegate = delegate
