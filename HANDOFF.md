@@ -1,5 +1,11 @@
 # Current implementation handoff
 
+## Desktop parity follow-up — 6 November 2026
+
+The active review branch fixes blank split pages during CEF host transfer, Command-arrow history conflicts, native address refocus and renderer-consumed Command-Q. The native editor stays mounted beneath the existing formatted URL, preserving the toolbar appearance. Root SwiftPM resource discovery and native test discovery are repaired. The signed WebKit release's App Sandbox also explains a real upgrade boundary: a bounded startup migration now copies saved chats from that legacy container only when the current archive is absent, preserving current/deleted chats and the old file.
+
+Current source **`0ab4e61dd99b0d4a557f0b71bde646375cd3001f`** also reserves each tab across reentrant native creation and rejects pages for a closed/replaced tab or quitting app. The full suite passes **590 tests, five skips, zero failures**. [Focused Mac run 42242594620](https://github.com/shay2000/Kestrel-chromium/actions/runs/42242594620) passes 38 Chromium/30 WebKit menu checks, actual legacy-container import and both advanced cycles with no input mismatches and native quit. Direct renderer readback confirms exactly the expected B/A documents and headings before/after narrowing; whole 780×620 captures were inspected against shipped WebKit 1.0.0, including sidebar and traffic lights. [Full native run 42242594639](https://github.com/shay2000/Kestrel-chromium/actions/runs/42242594639) **passes every step**, including 17 native focus/window assertions, seven CRX/11 lifecycle cases, Store installs/restart, a fresh genuine extension popup retaining the selected tab, popup-open Command-Q, both complete desktop workflows and clean app/DMG/signatures. [Review DMG/checksum](https://github.com/shay2000/Kestrel-chromium/actions/runs/42242594639/artifacts/13518745146) (expires 6 December; retains version 1.0.2, ad-hoc/non-notarised). The full-run captures were inspected. [Implementation and complete retest log](docs/DESKTOP_PARITY_FIXES_2026-11-06.md). This review work does not change `main` or the published 1.0.2 DMG. Physical QR and Apple's accepted-browser identity remain the existing external gates.
+
 ## Chromium application port and release handoff — 5 November 2026
 
 ### Current state

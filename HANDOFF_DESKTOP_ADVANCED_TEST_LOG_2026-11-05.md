@@ -2,6 +2,8 @@
 
 This is a test-only comparison of the Chromium build against the original Kestrel WebKit 1.0.0 release. No application fixes are included.
 
+The subsequent [implementation and retest record](docs/DESKTOP_PARITY_FIXES_2026-11-06.md) tracks fixes and corrections to test setup. The findings below describe the original audit; they are not the current acceptance status.
+
 ## Scope and runner
 
 - Chromium source under test: `757a17f779ea6dfe01527500c1189e4cebaedc09` (published 1.0.2 preview).

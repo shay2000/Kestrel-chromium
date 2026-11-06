@@ -6,7 +6,7 @@ The app carries over Kestrel's SwiftUI browser, tabs and split view, assistant a
 
 CRX3 imports verify RSA/SHA-256 or ECDSA/P-256 signatures and preserve the signed developer extension ID when Chromium loads the extracted package. Conflicting manifest keys, tampered packages and legacy CRX2 files are rejected. ZIP and folder imports have no verified package signature. This verification does not prove Chrome Web Store provenance or broad API compatibility.
 
-The Chromium build keeps its own browser profile. Cookies and history from a WebKit build are not migrated. Assistant and app settings continue to use Kestrel's existing local settings and Keychain stores.
+The Chromium build keeps its own browser profile. Cookies and history from a WebKit build are not migrated. Saved chats are imported from the older WebKit sandbox only when the current archive is absent; existing or deliberately empty archives are preserved. Other current settings and Keychain stores retain their values.
 
 On first launch, Kestrel seeds YouTube, Gmail, Google Drive, X, Reddit, and OneDrive into both the bookmarks and the pinned site tiles above the tab list. Existing bookmark lists and pinned sites, including deliberately empty lists, are kept as they are.
 
@@ -19,6 +19,8 @@ The **1.0.2 extension preview** adds genuine installed actions to Kestrel's Exte
 The release retains the unified document focus, first-click/address controls and toolbar/page join, with the observed WebKit canvas presentation. Apple silicon, macOS 14+ deployment target, **ad-hoc signed and not notarised**. [Release provenance](docs/CHROMIUM_1_0_2_RELEASE_2026-11-05.md) records the tested DMG and uploaded-asset hashes.
 
 ## Port status
+
+The review branch also contains [desktop parity fixes](docs/DESKTOP_PARITY_FIXES_2026-11-06.md) for split-page ownership, reentrant native creation, Command-arrow shortcuts, native address focus and clean Command-Q, plus saved-chat upgrade migration. Native testing passes 590 tests (five skips), the actual migration, both engines' menu/advanced workflows and direct split-document checks. Fully framed narrow captures were inspected against shipped WebKit 1.0.0. [Full Mac acceptance 42242594639](https://github.com/shay2000/Kestrel-chromium/actions/runs/42242594639) passes at `0ab4e61dd99b0d4a557f0b71bde646375cd3001f`, including native Store/actions, fresh popup-open quit and clean app/DMG/signatures. [Review DMG/checksum](https://github.com/shay2000/Kestrel-chromium/actions/runs/42242594639/artifacts/13518745146) (expires 6 December; retains version 1.0.2). These changes are separate from the published 1.0.2 DMG below.
 
 [Native Mac run 42085793532](https://github.com/shay2000/Kestrel-chromium/actions/runs/42085793532), source `757a17f779ea6dfe01527500c1189e4cebaedc09`, passed all 17 real focus/toolbar/network assertions, native overlay/window-order checks, seven CRX cases, 11 CEF lifecycle/ownership cases, browser/MV3/selection smoke, cancellable/rapid/last-page closure, Store installs/options/restart, genuine extension action/setup/restart/popup-quit acceptance, WebKit comparison and clean DMG/signatures. Screenshots were inspected. [Publication 42087963304](https://github.com/shay2000/Kestrel-chromium/actions/runs/42087963304) verifies and promotes those bytes without rebuilding.
 
