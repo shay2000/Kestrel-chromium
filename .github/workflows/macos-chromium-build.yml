@@ -56,6 +56,14 @@ jobs:
         run: ./build.sh release 2>&1 | tee "$RUNNER_TEMP/kestrel-chromium-build.log"
         shell: bash
 
+      - name: Run the complete Kestrel SwiftPM regression suite
+        id: native-tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          swift test --parallel 2>&1 | tee "$RUNNER_TEMP/kestrel-native-tests.log"
+
       - name: Cache the successfully compiled app dependencies
         if: steps.swift-build-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -202,6 +210,54 @@ jobs:
           "$RUNNER_TEMP/kestrel-chromium-runtime-smoke/after-url-open.png"
         shell: bash
 
+      - name: Compare desktop menus and advanced workflows with WebKit
+        if: always() && steps.webkit-release.outcome == 'success'
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          set +e
+          ROOT="$RUNNER_TEMP/kestrel-chromium-runtime-smoke/desktop-comparison"
+          CHROMIUM_APP="$GITHUB_WORKSPACE/build/Kestrel.app"
+          WEBKIT_APP="$RUNNER_TEMP/kestrel-webkit-release/Kestrel.app"
+          mkdir -p "$ROOT"
+
+          pkill -TERM -x Kestrel 2>/dev/null || true
+          KESTREL_MENU_TEST_APP="$CHROMIUM_APP" \
+            KESTREL_MENU_TEST_OUT="$ROOT/chromium-menu" \
+            KESTREL_MENU_TEST_ENGINE=chromium \
+            python3 scripts/test-desktop-menus-macos.py
+          CHROMIUM_MENU_STATUS=$?
+          pkill -TERM -x Kestrel 2>/dev/null || true
+          KESTREL_STRESS_APP="$CHROMIUM_APP" \
+            KESTREL_STRESS_OUT="$ROOT/chromium-workflows" \
+            KESTREL_STRESS_ENGINE=chromium \
+            KESTREL_STRESS_CYCLES=1 \
+            KESTREL_STRESS_SKIP_CLOSE_TAB=1 \
+            python3 scripts/macos-user-stress.py
+          CHROMIUM_STRESS_STATUS=$?
+
+          pkill -TERM -x Kestrel 2>/dev/null || true
+          KESTREL_MENU_TEST_APP="$WEBKIT_APP" \
+            KESTREL_MENU_TEST_OUT="$ROOT/webkit-menu" \
+            KESTREL_MENU_TEST_ENGINE=webkit \
+            python3 scripts/test-desktop-menus-macos.py
+          WEBKIT_MENU_STATUS=$?
+          pkill -TERM -x Kestrel 2>/dev/null || true
+          KESTREL_STRESS_APP="$WEBKIT_APP" \
+            KESTREL_STRESS_OUT="$ROOT/webkit-workflows" \
+            KESTREL_STRESS_ENGINE=webkit \
+            KESTREL_STRESS_CYCLES=1 \
+            KESTREL_STRESS_SKIP_CLOSE_TAB=1 \
+            python3 scripts/macos-user-stress.py
+          WEBKIT_STRESS_STATUS=$?
+
+          printf 'Chromium menus=%s workflows=%s; WebKit menus=%s workflows=%s\n' \
+            "$CHROMIUM_MENU_STATUS" "$CHROMIUM_STRESS_STATUS" "$WEBKIT_MENU_STATUS" "$WEBKIT_STRESS_STATUS"
+          if [[ "$CHROMIUM_MENU_STATUS" -ne 0 || "$CHROMIUM_STRESS_STATUS" -ne 0 || \
+                "$WEBKIT_MENU_STATUS" -ne 0 || "$WEBKIT_STRESS_STATUS" -ne 0 ]]; then
+            exit 1
+          fi
+
       - name: Remove the smoke fixture and prepare clean distribution files
         run: |
           defaults delete com.shayprasad.Kestrel kestrel.chromium.approved-extension-paths.v1 2>/dev/null || true
@@ -317,3 +373,28 @@ jobs:
             ${{ runner.temp }}/kestrel-local-fixtures.log
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Upload native regression results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-native-regression-tests
+          path: ${{ runner.temp }}/kestrel-native-tests.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload desktop and advanced workflow comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kestrel-desktop-webkit-comparison
+          path: ${{ runner.temp }}/kestrel-chromium-runtime-smoke/desktop-comparison
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Report native regression suite failure after desktop checks
+        if: always() && steps.native-tests.outcome == 'failure'
+        shell: bash
+        run: |
+          echo 'The complete Kestrel SwiftPM regression suite failed; its log and the desktop comparison artifacts were retained.' >&2
+          exit 1
