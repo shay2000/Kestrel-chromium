@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import Vision
 
 typealias ActionProbe = ChromeWebStoreAcceptance
 
@@ -37,6 +38,26 @@ struct NativeExtensionActionAcceptance {
             let event=CGEvent(mouseEventSource:nil,mouseType:kind,mouseCursorPosition:CGPoint(x:bounds.midX,y:bounds.midY),mouseButton:.left)
             event?.flags=[];event?.post(tap:.cghidEventTap);await ActionProbe.pause(0.04)
         }
+    }
+    static func extensionOptionsPoint() async throws -> CGPoint {
+        let url = ActionProbe.output.appendingPathComponent("visible-extension-options.png")
+        for _ in 0..<10 {
+            try ActionProbe.command("/usr/sbin/screencapture", ["-x", url.path])
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            try VNImageRequestHandler(url: url).perform([request])
+            let matches = try (request.results ?? []).compactMap { observation -> CGRect? in
+                guard let text = observation.topCandidates(1).first,
+                      let range = text.string.range(of: "Extension Options") else { return nil }
+                return try text.boundingBox(for: range)?.boundingBox
+            }
+            if matches.count == 1, let box = matches.first {
+                let screen = CGDisplayBounds(CGMainDisplayID())
+                return CGPoint(x: screen.width * box.midX, y: screen.height * (1 - box.midY))
+            }
+            await ActionProbe.pause(0.3)
+        }
+        throw StoreProbeError(message: "The genuine extension popup never visibly rendered its options link")
     }
     static func key(_ code:CGKeyCode,_ flags:CGEventFlags=[]) {
         for down in [true,false] {let event=CGEvent(keyboardEventSource:nil,virtualKey:code,keyDown:down);event?.flags=flags;event?.post(tap:.cghidEventTap)}
@@ -154,13 +175,18 @@ struct NativeExtensionActionAcceptance {
                   popupState["extensionID"] as? String == item.id,
                   let activeTabs=popupState["tabs"] as? [[String:Any]],activeTabs.count==1,
                   activeTabs[0]["url"] as? String == "https://example.com/" else {throw StoreProbeError(message:"The genuine popup did not retain the selected Kestrel tab")}
+            _ = try await extensionOptionsPoint()
             describeButtons("popup-settled");try preview("native-action-popup-settled")
             try ActionProbe.dumpAX("native-action-popup-settled.json")
             key(53);await ActionProbe.pause(0.5)
             try await click("Open Google Translate extension")
             await ActionProbe.pause(2)
+            let optionsPoint = try await extensionOptionsPoint()
             describeButtons("sidebar-action");try preview("native-sidebar-action-popup")
-            try await click("Extension Options",role:"AXLink")
+            for kind in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+                let event = CGEvent(mouseEventSource:nil, mouseType:kind, mouseCursorPosition:optionsPoint, mouseButton:.left)
+                event?.flags=[]; event?.post(tap:.cghidEventTap); await ActionProbe.pause(0.04)
+            }
             _ = try await ActionProbe.target(matching:"chrome-extension://\(item.id)/options.html")
             try await ActionProbe.inspectWindowSurfaces(stage:"genuine-extension-options")
             let profile=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/com.shayprasad.Kestrel/CefSwift/Default")
@@ -182,6 +208,7 @@ struct NativeExtensionActionAcceptance {
             let menuPopup = try await ActionProbe.target(matching: "chrome-extension://\(item.id)/popup.html")
             let menuContext = try await ActionProbe.evaluate(menuPopup, "chrome.runtime.id")
             guard menuContext as? String == item.id else { throw StoreProbeError(message: "Kestrel's menu command did not open the real extension action") }
+            _ = try await extensionOptionsPoint()
             try preview("native-macos-menu-action")
             key(53);await ActionProbe.pause(0.3)
             try await settingsSidebar(false)
@@ -211,15 +238,22 @@ struct NativeExtensionActionAcceptance {
                   state["extensionID"] as? String == item.id,
                   let tabs = state["tabs"] as? [[String:Any]], tabs.count == 1,
                   tabs[0]["url"] as? String == "https://example.org/" else { throw StoreProbeError(message: "Cold extension action lost the selected Kestrel tab") }
+            _ = try await extensionOptionsPoint()
             try preview("native-cold-extension-popup")
             try await ActionProbe.inspectWindowSurfaces(stage:"cold-native-actions")
+            guard let running = NSRunningApplication(processIdentifier: ActionProbe.testedPID!), running.terminate() else {
+                throw StoreProbeError(message: "Could not quit Kestrel with the extension popup open")
+            }
+            for _ in 0..<30 where !running.isTerminated { await ActionProbe.pause(0.2) }
+            guard running.isTerminated else { throw StoreProbeError(message: "Kestrel did not finish quitting with the popup open") }
+            await ActionProbe.pause(2)
             guard !ActionProbe.collectCrashReports() else {throw StoreProbeError(message:"The native action flow crashed")}
             try ActionProbe.save("result.json",["passed":true,"menuPress":menuResult.rawValue,"actionPress":actionResult.rawValue,"freshLaunchWithoutForcedAccessibility":true])
             print("Genuine native extension actions, placement settings and cold restart passed inside Kestrel.")
         } catch {
             try? preview("failure");try? ActionProbe.dumpAX("failure.json")
             key(36);await ActionProbe.pause(0.4)
-            if let current=try? await ActionProbe.targets().first(where:{$0["type"] as? String == "page" && ($0["url"] as? String)?.hasPrefix("https://example.org") == true}) {
+            if let current=try? await ActionProbe.targets().first(where:{$0["type"] as? String == "page" && ($0["url"] as? String)?.hasPrefix("https://example.") == true}) {
                 _ = try? await ActionProbe.cdp(current,"Page.navigate",["url":"chrome://version/"])
                 await ActionProbe.pause(1)
                 let state=try? await ActionProbe.evaluate(current,"({force:document.getElementById('command_line')?.innerText.includes('force-renderer-accessibility'),profile:document.getElementById('profile_path')?.innerText})")
